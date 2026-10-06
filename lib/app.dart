@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'app_shell.dart';
 import 'core/theme/app_theme.dart';
-import 'features/settings/design_preview_screen.dart';
 import 'features/settings/settings_controller.dart';
 
 class ExaltedApp extends ConsumerWidget {
@@ -16,7 +16,7 @@ class ExaltedApp extends ConsumerWidget {
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: mode,
-      home: const DesignPreviewScreen(),
+      home: const AppShell(),
     );
   }
 }
