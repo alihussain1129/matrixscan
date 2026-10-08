@@ -394,7 +394,7 @@ BitMatrix createCompleteSymbol(
                 symbol.set(
                     originX + regionWidth + 1,
                     originY + y,
-                    (y % 2) == 0
+                    (y % 2) == 1
                 );
             }
 

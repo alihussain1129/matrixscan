@@ -1482,7 +1482,7 @@ BitMatrix DataMatrixEncoder::buildSymbolMatrix(
                 symbol.set(
                     symbolOriginX + regionWidth + 1,
                     symbolOriginY + y,
-                    (y % 2) == 0
+                    (y % 2) == 1
                 );
             }
         }
