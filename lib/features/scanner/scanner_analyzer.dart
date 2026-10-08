@@ -61,7 +61,7 @@ class ScannerAnalyzer implements FrameAnalyzer {
 
   // Decode passes, one per analyzed frame. Flags: 2 = invert, 4 = no rotate,
   // 8 = no downscale, 16 = global histogram. 0 = full search (old behavior).
-  static const List<int> _passCycle = [16, 30, 16, 18, 16, 0];
+  static const List<int> _passCycle = [24, 16, 24, 26, 24, 8];
   final Map<int, int> _passN = {};
   final Map<int, int> _passUs = {};
   final Map<int, int> _passHits = {};
