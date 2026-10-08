@@ -2,18 +2,44 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <cstring>
+#include <exception>
+#include <string>
+
+#include "ReadBarcode.h"
 
 namespace
 {
 std::atomic<int32_t> g_callCount{0};
+
+ZXing::BarcodeFormats toFormats(int32_t mask)
+{
+    if (mask == 0)
+    {
+        return ZXing::BarcodeFormat::Any;
+    }
+
+    ZXing::BarcodeFormats formats;
+
+    for (int bit = 0; bit < 20; ++bit)
+    {
+        if ((mask & (1 << bit)) != 0)
+        {
+            formats |= static_cast<ZXing::BarcodeFormat>(1 << bit);
+        }
+    }
+
+    return formats;
 }
+} // namespace
 
 extern "C"
 {
 
 int32_t exalted_api_version(void)
 {
-    return 1;
+    return 2;
 }
 
 int32_t exalted_probe(
@@ -50,7 +76,7 @@ int32_t exalted_probe(
         }
     }
 
-    out[0] = 1;
+    out[0] = 2;
     out[1] = width;
     out[2] = height;
     out[3] = rowStride;
@@ -60,6 +86,82 @@ int32_t exalted_probe(
     out[7] = maxV;
     out[8] = ++g_callCount;
     return 0;
+}
+
+int32_t exalted_decode(
+    const uint8_t* luma, int32_t lumaLen,
+    int32_t width, int32_t height, int32_t rowStride,
+    int32_t formatsMask, int32_t tryHarder,
+    int32_t* info, int32_t infoLen,
+    uint8_t* textOut, int32_t textCap)
+{
+    if (luma == nullptr || info == nullptr || textOut == nullptr) return -1;
+    if (infoLen < EXALTED_DECODE_INFO_LEN || textCap <= 0) return -1;
+    if (width <= 0 || height <= 0 || rowStride < width) return -2;
+
+    const int64_t needed =
+        static_cast<int64_t>(height - 1) * rowStride + width;
+    if (needed > lumaLen) return -3;
+
+    for (int i = 0; i < EXALTED_DECODE_INFO_LEN; ++i) info[i] = 0;
+
+    try
+    {
+        const auto start = std::chrono::steady_clock::now();
+
+        const ZXing::ImageView image(
+            luma, width, height, ZXing::ImageFormat::Lum, rowStride, 1);
+
+        ZXing::ReaderOptions options;
+        options.setFormats(toFormats(formatsMask));
+        options.setTryRotate(true);
+        options.setTryHarder(tryHarder != 0);
+        options.setTryInvert(tryHarder != 0);
+        options.setTryDownscale(true);
+        options.setMaxNumberOfSymbols(1);
+
+        const ZXing::Barcode barcode = ZXing::ReadBarcode(image, options);
+
+        const auto micros = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - start).count();
+        info[11] = static_cast<int32_t>(micros);
+
+        if (!barcode.isValid())
+        {
+            return 0;
+        }
+
+        const std::string text = barcode.text();
+        info[0] = static_cast<int32_t>(barcode.format());
+        info[1] = static_cast<int32_t>(text.size());
+
+        const auto& pos = barcode.position();
+        info[2] = pos.topLeft().x;
+        info[3] = pos.topLeft().y;
+        info[4] = pos.topRight().x;
+        info[5] = pos.topRight().y;
+        info[6] = pos.bottomRight().x;
+        info[7] = pos.bottomRight().y;
+        info[8] = pos.bottomLeft().x;
+        info[9] = pos.bottomLeft().y;
+        info[10] = 1;
+
+        if (static_cast<int64_t>(text.size()) > textCap)
+        {
+            return -5;
+        }
+
+        std::memcpy(textOut, text.data(), text.size());
+        return 1;
+    }
+    catch (const std::exception&)
+    {
+        return -4;
+    }
+    catch (...)
+    {
+        return -4;
+    }
 }
 
 } // extern "C"

@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -153,6 +153,9 @@ class FramePipeline {
 
   bool get hasAnalyzers => _analyzers.isNotEmpty;
 
+  int _dbgRecv = 0;
+  int _dbgLogMs = 0;
+
   bool get isActive => _active && !_disposed;
 
   bool get isDisposed => _disposed;
@@ -244,6 +247,15 @@ class FramePipeline {
     if (!_active || _disposed) return;
 
     _received++;
+    _dbgRecv++;
+    final dbgNow = _clockMs();
+    if (dbgNow - _dbgLogMs >= 1000) {
+      _dbgLogMs = dbgNow;
+      debugPrint(
+        '[EXALTED][FRAME] total=$_dbgRecv ${width}x$height stride=$yRowStride '
+        'rot=$rotationDegrees analyzers=${_analyzers.length} busy=$_busy',
+      );
+    }
 
     _frameW = width;
     _frameH = height;

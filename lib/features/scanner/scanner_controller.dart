@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:camera/camera.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../ffi/decode_result.dart';
 import 'frame_pipeline.dart';
+import 'scanner_analyzer.dart';
 
 enum CameraStatus {
   idle,
@@ -14,8 +19,6 @@ enum CameraStatus {
   error,
 }
 
-/// Camera quality. Balanced is faster on older phones, High reads small
-/// codes better.
 enum CameraQuality {
   balanced('Balanced', ResolutionPreset.medium),
   high('High', ResolutionPreset.high);
@@ -26,8 +29,10 @@ enum CameraQuality {
   final ResolutionPreset preset;
 }
 
-/// UI state of the scanner. Changes rarely, so rebuilds stay cheap.
-/// Per-frame numbers live in [FramePipeline.stats], not here.
+/// UI state of the scanner.
+///
+/// Per-frame diagnostics live in [FramePipeline.stats], so this state does
+/// not rebuild on every camera frame.
 class ScannerUiState {
   const ScannerUiState({
     this.status = CameraStatus.idle,
@@ -39,6 +44,7 @@ class ScannerUiState {
     this.quality = CameraQuality.high,
     this.errorMessage,
     this.notice,
+    this.result,
   });
 
   final CameraStatus status;
@@ -50,6 +56,7 @@ class ScannerUiState {
   final CameraQuality quality;
   final String? errorMessage;
   final String? notice;
+  final DecodedBarcode? result;
 
   /// True while camera frames are being sent to the frame pipeline.
   bool get streaming => autoScan && !paused;
@@ -67,6 +74,8 @@ class ScannerUiState {
     bool clearError = false,
     String? notice,
     bool clearNotice = false,
+    DecodedBarcode? result,
+    bool clearResult = false,
   }) {
     return ScannerUiState(
       status: status ?? this.status,
@@ -78,57 +87,100 @@ class ScannerUiState {
       quality: quality ?? this.quality,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       notice: clearNotice ? null : (notice ?? this.notice),
+      result: clearResult ? null : (result ?? this.result),
     );
   }
 }
 
 /// Owns the camera: permission, start/stop, flash, focus, pause.
-/// Frames go to [FramePipeline]; this class never analyzes them.
+///
+/// Frames go to [FramePipeline]; this class never analyzes them directly.
 class ScannerController extends Notifier<ScannerUiState> {
   CameraController? _camera;
   List<CameraDescription>? _cameras;
+
   int _rotation = 90;
+
   bool _starting = false;
   bool _wantRunning = false;
+
   bool _syncing = false;
   bool _syncAgain = false;
 
   FramePipeline get _pipeline => ref.read(framePipelineProvider);
 
+  ScannerAnalyzer get _analyzer => ref.read(scannerAnalyzerProvider);
+
+  final Stopwatch _resultClock = Stopwatch()..start();
+
+  String? _lastText;
+  int _lastResultMs = -10000;
+
   @override
   ScannerUiState build() {
+    // The analyzer belongs to the scanner provider graph. Wire its result
+    // callback here so every native decode reaches the controller/UI.
+    _analyzer.onDecoded = _onDecoded;
+
     ref.onDispose(() {
-      _camera?.dispose();
+      _analyzer.onDecoded = null;
+
+      _wantRunning = false;
+
+      final cam = _camera;
+      _camera = null;
+
+      if (cam != null) {
+        unawaited(cam.dispose());
+      }
+
+      _pipeline.stop();
     });
+
     return const ScannerUiState();
   }
 
   // ---- simple toggles ----------------------------------------------------
 
-  void toggleContinuous() =>
-      state = state.copyWith(continuous: !state.continuous);
+  void toggleContinuous() {
+    state = state.copyWith(continuous: !state.continuous);
+  }
 
   Future<void> toggleAuto() async {
     state = state.copyWith(autoScan: !state.autoScan);
     await _syncStream();
   }
 
-  /// Applied the next time the camera starts (it is off while Settings is open).
-  void setQuality(CameraQuality quality) =>
-      state = state.copyWith(quality: quality);
+  /// Applied the next time the camera starts.
+  void setQuality(CameraQuality quality) {
+    state = state.copyWith(quality: quality);
+  }
 
-  void clearNotice() => state = state.copyWith(clearNotice: true);
+  void clearNotice() {
+    state = state.copyWith(clearNotice: true);
+  }
 
   // ---- camera lifecycle --------------------------------------------------
 
-  /// Starts the camera if permission is granted, otherwise shows the
-  /// permission screen. Safe to call many times.
+  /// Starts the camera if permission is granted, otherwise exposes the
+  /// appropriate permission state.
+  ///
+  /// Safe to call repeatedly.
   Future<void> start() async {
     _wantRunning = true;
-    if (_starting || _camera != null) return;
+
+    if (_camera != null && _camera!.value.isInitialized) {
+      await _syncStream();
+      return;
+    }
+
+    if (_starting) return;
+
     _starting = true;
+
     try {
       final permission = await Permission.camera.status;
+
       if (permission.isGranted) {
         await _openCamera();
       } else if (permission.isPermanentlyDenied) {
@@ -137,10 +189,11 @@ class ScannerController extends Notifier<ScannerUiState> {
         state = state.copyWith(status: CameraStatus.needsPermission);
       }
     } catch (e) {
-      debugPrint('Camera start failed: $e');
+      debugPrint('[EXALTED][CAMERA] start failed: $e');
+
       state = state.copyWith(
         status: CameraStatus.error,
-        errorMessage: 'The camera is not available on this device.',
+        errorMessage: 'Could not start the camera.',
       );
     } finally {
       _starting = false;
@@ -151,7 +204,9 @@ class ScannerController extends Notifier<ScannerUiState> {
     state = state.copyWith(status: CameraStatus.starting, clearError: true);
 
     _cameras ??= await availableCameras();
+
     final cameras = _cameras!;
+
     if (cameras.isEmpty) {
       state = state.copyWith(
         status: CameraStatus.error,
@@ -159,8 +214,9 @@ class ScannerController extends Notifier<ScannerUiState> {
       );
       return;
     }
+
     final description = cameras.firstWhere(
-      (c) => c.lensDirection == CameraLensDirection.back,
+      (camera) => camera.lensDirection == CameraLensDirection.back,
       orElse: () => cameras.first,
     );
 
@@ -173,6 +229,25 @@ class ScannerController extends Notifier<ScannerUiState> {
 
     try {
       await controller.initialize();
+
+      // Explicitly request automatic focus. This is non-fatal because
+      // camera implementations differ in their supported controls.
+      try {
+        await controller.setFocusMode(FocusMode.auto);
+        debugPrint('[EXALTED][CAMERA] focus mode: auto');
+      } catch (e) {
+        debugPrint('[EXALTED][CAMERA] focus mode unavailable: $e');
+      }
+
+      // Keep exposure automatic so changing lighting does not leave the
+      // barcode excessively dark or bright.
+      try {
+        await controller.setExposureMode(ExposureMode.auto);
+        debugPrint('[EXALTED][CAMERA] exposure mode: auto');
+      } catch (e) {
+        debugPrint('[EXALTED][CAMERA] exposure mode unavailable: $e');
+      }
+
       if (state.flashOn) {
         try {
           await controller.setFlashMode(FlashMode.torch);
@@ -184,10 +259,12 @@ class ScannerController extends Notifier<ScannerUiState> {
         }
       }
     } catch (e) {
-      debugPrint('Camera init failed: $e');
+      debugPrint('[EXALTED][CAMERA] initialization failed: $e');
+
       try {
         await controller.dispose();
       } catch (_) {}
+
       if (e is CameraException && e.code.startsWith('CameraAccess')) {
         state = state.copyWith(status: CameraStatus.permissionDenied);
       } else {
@@ -198,45 +275,72 @@ class ScannerController extends Notifier<ScannerUiState> {
               'use it and try again.',
         );
       }
+
       return;
     }
 
     if (!_wantRunning) {
-      await controller.dispose();
+      try {
+        await controller.dispose();
+      } catch (_) {}
+
       state = state.copyWith(status: CameraStatus.idle);
+
       return;
     }
 
     _camera = controller;
     _rotation = description.sensorOrientation;
+
     state = state.copyWith(
       status: CameraStatus.ready,
       camera: controller,
       paused: false,
     );
+
     await _syncStream();
   }
 
-  /// Stops the camera and releases it. Safe to call many times.
   Future<void> stop() async {
     _wantRunning = false;
+
     final cam = _camera;
-    if (cam == null) return;
+
+    if (cam == null) {
+      _pipeline.stop();
+
+      state = state.copyWith(
+        status: CameraStatus.idle,
+        clearCamera: true,
+        paused: false,
+      );
+
+      return;
+    }
+
     _camera = null;
+
     _pipeline.stop();
+
     state = state.copyWith(
       status: CameraStatus.idle,
       clearCamera: true,
       paused: false,
     );
-    // Let the UI drop the preview before the controller is disposed.
+
+    // Give the camera plugin a frame boundary before tearing down the
+    // stream. This avoids racing the Android image callback.
     await Future.any<void>([
       WidgetsBinding.instance.endOfFrame,
       Future<void>.delayed(const Duration(milliseconds: 100)),
     ]);
+
     try {
-      if (cam.value.isStreamingImages) await cam.stopImageStream();
+      if (cam.value.isStreamingImages) {
+        await cam.stopImageStream();
+      }
     } catch (_) {}
+
     try {
       await cam.dispose();
     } catch (_) {}
@@ -249,10 +353,13 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   // ---- frame stream ------------------------------------------------------
 
-  /// Runs for every camera frame. Only hands the grayscale plane to the
-  /// pipeline; no copies and no state changes here.
   void _onFrame(CameraImage image) {
+    if (!_wantRunning || state.paused || !state.autoScan) {
+      return;
+    }
+
     final y = image.planes.first;
+
     _pipeline.submit(
       width: image.width,
       height: image.height,
@@ -262,14 +369,14 @@ class ScannerController extends Notifier<ScannerUiState> {
     );
   }
 
-  /// Starts or stops the image stream to match the current state.
-  /// Concurrent calls are merged so start/stop never overlap.
   Future<void> _syncStream() async {
     if (_syncing) {
       _syncAgain = true;
       return;
     }
+
     _syncing = true;
+
     try {
       do {
         _syncAgain = false;
@@ -282,18 +389,34 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   Future<void> _applyStream() async {
     final cam = _camera;
-    if (cam == null || !cam.value.isInitialized) return;
-    final want = state.streaming;
+
+    if (cam == null || !cam.value.isInitialized) {
+      return;
+    }
+
+    final want = _wantRunning && state.streaming;
+
     try {
       if (want && !cam.value.isStreamingImages) {
         await cam.startImageStream(_onFrame);
         _pipeline.start();
+
+        debugPrint(
+          '[EXALTED][CAMERA] image stream started, '
+          'preview=${cam.value.previewSize}',
+        );
       } else if (!want && cam.value.isStreamingImages) {
         await cam.stopImageStream();
         _pipeline.stop();
+
+        debugPrint('[EXALTED][CAMERA] image stream stopped');
+      } else if (want) {
+        _pipeline.start();
+      } else {
+        _pipeline.stop();
       }
     } catch (e) {
-      debugPrint('Image stream change failed: $e');
+      debugPrint('[EXALTED][CAMERA] image stream change failed: $e');
     }
   }
 
@@ -301,6 +424,7 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   Future<void> requestPermission() async {
     final result = await Permission.camera.request();
+
     if (result.isGranted) {
       await start();
     } else if (result.isPermanentlyDenied) {
@@ -314,13 +438,19 @@ class ScannerController extends Notifier<ScannerUiState> {
     await openAppSettings();
   }
 
-  // ---- controls ----------------------------------------------------------
+  // ---- scanner controls --------------------------------------------------
 
   Future<void> toggleFlash() async {
     final next = !state.flashOn;
+
     state = state.copyWith(flashOn: next);
+
     final cam = _camera;
-    if (cam == null || !cam.value.isInitialized) return;
+
+    if (cam == null || !cam.value.isInitialized) {
+      return;
+    }
+
     try {
       await cam.setFlashMode(next ? FlashMode.torch : FlashMode.off);
     } catch (_) {
@@ -331,22 +461,87 @@ class ScannerController extends Notifier<ScannerUiState> {
     }
   }
 
-  Future<void> togglePause() async {
-    if (_camera == null) return;
-    state = state.copyWith(paused: !state.paused);
-    await _syncStream();
-  }
-
   /// [point] is normalized: (0,0) top-left to (1,1) bottom-right.
   Future<void> focusAt(Offset point) async {
     final cam = _camera;
-    if (cam == null || !cam.value.isInitialized) return;
+
+    if (cam == null || !cam.value.isInitialized) {
+      return;
+    }
+
     try {
       await cam.setFocusPoint(point);
     } catch (_) {}
+
     try {
       await cam.setExposurePoint(point);
     } catch (_) {}
+  }
+
+  Future<void> togglePause() async {
+    if (_camera == null) {
+      return;
+    }
+
+    final resuming = state.paused;
+
+    state = state.copyWith(paused: !state.paused, clearResult: resuming);
+
+    await _syncStream();
+  }
+
+  Future<void> resumeScanning() async {
+    state = state.copyWith(clearResult: true, paused: false);
+
+    await _syncStream();
+  }
+
+  // ---- decoded results --------------------------------------------------
+
+  void _onDecoded(DecodedBarcode barcode) {
+    if (state.result != null && !state.continuous) {
+      return;
+    }
+
+    final now = _resultClock.elapsedMilliseconds;
+
+    // Prevent the same barcode from repeatedly firing while continuous
+    // scanning is active.
+    if (barcode.text == _lastText && now - _lastResultMs < 2500) {
+      return;
+    }
+
+    _lastText = barcode.text;
+    _lastResultMs = now;
+
+    HapticFeedback.mediumImpact();
+
+    debugPrint('[EXALTED][RESULT] shown: $barcode');
+
+    final pause = !state.continuous;
+
+    state = state.copyWith(
+      result: barcode,
+      paused: pause ? true : state.paused,
+    );
+
+    if (pause) {
+      unawaited(_syncStream());
+    }
+  }
+
+  /// Shows a barcode decoded from an imported gallery image.
+  void presentImported(DecodedBarcode barcode) {
+    _lastText = barcode.text;
+    _lastResultMs = _resultClock.elapsedMilliseconds;
+
+    HapticFeedback.mediumImpact();
+
+    debugPrint('[EXALTED][RESULT] shown (gallery): $barcode');
+
+    state = state.copyWith(result: barcode, paused: true);
+
+    unawaited(_syncStream());
   }
 }
 

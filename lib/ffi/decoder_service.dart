@@ -1,4 +1,6 @@
-﻿import 'dart:ffi';
+import 'dart:convert';
+import 'dart:ffi';
+import 'dart:ui' show Offset;
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
@@ -6,11 +8,13 @@ import 'package:flutter/foundation.dart';
 import 'decode_result.dart';
 import 'exalted_bindings.dart';
 
-/// Owns the native library handle and the native-side frame buffer.
+/// Owns the native library handle and the native-side buffers.
 ///
 /// The Y plane is copied into native memory on every call, so the camera
-/// plugin's shared buffer is never referenced after [probe] returns.
+/// plugin's shared buffer is never referenced after a call returns.
 class DecoderService {
+  static const int _textCapacity = 8192;
+
   ExaltedBindings? _bindings;
   bool _loadAttempted = false;
   bool _disposed = false;
@@ -18,9 +22,14 @@ class DecoderService {
   Pointer<Uint8> _buffer = nullptr;
   int _bufferCapacity = 0;
   Pointer<Int32> _out = nullptr;
+  Pointer<Int32> _info = nullptr;
+  Pointer<Uint8> _text = nullptr;
 
   /// Why loading failed, if it did.
   String? loadError;
+
+  /// Native status code of the most recent [decode] call (0 = none found).
+  int lastDecodeStatus = 0;
 
   bool get isAvailable {
     _ensureLoaded();
@@ -33,6 +42,12 @@ class DecoderService {
     try {
       final bindings = ExaltedBindings.open();
       final version = bindings.apiVersion();
+      if (version != ExaltedBindings.expectedApiVersion) {
+        throw StateError(
+          'native api v$version, app expects '
+          'v${ExaltedBindings.expectedApiVersion}',
+        );
+      }
       _bindings = bindings;
       debugPrint(
         '[EXALTED][FFI] loaded ${ExaltedBindings.libraryName}, api v$version',
@@ -41,6 +56,19 @@ class DecoderService {
       loadError = '$e';
       debugPrint('[EXALTED][FFI] LOAD FAILED: $e');
     }
+  }
+
+  void _ensureCapacity(int lumaLength) {
+    if (lumaLength > _bufferCapacity) {
+      if (_buffer != nullptr) calloc.free(_buffer);
+      _buffer = calloc<Uint8>(lumaLength);
+      _bufferCapacity = lumaLength;
+    }
+    if (_out == nullptr) _out = calloc<Int32>(9);
+    if (_info == nullptr) {
+      _info = calloc<Int32>(ExaltedBindings.decodeInfoLen);
+    }
+    if (_text == nullptr) _text = calloc<Uint8>(_textCapacity);
   }
 
   /// Runs the native probe on a luminance frame. Returns null when the native
@@ -57,13 +85,7 @@ class DecoderService {
     final bindings = _bindings;
     if (bindings == null) return null;
 
-    if (luma.length > _bufferCapacity) {
-      if (_buffer != nullptr) calloc.free(_buffer);
-      _buffer = calloc<Uint8>(luma.length);
-      _bufferCapacity = luma.length;
-    }
-    if (_out == nullptr) _out = calloc<Int32>(9);
-
+    _ensureCapacity(luma.length);
     _buffer.asTypedList(luma.length).setAll(0, luma);
     final status = bindings.probe(
       _buffer,
@@ -90,13 +112,70 @@ class DecoderService {
     );
   }
 
+  /// Decodes one barcode from a luminance frame.
+  ///
+  /// Returns null if nothing was found or the native library is unavailable;
+  /// [lastDecodeStatus] tells those cases (and native errors) apart.
+  DecodedBarcode? decode({
+    required Uint8List luma,
+    required int width,
+    required int height,
+    required int rowStride,
+    int formatsMask = 0,
+    bool tryHarder = false,
+  }) {
+    if (_disposed) return null;
+    _ensureLoaded();
+    final bindings = _bindings;
+    if (bindings == null) return null;
+
+    _ensureCapacity(luma.length);
+    _buffer.asTypedList(luma.length).setAll(0, luma);
+
+    final status = bindings.decode(
+      _buffer,
+      luma.length,
+      width,
+      height,
+      rowStride,
+      formatsMask,
+      tryHarder ? 1 : 0,
+      _info,
+      ExaltedBindings.decodeInfoLen,
+      _text,
+      _textCapacity,
+    );
+    lastDecodeStatus = status;
+    if (status != 1) return null;
+
+    final i = _info.asTypedList(ExaltedBindings.decodeInfoLen);
+    final text = utf8.decode(_text.asTypedList(i[1]), allowMalformed: true);
+    return DecodedBarcode(
+      text: text,
+      kind: BarcodeKind.fromFlag(i[0]),
+      corners: [
+        Offset(i[2].toDouble(), i[3].toDouble()),
+        Offset(i[4].toDouble(), i[5].toDouble()),
+        Offset(i[6].toDouble(), i[7].toDouble()),
+        Offset(i[8].toDouble(), i[9].toDouble()),
+      ],
+      decodeMicros: i[11],
+      frameWidth: width,
+      frameHeight: height,
+    );
+  }
+
   void dispose() {
     if (_disposed) return;
     _disposed = true;
     if (_buffer != nullptr) calloc.free(_buffer);
     if (_out != nullptr) calloc.free(_out);
+    if (_info != nullptr) calloc.free(_info);
+    if (_text != nullptr) calloc.free(_text);
     _buffer = nullptr;
     _out = nullptr;
+    _info = nullptr;
+    _text = nullptr;
     _bufferCapacity = 0;
   }
 }

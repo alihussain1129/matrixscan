@@ -83,25 +83,20 @@ class _ImageActionSheet extends StatelessWidget {
             Text('What do you want to do?', style: text.titleMedium),
             const SizedBox(height: AppSpacing.lg),
             ExaltedButton(
+              label: 'Scan code',
+              icon: Icons.qr_code_scanner,
+              expand: true,
+              onPressed: () =>
+                  Navigator.of(context).pop(GalleryAction.scanCode),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            ExaltedButton(
               label: 'Extract text',
               icon: Icons.text_fields,
+              outlined: true,
               expand: true,
               onPressed: () =>
                   Navigator.of(context).pop(GalleryAction.extractText),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            const ExaltedButton(
-              label: 'Scan code',
-              icon: Icons.qr_code_scanner,
-              outlined: true,
-              expand: true,
-              onPressed: null,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              'Code scanning from images arrives with the decoder engine.',
-              textAlign: TextAlign.center,
-              style: text.bodySmall,
             ),
           ],
         ),

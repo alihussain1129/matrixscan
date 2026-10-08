@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_spacing.dart';
@@ -10,11 +11,14 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/exalted_button.dart';
 import '../../core/widgets/exalted_logo.dart';
 import '../gallery/gallery_import_service.dart';
+import '../gallery/image_barcode_decoder.dart';
 import '../ocr/controllers/ocr_controller.dart';
 import '../ocr/views/ocr_result_screen.dart';
 import '../ocr/widgets/image_action_sheet.dart';
 import 'frame_pipeline.dart';
+import 'link_utils.dart';
 import 'scan_frame_painter.dart';
+import 'scan_result_card.dart';
 import 'scanner_controller.dart';
 import 'scanner_widgets.dart';
 
@@ -100,11 +104,14 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   void _onFocusTap(Offset local, Size size) {
     final ui = ref.read(scannerControllerProvider);
     if (ui.status != CameraStatus.ready) return;
+
     HapticFeedback.selectionClick();
+
     setState(() {
       _focusTap = local;
       _focusId++;
     });
+
     ref
         .read(scannerControllerProvider.notifier)
         .focusAt(
@@ -118,37 +125,105 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   /// Gallery -> system photo picker -> choose what to do with the image.
   Future<void> _openGallery() async {
     HapticFeedback.selectionClick();
+
     final picked = await GalleryImportService().pickImage();
+
     if (!mounted) return;
+
     if (picked.error != null) {
       _snack(picked.error!);
       return;
     }
+
     final path = picked.path;
     if (path == null) return;
 
     final action = await showImageActionSheet(context, path);
-    if (!mounted || action != GalleryAction.extractText) return;
 
-    // Release the camera while the OCR screen is open.
+    if (!mounted || action == null) return;
+
+    if (action == GalleryAction.scanCode) {
+      await _scanGalleryImage(path);
+      return;
+    }
+
+    if (action == GalleryAction.extractText) {
+      await _extractGalleryText(path);
+    }
+  }
+
+  Future<void> _scanGalleryImage(String path) async {
     final ctrl = ref.read(scannerControllerProvider.notifier);
+
     _stopLineAnimation();
     await ctrl.stop();
+
     if (!mounted) return;
+
+    _snack('Scanning image...');
+
+    try {
+      final barcode = await ImageBarcodeDecoder().decodeFile(path);
+
+      if (!mounted) return;
+
+      if (barcode == null) {
+        _snack('No readable code found in this image');
+      } else {
+        ctrl.presentImported(barcode);
+      }
+    } catch (error) {
+      if (mounted) {
+        _snack("Couldn't scan this image");
+      }
+
+      debugPrint('[EXALTED][GALLERY] scan failed: $error');
+    }
+
+    if (!mounted) return;
+
+    if (ref.read(navIndexProvider) == 0) {
+      _startLineAnimation();
+    }
+  }
+
+  Future<void> _extractGalleryText(String path) async {
+    // Release the camera while the OCR screen is open.
+    final ctrl = ref.read(scannerControllerProvider.notifier);
+
+    _stopLineAnimation();
+    await ctrl.stop();
+
+    if (!mounted) return;
+
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => OcrResultScreen(imagePath: path)),
     );
+
     ref.read(ocrControllerProvider.notifier).reset();
+
     if (mounted && ref.read(navIndexProvider) == 0) {
       ctrl.start();
       _startLineAnimation();
     }
   }
 
+  Future<void> _openLink(Uri uri) async {
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+
+      if (!ok) {
+        _snack("Couldn't open the link");
+      }
+    } catch (_) {
+      _snack("Couldn't open the link");
+    }
+  }
+
   String _hint(ScannerUiState ui) {
     switch (ui.status) {
       case CameraStatus.ready:
-        return ui.paused ? 'Scanning paused' : 'Align a code inside the frame';
+        return 'Align a code inside the frame';
       case CameraStatus.starting:
         return 'Starting camera...';
       default:
@@ -160,9 +235,11 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   /// locked to portrait, so the portrait box is (short side x long side).
   Widget _preview(CameraController cam) {
     final size = cam.value.previewSize;
+
     if (!cam.value.isInitialized || size == null) {
       return const SizedBox.shrink();
     }
+
     return ClipRect(
       child: FittedBox(
         fit: BoxFit.cover,
@@ -177,7 +254,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
 
   String _previewLabel(CameraController? cam) {
     final size = cam?.value.previewSize;
+
     if (size == null) return '-';
+
     return '${size.longestSide.toInt()}x${size.shortestSide.toInt()}';
   }
 
@@ -196,6 +275,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
         _stopLineAnimation();
       }
     });
+
     ref.listen<String?>(scannerControllerProvider.select((s) => s.notice), (
       previous,
       next,
@@ -213,7 +293,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
           final theme = Theme.of(context);
           final scheme = theme.colorScheme;
           final text = theme.textTheme;
+
           final ready = ui.status == CameraStatus.ready && ui.camera != null;
+
           final showPanel =
               ui.status == CameraStatus.needsPermission ||
               ui.status == CameraStatus.permissionDenied ||
@@ -227,13 +309,19 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                 builder: (context, constraints) {
                   final w = constraints.maxWidth;
                   final h = constraints.maxHeight;
+
                   var side = w * 0.74;
-                  if (side > 300) side = 300;
+
+                  if (side > 300) {
+                    side = 300;
+                  }
+
                   final scanRect = Rect.fromCenter(
                     center: Offset(w / 2, h * 0.40),
                     width: side,
                     height: side,
                   );
+
                   final screenSize = Size(w, h);
 
                   return Stack(
@@ -252,11 +340,13 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                             ),
                           ),
                         ),
+
                       // Live camera preview, its own layer.
                       if (ready)
                         Positioned.fill(
                           child: RepaintBoundary(child: _preview(ui.camera!)),
                         ),
+
                       // Tap anywhere to focus.
                       Positioned.fill(
                         child: GestureDetector(
@@ -265,6 +355,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                               _onFocusTap(d.localPosition, screenSize),
                         ),
                       ),
+
                       // Static overlays (dim area + fades): painted once.
                       if (ready)
                         Positioned.fill(
@@ -274,6 +365,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                             ),
                           ),
                         ),
+
                       // Scan frame: only this small layer repaints each frame.
                       if (!showPanel)
                         Positioned.fromRect(
@@ -301,6 +393,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                             ),
                           ),
                         ),
+
                       // Tap-to-focus ring.
                       if (_focusTap != null)
                         Positioned(
@@ -313,19 +406,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                             ),
                           ),
                         ),
-                      // Paused badge.
-                      if (ready && ui.paused)
-                        Positioned.fromRect(
-                          rect: scanRect,
-                          child: const IgnorePointer(
-                            child: Center(
-                              child: StatusPill(
-                                icon: Icons.pause,
-                                label: 'PAUSED',
-                              ),
-                            ),
-                          ),
-                        ),
+
                       // Permission / error panel.
                       if (showPanel)
                         Positioned.fill(
@@ -336,6 +417,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                             ),
                           ),
                         ),
+
                       // Controls overlay.
                       Positioned.fill(
                         child: SafeArea(
@@ -346,6 +428,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                             child: Column(
                               children: [
                                 const SizedBox(height: AppSpacing.md),
+
                                 Row(
                                   children: [
                                     const ExaltedLogo(width: 120),
@@ -365,6 +448,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                                     ),
                                   ],
                                 ),
+
                                 ModeChip(
                                   continuous: ui.continuous,
                                   onTap: () {
@@ -372,6 +456,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                                     ctrl.toggleContinuous();
                                   },
                                 ),
+
                                 if (!kReleaseMode && ready)
                                   DebugStatsLine(
                                     pipeline: pipeline,
@@ -379,14 +464,18 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                                     previewSize: _previewLabel(ui.camera),
                                     qualityLabel: ui.quality.label,
                                   ),
+
                                 const Spacer(),
+
                                 Text(
                                   _hint(ui),
                                   style: text.bodyMedium!.copyWith(
                                     color: Colors.white70,
                                   ),
                                 ),
+
                                 const SizedBox(height: AppSpacing.xl),
+
                                 Row(
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceEvenly,
@@ -402,14 +491,6 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                                         ctrl.toggleFlash();
                                       },
                                     ),
-                                    CaptureButton(
-                                      paused: ui.paused,
-                                      enabled: ready,
-                                      onTap: () {
-                                        HapticFeedback.lightImpact();
-                                        ctrl.togglePause();
-                                      },
-                                    ),
                                     RoundControl(
                                       icon: Icons.bolt,
                                       label: 'Auto',
@@ -421,7 +502,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                                     ),
                                   ],
                                 ),
+
                                 const SizedBox(height: AppSpacing.xl),
+
                                 ExaltedButton(
                                   label: 'Gallery',
                                   icon: Icons.photo_library_outlined,
@@ -429,12 +512,37 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                                   expand: true,
                                   onPressed: _openGallery,
                                 ),
+
                                 const SizedBox(height: AppSpacing.lg),
                               ],
                             ),
                           ),
                         ),
                       ),
+
+                      // Decoded result card (top layer).
+                      if (ui.result != null)
+                        Positioned(
+                          left: AppSpacing.xl,
+                          right: AppSpacing.xl,
+                          bottom:
+                              AppSpacing.lg +
+                              MediaQuery.of(context).padding.bottom,
+                          child: ScanResultCard(
+                            barcode: ui.result!,
+                            onCopy: () {
+                              Clipboard.setData(
+                                ClipboardData(text: ui.result!.text),
+                              );
+                              HapticFeedback.selectionClick();
+                              _snack('Copied');
+                            },
+                            onScanAgain: ctrl.resumeScanning,
+                            onOpenLink: linkUri(ui.result!.text) == null
+                                ? null
+                                : () => _openLink(linkUri(ui.result!.text)!),
+                          ),
+                        ),
                     ],
                   );
                 },
@@ -458,6 +566,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
           actionLabel: 'Allow camera',
           onAction: ctrl.requestPermission,
         );
+
       case CameraStatus.permissionDenied:
         return ScannerStatePanel(
           icon: Icons.no_photography_outlined,
@@ -468,6 +577,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
           actionLabel: 'Open settings',
           onAction: ctrl.openSettings,
         );
+
       default:
         return ScannerStatePanel(
           icon: Icons.error_outline,
