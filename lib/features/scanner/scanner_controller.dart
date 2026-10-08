@@ -122,10 +122,14 @@ class ScannerController extends Notifier<ScannerUiState> {
   ScannerUiState build() {
     // The analyzer belongs to the scanner provider graph. Wire its result
     // callback here so every native decode reaches the controller/UI.
-    _analyzer.onDecoded = _onDecoded;
+    final analyzer = _analyzer;
+    final pipeline = _pipeline;
+    analyzer.onDecoded = _onDecoded;
 
     ref.onDispose(() {
-      _analyzer.onDecoded = null;
+      // Providers must not be read inside onDispose, so use the objects
+      // captured above.
+      analyzer.onDecoded = null;
 
       _wantRunning = false;
 
@@ -136,7 +140,7 @@ class ScannerController extends Notifier<ScannerUiState> {
         unawaited(cam.dispose());
       }
 
-      _pipeline.stop();
+      pipeline.stop();
     });
 
     return const ScannerUiState();
