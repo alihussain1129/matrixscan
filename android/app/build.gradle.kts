@@ -27,6 +27,19 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        externalNativeBuild {
+            cmake {
+                targets += "exalted_ffi"
+            }
+        }
+    }
+
+    // Native C++ core (cpp/) built into libexalted_ffi.so and packaged in the APK.
+    externalNativeBuild {
+        cmake {
+            path = file("../../cpp/CMakeLists.txt")
+        }
     }
 
     buildTypes {
