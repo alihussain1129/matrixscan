@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -85,7 +85,7 @@ class PipelineStats {
 /// decoder can never slow the preview down.
 class FramePipeline {
   FramePipeline({
-    this.targetFps = 8,
+    this.targetFps = 15,
     int Function()? clockMs,
     List<FrameAnalyzer>? analyzers,
   }) : _clockMs = clockMs ?? _stopwatchClock() {
