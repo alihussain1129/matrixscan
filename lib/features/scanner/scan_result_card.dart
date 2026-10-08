@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_spacing.dart';
 import '../../ffi/decode_result.dart';
+import 'wifi_info_panel.dart';
+import 'wifi_utils.dart';
 
 /// Bottom card shown on the scanner screen when a barcode has been decoded.
 class ScanResultCard extends StatelessWidget {
@@ -25,6 +27,7 @@ class ScanResultCard extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final text = theme.textTheme;
+    final wifi = parseWifiQr(barcode.text);
 
     return Material(
       color: scheme.surface,
@@ -38,7 +41,10 @@ class ScanResultCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.qr_code_2, color: scheme.primary),
+                Icon(
+                  wifi != null ? Icons.wifi : Icons.qr_code_2,
+                  color: scheme.primary,
+                ),
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: Text(barcode.kind.label, style: text.titleMedium),
@@ -50,12 +56,15 @@ class ScanResultCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: AppSpacing.md),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 160),
-              child: SingleChildScrollView(
-                child: SelectableText(barcode.text, style: text.bodyLarge),
+            if (wifi != null)
+              WifiInfoPanel(wifi: wifi)
+            else
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 160),
+                child: SingleChildScrollView(
+                  child: SelectableText(barcode.text, style: text.bodyLarge),
+                ),
               ),
-            ),
             const SizedBox(height: AppSpacing.lg),
             if (onOpenLink != null) ...[
               SizedBox(
