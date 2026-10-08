@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -60,10 +61,36 @@ class ScannerAnalyzer implements FrameAnalyzer {
 
   // Decode passes, one per analyzed frame. Flags: 2 = invert, 4 = no rotate,
   // 8 = no downscale, 16 = global histogram. 0 = full search (old behavior).
-  static const List<int> _passCycle = [12, 14, 12, 30, 12, 0];
+  static const List<int> _passCycle = [30, 4, 30, 16, 30, 0];
   final Map<int, int> _passN = {};
   final Map<int, int> _passUs = {};
   final Map<int, int> _passHits = {};
+
+  // UI frame timing (temporary diagnostic), reset every second.
+  bool _timingsHooked = false;
+  int _uiFrames = 0;
+  int _uiJank = 0;
+  int _uiBuildMaxUs = 0;
+  int _uiRasterMaxUs = 0;
+
+  void _hookTimings() {
+    if (_timingsHooked) return;
+    _timingsHooked = true;
+    try {
+      SchedulerBinding.instance.addTimingsCallback((timings) {
+        if (_disposed) return;
+        for (final t in timings) {
+          _uiFrames++;
+          final build = t.buildDuration.inMicroseconds;
+          final raster = t.rasterDuration.inMicroseconds;
+          if (build > _uiBuildMaxUs) _uiBuildMaxUs = build;
+          if (raster > _uiRasterMaxUs) _uiRasterMaxUs = raster;
+          if (t.totalSpan.inMicroseconds > 16667) _uiJank++;
+        }
+      });
+    } catch (_) {}
+  }
+
   final Stopwatch _clock = Stopwatch()..start();
 
   static const Set<int> _dumpAt = {45, 150, 400};
@@ -85,6 +112,7 @@ class ScannerAnalyzer implements FrameAnalyzer {
   @override
   Future<void> analyze(AnalysisFrame frame) async {
     if (_disposed) return;
+    _hookTimings();
     _analyzedFrames++;
     _lastWidth = frame.width;
     _lastHeight = frame.height;
@@ -160,6 +188,15 @@ class ScannerAnalyzer implements FrameAnalyzer {
       }
       _windowFrames = 0;
       _windowMicros = 0;
+      debugPrint(
+        '[EXALTED][UI] frames=$_uiFrames jank=$_uiJank '
+        'buildMax=${(_uiBuildMaxUs / 1000).toStringAsFixed(1)}ms '
+        'rasterMax=${(_uiRasterMaxUs / 1000).toStringAsFixed(1)}ms',
+      );
+      _uiFrames = 0;
+      _uiJank = 0;
+      _uiBuildMaxUs = 0;
+      _uiRasterMaxUs = 0;
       final passLog = StringBuffer();
       for (final f in _passN.keys) {
         final n = _passN[f]!;
