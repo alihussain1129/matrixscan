@@ -13,6 +13,7 @@ class ScanResultCard extends StatelessWidget {
     required this.onCopy,
     required this.onScanAgain,
     this.onOpenLink,
+    this.onConnectWifi,
   });
 
   final DecodedBarcode barcode;
@@ -22,12 +23,17 @@ class ScanResultCard extends StatelessWidget {
   /// Non-null when the decoded text is a web link.
   final VoidCallback? onOpenLink;
 
+  /// Non-null to offer joining a Wi-Fi code. Shown only when it can be joined.
+  final VoidCallback? onConnectWifi;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final text = theme.textTheme;
     final wifi = parseWifiQr(barcode.text);
+    final showConnect =
+        wifi != null && wifi.canConnect && onConnectWifi != null;
 
     return Material(
       color: scheme.surface,
@@ -66,6 +72,17 @@ class ScanResultCard extends StatelessWidget {
                 ),
               ),
             const SizedBox(height: AppSpacing.lg),
+            if (showConnect) ...[
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: onConnectWifi,
+                  icon: const Icon(Icons.wifi),
+                  label: const Text('Connect to Wi-Fi'),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
             if (onOpenLink != null) ...[
               SizedBox(
                 width: double.infinity,
@@ -88,7 +105,7 @@ class ScanResultCard extends StatelessWidget {
                 ),
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
-                  child: onOpenLink == null
+                  child: (onOpenLink == null && !showConnect)
                       ? FilledButton.icon(
                           onPressed: onScanAgain,
                           icon: const Icon(Icons.refresh),

@@ -21,6 +21,8 @@ import 'scan_frame_painter.dart';
 import 'scan_result_card.dart';
 import 'scanner_controller.dart';
 import 'scanner_widgets.dart';
+import 'wifi_connector.dart';
+import 'wifi_utils.dart';
 
 /// Main scanner screen: live camera, scan frame, controls.
 class ScannerScreen extends ConsumerStatefulWidget {
@@ -218,6 +220,13 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     } catch (_) {
       _snack("Couldn't open the link");
     }
+  }
+
+  Future<void> _connectWifi(WifiNetworkInfo wifi) async {
+    HapticFeedback.selectionClick();
+    final result = await ref.read(wifiConnectorProvider).connect(wifi);
+    if (!mounted) return;
+    _snack(result.message);
   }
 
   String _hint(ScannerUiState ui) {
@@ -538,6 +547,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                               _snack('Copied');
                             },
                             onScanAgain: ctrl.resumeScanning,
+                            onConnectWifi: () {
+                              final wifi = parseWifiQr(ui.result!.text);
+                              if (wifi != null) _connectWifi(wifi);
+                            },
                             onOpenLink: linkUri(ui.result!.text) == null
                                 ? null
                                 : () => _openLink(linkUri(ui.result!.text)!),
