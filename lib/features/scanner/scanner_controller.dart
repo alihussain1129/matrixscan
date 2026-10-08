@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../ffi/decode_result.dart';
+import '../history/history_entry.dart';
+import '../history/history_repository.dart';
 import 'frame_pipeline.dart';
 import 'scanner_analyzer.dart';
 
@@ -518,6 +520,8 @@ class ScannerController extends Notifier<ScannerUiState> {
 
     debugPrint('[EXALTED][RESULT] shown: $barcode');
 
+    _saveToHistory(barcode, HistorySource.live);
+
     final pause = !state.continuous;
 
     state = state.copyWith(
@@ -530,6 +534,25 @@ class ScannerController extends Notifier<ScannerUiState> {
     }
   }
 
+  /// Saves a successful scan. Fire and forget: the repository never throws,
+  /// and a failure here must never affect scanning.
+  void _saveToHistory(DecodedBarcode barcode, HistorySource source) {
+    try {
+      unawaited(
+        ref
+            .read(historyRepositoryProvider)
+            .add(
+              kind: HistoryKind.barcode,
+              source: source,
+              text: barcode.text,
+              format: barcode.kind.label,
+            ),
+      );
+    } catch (e) {
+      debugPrint('[EXALTED][HISTORY] save skipped: $e');
+    }
+  }
+
   /// Shows a barcode decoded from an imported gallery image.
   void presentImported(DecodedBarcode barcode) {
     _lastText = barcode.text;
@@ -538,6 +561,8 @@ class ScannerController extends Notifier<ScannerUiState> {
     HapticFeedback.mediumImpact();
 
     debugPrint('[EXALTED][RESULT] shown (gallery): $barcode');
+
+    _saveToHistory(barcode, HistorySource.gallery);
 
     state = state.copyWith(result: barcode, paused: true);
 
