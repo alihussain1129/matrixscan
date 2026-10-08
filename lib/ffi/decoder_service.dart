@@ -184,6 +184,7 @@ class DecoderService {
     required int rowStride,
     int formatsMask = 0,
     bool tryHarder = false,
+    int flags = 0,
   }) async {
     if (_disposed) return null;
     _ensureLoaded();
@@ -202,6 +203,7 @@ class DecoderService {
       rowStride: rowStride,
       formatsMask: formatsMask,
       tryHarder: tryHarder,
+      flags: flags,
     );
     _pendingDecode = call;
     List<Object?>? reply;

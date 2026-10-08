@@ -57,6 +57,13 @@ class ScannerAnalyzer implements FrameAnalyzer {
   int _windowMicros = 0;
   int _lastLogMs = 0;
   final Map<int, int> _rcWindow = {};
+
+  // Decode passes, one per analyzed frame. Flags: 2 = invert, 4 = no rotate,
+  // 8 = no downscale, 16 = global histogram. 0 = full search (old behavior).
+  static const List<int> _passCycle = [12, 14, 12, 30, 12, 0];
+  final Map<int, int> _passN = {};
+  final Map<int, int> _passUs = {};
+  final Map<int, int> _passHits = {};
   final Stopwatch _clock = Stopwatch()..start();
 
   static const Set<int> _dumpAt = {45, 150, 400};
@@ -103,12 +110,19 @@ class ScannerAnalyzer implements FrameAnalyzer {
 
     final watch = Stopwatch()..start();
     _attempts++;
+    final passFlags = _passCycle[(_attempts - 1) % _passCycle.length];
     final barcode = await _decoder.decodeAsync(
       luma: frame.yPlane,
       width: frame.width,
       height: frame.height,
       rowStride: frame.yRowStride,
+      flags: passFlags,
     );
+    _passN[passFlags] = (_passN[passFlags] ?? 0) + 1;
+    _passUs[passFlags] = (_passUs[passFlags] ?? 0) + watch.elapsedMicroseconds;
+    if (barcode != null) {
+      _passHits[passFlags] = (_passHits[passFlags] ?? 0) + 1;
+    }
     _windowFrames++;
     _windowMicros += watch.elapsedMicroseconds;
     final rc = _decoder.isAvailable ? _decoder.lastDecodeStatus : -99;
@@ -117,6 +131,7 @@ class ScannerAnalyzer implements FrameAnalyzer {
     if (barcode != null) {
       _decodedFrames++;
       debugPrint('[EXALTED][RESULT] $barcode');
+      debugPrint('[EXALTED][PASS] hit flags=$passFlags');
       onDecoded?.call(barcode);
     }
 
@@ -145,6 +160,13 @@ class ScannerAnalyzer implements FrameAnalyzer {
       }
       _windowFrames = 0;
       _windowMicros = 0;
+      final passLog = StringBuffer();
+      for (final f in _passN.keys) {
+        final n = _passN[f]!;
+        final avg = (_passUs[f]! / n / 1000).toStringAsFixed(1);
+        passLog.write(' f$f:n=$n avg=${avg}ms hit=${_passHits[f] ?? 0}');
+      }
+      debugPrint('[EXALTED][PASS]$passLog');
       _rcWindow.clear();
     }
   }

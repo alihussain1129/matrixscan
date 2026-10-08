@@ -59,6 +59,7 @@ class DecodeWorker {
     required int rowStride,
     required int formatsMask,
     required bool tryHarder,
+    int flags = 0,
   }) async {
     if (_closed) return null;
     final commands = await _start();
@@ -73,7 +74,7 @@ class DecodeWorker {
       height,
       rowStride,
       formatsMask,
-      tryHarder ? 1 : 0,
+      (tryHarder ? 1 : 0) | flags,
     ]);
     try {
       final result = await reply.first.timeout(const Duration(seconds: 5));
