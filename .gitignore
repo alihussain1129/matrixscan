@@ -46,3 +46,10 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+cpp/build/
+cpp/**/*.corrupt-*
+cpp/**/*.pre-*
+
+cpp/**/build/
+cpp/*.obj
