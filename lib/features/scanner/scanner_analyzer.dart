@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -103,7 +103,7 @@ class ScannerAnalyzer implements FrameAnalyzer {
 
     final watch = Stopwatch()..start();
     _attempts++;
-    final barcode = _decoder.decode(
+    final barcode = await _decoder.decodeAsync(
       luma: frame.yPlane,
       width: frame.width,
       height: frame.height,
