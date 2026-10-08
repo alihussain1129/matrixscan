@@ -1,4 +1,4 @@
-﻿#include "exalted/ffi_api.h"
+#include "exalted/ffi_api.h"
 
 #include <algorithm>
 #include <atomic>
@@ -114,10 +114,19 @@ int32_t exalted_decode(
 
         ZXing::ReaderOptions options;
         options.setFormats(toFormats(formatsMask));
-        options.setTryRotate(true);
-        options.setTryHarder(tryHarder != 0);
-        options.setTryInvert(tryHarder != 0);
-        options.setTryDownscale(true);
+        // `tryHarder` is a flags field. 0 and 1 behave as before.
+        //   1 = harder + invert, 2 = invert only, 4 = no rotate,
+        //   8 = no downscale, 16 = global-histogram binarizer
+        const bool harder = (tryHarder & 1) != 0;
+        const bool invert = harder || (tryHarder & 2) != 0;
+        options.setTryRotate((tryHarder & 4) == 0);
+        options.setTryHarder(harder);
+        options.setTryInvert(invert);
+        options.setTryDownscale((tryHarder & 8) == 0);
+        if ((tryHarder & 16) != 0)
+        {
+            options.setBinarizer(ZXing::Binarizer::GlobalHistogram);
+        }
         options.setMaxNumberOfSymbols(1);
 
         const ZXing::Barcode barcode = ZXing::ReadBarcode(image, options);
