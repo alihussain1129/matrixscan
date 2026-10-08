@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/widgets/exalted_bottom_nav.dart';
@@ -27,11 +28,7 @@ class AppShell extends ConsumerWidget {
       child: Scaffold(
         body: IndexedStack(
           index: index,
-          children: const [
-            ScannerScreen(),
-            HistoryScreen(),
-            SettingsScreen(),
-          ],
+          children: const [ScannerScreen(), HistoryScreen(), SettingsScreen()],
         ),
         bottomNavigationBar: Theme(
           data: navTheme,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_colors.dart';
 import '../theme/app_shadows.dart';
 import '../theme/app_spacing.dart';
@@ -41,8 +42,9 @@ class _ExaltedButtonState extends State<ExaltedButton> {
     final Color background = widget.outlined
         ? Colors.transparent
         : (_pressed ? colors.primaryPressed : scheme.primary);
-    final Color foreground =
-        widget.outlined ? colors.primaryText : scheme.onPrimary;
+    final Color foreground = widget.outlined
+        ? colors.primaryText
+        : scheme.onPrimary;
 
     final textStyle = theme.textTheme.labelLarge!.copyWith(
       color: foreground,

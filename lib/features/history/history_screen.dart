@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/widgets/empty_state.dart';
@@ -24,8 +25,7 @@ class HistoryScreen extends ConsumerWidget {
               child: EmptyState(
                 icon: Icons.history,
                 title: 'No scans yet',
-                message:
-                    'Codes you scan will appear here. Everything stays on your device.',
+                message: 'Codes you scan will appear here. Everything stays on your device.',
                 actionLabel: 'Scan your first code',
                 onAction: () => ref.read(navIndexProvider.notifier).set(0),
               ),

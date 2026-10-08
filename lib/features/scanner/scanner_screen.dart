@@ -1,16 +1,24 @@
+import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../core/router/app_router.dart';
-import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/exalted_button.dart';
 import '../../core/widgets/exalted_logo.dart';
+import '../gallery/gallery_import_service.dart';
+import '../ocr/controllers/ocr_controller.dart';
+import '../ocr/views/ocr_result_screen.dart';
+import '../ocr/widgets/image_action_sheet.dart';
+import 'frame_pipeline.dart';
 import 'scan_frame_painter.dart';
 import 'scanner_controller.dart';
+import 'scanner_widgets.dart';
 
-/// Main scanner screen. Camera preview is added in Phase 4.
+/// Main scanner screen: live camera, scan frame, controls.
 class ScannerScreen extends ConsumerStatefulWidget {
   const ScannerScreen({super.key});
 
@@ -19,22 +27,69 @@ class ScannerScreen extends ConsumerStatefulWidget {
 }
 
 class _ScannerScreenState extends ConsumerState<ScannerScreen>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _line = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 2200),
-  )..repeat(reverse: true);
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  late final AnimationController _line;
 
   // The camera screen always uses dark chrome.
   late final ThemeData _darkTheme = AppTheme.dark();
 
+  Offset? _focusTap;
+  int _focusId = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _line = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2200),
+    );
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && ref.read(navIndexProvider) == 0) {
+        ref.read(scannerControllerProvider.notifier).start();
+        _startLineAnimation();
+      }
+    });
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _line.dispose();
     super.dispose();
   }
 
-  void _comingSoon(String message) {
+  void _startLineAnimation() {
+    if (!mounted) return;
+    if (!_line.isAnimating) {
+      _line.repeat(reverse: true);
+    }
+  }
+
+  void _stopLineAnimation() {
+    if (_line.isAnimating) {
+      _line.stop();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
+    final ctrl = ref.read(scannerControllerProvider.notifier);
+    if (lifecycle == AppLifecycleState.resumed) {
+      if (ref.read(navIndexProvider) == 0) {
+        ctrl.start();
+        _startLineAnimation();
+      }
+    } else if (lifecycle == AppLifecycleState.paused ||
+        lifecycle == AppLifecycleState.hidden ||
+        lifecycle == AppLifecycleState.detached) {
+      ctrl.stop();
+      _stopLineAnimation();
+    }
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -42,10 +97,114 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       );
   }
 
+  void _onFocusTap(Offset local, Size size) {
+    final ui = ref.read(scannerControllerProvider);
+    if (ui.status != CameraStatus.ready) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _focusTap = local;
+      _focusId++;
+    });
+    ref
+        .read(scannerControllerProvider.notifier)
+        .focusAt(
+          Offset(
+            (local.dx / size.width).clamp(0.0, 1.0).toDouble(),
+            (local.dy / size.height).clamp(0.0, 1.0).toDouble(),
+          ),
+        );
+  }
+
+  /// Gallery -> system photo picker -> choose what to do with the image.
+  Future<void> _openGallery() async {
+    HapticFeedback.selectionClick();
+    final picked = await GalleryImportService().pickImage();
+    if (!mounted) return;
+    if (picked.error != null) {
+      _snack(picked.error!);
+      return;
+    }
+    final path = picked.path;
+    if (path == null) return;
+
+    final action = await showImageActionSheet(context, path);
+    if (!mounted || action != GalleryAction.extractText) return;
+
+    // Release the camera while the OCR screen is open.
+    final ctrl = ref.read(scannerControllerProvider.notifier);
+    _stopLineAnimation();
+    await ctrl.stop();
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => OcrResultScreen(imagePath: path)),
+    );
+    ref.read(ocrControllerProvider.notifier).reset();
+    if (mounted && ref.read(navIndexProvider) == 0) {
+      ctrl.start();
+      _startLineAnimation();
+    }
+  }
+
+  String _hint(ScannerUiState ui) {
+    switch (ui.status) {
+      case CameraStatus.ready:
+        return ui.paused ? 'Scanning paused' : 'Align a code inside the frame';
+      case CameraStatus.starting:
+        return 'Starting camera...';
+      default:
+        return '';
+    }
+  }
+
+  /// Full-bleed preview. The camera reports its size in landscape; the app is
+  /// locked to portrait, so the portrait box is (short side x long side).
+  Widget _preview(CameraController cam) {
+    final size = cam.value.previewSize;
+    if (!cam.value.isInitialized || size == null) {
+      return const SizedBox.shrink();
+    }
+    return ClipRect(
+      child: FittedBox(
+        fit: BoxFit.cover,
+        child: SizedBox(
+          width: size.shortestSide,
+          height: size.longestSide,
+          child: CameraPreview(cam),
+        ),
+      ),
+    );
+  }
+
+  String _previewLabel(CameraController? cam) {
+    final size = cam?.value.previewSize;
+    if (size == null) return '-';
+    return '${size.longestSide.toInt()}x${size.shortestSide.toInt()}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final ui = ref.watch(scannerControllerProvider);
     final ctrl = ref.read(scannerControllerProvider.notifier);
+    final pipeline = ref.read(framePipelineProvider);
+
+    ref.listen<int>(navIndexProvider, (previous, next) {
+      if (next == 0) {
+        ctrl.start();
+        _startLineAnimation();
+      } else {
+        ctrl.stop();
+        _stopLineAnimation();
+      }
+    });
+    ref.listen<String?>(scannerControllerProvider.select((s) => s.notice), (
+      previous,
+      next,
+    ) {
+      if (next != null) {
+        _snack(next);
+        ctrl.clearNotice();
+      }
+    });
 
     return Theme(
       data: _darkTheme,
@@ -54,143 +213,231 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
           final theme = Theme.of(context);
           final scheme = theme.colorScheme;
           final text = theme.textTheme;
+          final ready = ui.status == CameraStatus.ready && ui.camera != null;
+          final showPanel =
+              ui.status == CameraStatus.needsPermission ||
+              ui.status == CameraStatus.permissionDenied ||
+              ui.status == CameraStatus.error;
 
           return AnnotatedRegion<SystemUiOverlayStyle>(
             value: SystemUiOverlayStyle.light,
             child: Container(
-              decoration: const BoxDecoration(
-                gradient: RadialGradient(
-                  center: Alignment(0, -0.2),
-                  radius: 1.1,
-                  colors: [Color(0xFF1B1C20), Color(0xFF0A0A0B)],
-                ),
-              ),
-              child: SafeArea(
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-                  child: Column(
+              color: const Color(0xFF0A0A0B),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final w = constraints.maxWidth;
+                  final h = constraints.maxHeight;
+                  var side = w * 0.74;
+                  if (side > 300) side = 300;
+                  final scanRect = Rect.fromCenter(
+                    center: Offset(w / 2, h * 0.40),
+                    width: side,
+                    height: side,
+                  );
+                  final screenSize = Size(w, h);
+
+                  return Stack(
+                    fit: StackFit.expand,
                     children: [
-                      const SizedBox(height: AppSpacing.md),
-                      Row(
-                        children: [
-                          const ExaltedLogo(width: 120),
-                          const Spacer(),
-                          IconButton(
-                            tooltip: 'Settings',
-                            onPressed: () =>
-                                ref.read(navIndexProvider.notifier).set(2),
-                            icon: const Icon(Icons.settings_outlined),
-                            color: Colors.white,
-                            iconSize: 26,
-                            constraints: const BoxConstraints(
-                              minWidth: 48,
-                              minHeight: 48,
+                      // Background, only needed until the camera is ready.
+                      if (!ready)
+                        const Positioned.fill(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: RadialGradient(
+                                center: Alignment(0, -0.2),
+                                radius: 1.1,
+                                colors: [Color(0xFF1B1C20), Color(0xFF0A0A0B)],
+                              ),
                             ),
                           ),
-                        ],
+                        ),
+                      // Live camera preview, its own layer.
+                      if (ready)
+                        Positioned.fill(
+                          child: RepaintBoundary(child: _preview(ui.camera!)),
+                        ),
+                      // Tap anywhere to focus.
+                      Positioned.fill(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onTapUp: (d) =>
+                              _onFocusTap(d.localPosition, screenSize),
+                        ),
                       ),
-                      _ModeChip(
-                        continuous: ui.continuous,
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          ctrl.toggleContinuous();
-                        },
-                      ),
-                      Expanded(
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            var side = constraints.biggest.shortestSide * 0.82;
-                            if (side > 340) side = 340;
-                            return Center(
+                      // Static overlays (dim area + fades): painted once.
+                      if (ready)
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: RepaintBoundary(
+                              child: _StaticOverlay(hole: scanRect),
+                            ),
+                          ),
+                        ),
+                      // Scan frame: only this small layer repaints each frame.
+                      if (!showPanel)
+                        Positioned.fromRect(
+                          rect: scanRect,
+                          child: IgnorePointer(
+                            child: RepaintBoundary(
                               child: Semantics(
                                 label:
                                     'Scan area. Align a code inside the frame.',
-                                child: SizedBox(
-                                  width: side,
-                                  height: side,
-                                  child: Stack(
-                                    children: [
-                                      Center(
-                                        child: Text(
-                                          'CAMERA PREVIEW\nPhase 4',
-                                          textAlign: TextAlign.center,
-                                          style: text.labelSmall,
+                                child: AnimatedBuilder(
+                                  animation: _line,
+                                  builder: (context, child) {
+                                    return CustomPaint(
+                                      painter: ScanFramePainter(
+                                        progress: Curves.easeInOut.transform(
+                                          _line.value,
                                         ),
+                                        color: scheme.primary,
+                                        showLine: ready && !ui.paused,
                                       ),
-                                      Positioned.fill(
-                                        child: AnimatedBuilder(
-                                          animation: _line,
-                                          builder: (context, child) {
-                                            return CustomPaint(
-                                              painter: ScanFramePainter(
-                                                progress: Curves.easeInOut
-                                                    .transform(_line.value),
-                                                color: scheme.primary,
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                    );
+                                  },
                                 ),
                               ),
-                            );
-                          },
-                        ),
-                      ),
-                      Text(
-                        'Align a code inside the frame',
-                        style: text.bodyMedium!.copyWith(
-                          color: Colors.white70,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.xl),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          _RoundControl(
-                            icon: ui.flashOn
-                                ? Icons.flash_on
-                                : Icons.flash_off,
-                            label: 'Flash',
-                            active: ui.flashOn,
-                            onTap: () {
-                              HapticFeedback.selectionClick();
-                              ctrl.toggleFlash();
-                            },
-                          ),
-                          _CaptureButton(
-                            onTap: () => _comingSoon(
-                              'Camera scanning arrives in Phase 4',
                             ),
                           ),
-                          _RoundControl(
-                            icon: Icons.bolt,
-                            label: 'Auto',
-                            active: ui.autoScan,
-                            onTap: () {
-                              HapticFeedback.selectionClick();
-                              ctrl.toggleAuto();
-                            },
+                        ),
+                      // Tap-to-focus ring.
+                      if (_focusTap != null)
+                        Positioned(
+                          left: _focusTap!.dx - 32,
+                          top: _focusTap!.dy - 32,
+                          child: IgnorePointer(
+                            child: FocusRing(
+                              key: ValueKey(_focusId),
+                              color: scheme.primary,
+                            ),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: AppSpacing.xl),
-                      ExaltedButton(
-                        label: 'Gallery',
-                        icon: Icons.photo_library_outlined,
-                        outlined: true,
-                        expand: true,
-                        onPressed: () => _comingSoon(
-                          'Gallery import arrives in Phase 5',
+                        ),
+                      // Paused badge.
+                      if (ready && ui.paused)
+                        Positioned.fromRect(
+                          rect: scanRect,
+                          child: const IgnorePointer(
+                            child: Center(
+                              child: StatusPill(
+                                icon: Icons.pause,
+                                label: 'PAUSED',
+                              ),
+                            ),
+                          ),
+                        ),
+                      // Permission / error panel.
+                      if (showPanel)
+                        Positioned.fill(
+                          child: Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(AppSpacing.xl),
+                              child: _panelFor(ui, ctrl),
+                            ),
+                          ),
+                        ),
+                      // Controls overlay.
+                      Positioned.fill(
+                        child: SafeArea(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.xl,
+                            ),
+                            child: Column(
+                              children: [
+                                const SizedBox(height: AppSpacing.md),
+                                Row(
+                                  children: [
+                                    const ExaltedLogo(width: 120),
+                                    const Spacer(),
+                                    IconButton(
+                                      tooltip: 'Settings',
+                                      onPressed: () => ref
+                                          .read(navIndexProvider.notifier)
+                                          .set(2),
+                                      icon: const Icon(Icons.settings_outlined),
+                                      color: Colors.white,
+                                      iconSize: 26,
+                                      constraints: const BoxConstraints(
+                                        minWidth: 48,
+                                        minHeight: 48,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                ModeChip(
+                                  continuous: ui.continuous,
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    ctrl.toggleContinuous();
+                                  },
+                                ),
+                                if (!kReleaseMode && ready)
+                                  DebugStatsLine(
+                                    pipeline: pipeline,
+                                    streaming: ui.streaming,
+                                    previewSize: _previewLabel(ui.camera),
+                                    qualityLabel: ui.quality.label,
+                                  ),
+                                const Spacer(),
+                                Text(
+                                  _hint(ui),
+                                  style: text.bodyMedium!.copyWith(
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                                const SizedBox(height: AppSpacing.xl),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    RoundControl(
+                                      icon: ui.flashOn
+                                          ? Icons.flash_on
+                                          : Icons.flash_off,
+                                      label: 'Flash',
+                                      active: ui.flashOn,
+                                      onTap: () {
+                                        HapticFeedback.selectionClick();
+                                        ctrl.toggleFlash();
+                                      },
+                                    ),
+                                    CaptureButton(
+                                      paused: ui.paused,
+                                      enabled: ready,
+                                      onTap: () {
+                                        HapticFeedback.lightImpact();
+                                        ctrl.togglePause();
+                                      },
+                                    ),
+                                    RoundControl(
+                                      icon: Icons.bolt,
+                                      label: 'Auto',
+                                      active: ui.autoScan,
+                                      onTap: () {
+                                        HapticFeedback.selectionClick();
+                                        ctrl.toggleAuto();
+                                      },
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: AppSpacing.xl),
+                                ExaltedButton(
+                                  label: 'Gallery',
+                                  icon: Icons.photo_library_outlined,
+                                  outlined: true,
+                                  expand: true,
+                                  onPressed: _openGallery,
+                                ),
+                                const SizedBox(height: AppSpacing.lg),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
-                      const SizedBox(height: AppSpacing.lg),
                     ],
-                  ),
-                ),
+                  );
+                },
               ),
             ),
           );
@@ -198,174 +445,86 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       ),
     );
   }
-}
 
-class _ModeChip extends StatelessWidget {
-  const _ModeChip({required this.continuous, required this.onTap});
-
-  final bool continuous;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    final label = continuous ? 'CONTINUOUS' : 'SINGLE SCAN';
-
-    return Semantics(
-      button: true,
-      label: 'Scan mode: $label. Tap to change.',
-      onTap: onTap,
-      child: ExcludeSemantics(
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onTap,
-          child: SizedBox(
-            height: 48,
-            child: Center(
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                  border: Border.all(color: Colors.white24),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      continuous ? Icons.all_inclusive : Icons.filter_1,
-                      size: 16,
-                      color: Colors.white,
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Text(
-                      label,
-                      style: text.labelLarge!.copyWith(
-                        color: Colors.white,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+  Widget _panelFor(ScannerUiState ui, ScannerController ctrl) {
+    switch (ui.status) {
+      case CameraStatus.needsPermission:
+        return ScannerStatePanel(
+          icon: Icons.camera_alt_outlined,
+          title: 'Camera access needed',
+          message:
+              'Exalted uses the camera only to scan codes. '
+              'Nothing leaves your device.',
+          actionLabel: 'Allow camera',
+          onAction: ctrl.requestPermission,
+        );
+      case CameraStatus.permissionDenied:
+        return ScannerStatePanel(
+          icon: Icons.no_photography_outlined,
+          title: 'Camera permission is off',
+          message:
+              'Turn on the Camera permission for Exalted in Settings, '
+              'then come back.',
+          actionLabel: 'Open settings',
+          onAction: ctrl.openSettings,
+        );
+      default:
+        return ScannerStatePanel(
+          icon: Icons.error_outline,
+          title: "Couldn't start the camera",
+          message: ui.errorMessage ?? 'Something went wrong.',
+          actionLabel: 'Try again',
+          onAction: ctrl.retry,
+        );
+    }
   }
 }
 
-class _RoundControl extends StatelessWidget {
-  const _RoundControl({
-    required this.icon,
-    required this.label,
-    required this.active,
-    required this.onTap,
-  });
+/// Dim area outside the scan window plus top/bottom fades.
+class _StaticOverlay extends StatelessWidget {
+  const _StaticOverlay({required this.hole});
 
-  final IconData icon;
-  final String label;
-  final bool active;
-  final VoidCallback onTap;
+  final Rect hole;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final primary = theme.colorScheme.primary;
-
-    return Semantics(
-      button: true,
-      selected: active,
-      label: label,
-      onTap: onTap,
-      child: ExcludeSemantics(
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onTap,
-          child: SizedBox(
-            width: 72,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 160),
-                  curve: Curves.easeOutCubic,
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: active
-                        ? primary
-                        : Colors.white.withValues(alpha: 0.08),
-                    border: Border.all(
-                      color: active ? primary : Colors.white24,
-                    ),
-                  ),
-                  child: Icon(icon, color: Colors.white),
-                ),
-                const SizedBox(height: 6),
-                Text(label.toUpperCase(), style: theme.textTheme.labelSmall),
-              ],
-            ),
-          ),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned.fill(
+          child: CustomPaint(painter: ScrimPainter(hole: hole)),
         ),
-      ),
-    );
-  }
-}
-
-class _CaptureButton extends StatefulWidget {
-  const _CaptureButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  State<_CaptureButton> createState() => _CaptureButtonState();
-}
-
-class _CaptureButtonState extends State<_CaptureButton> {
-  bool _down = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-
-    return Semantics(
-      button: true,
-      label: 'Scan',
-      onTap: widget.onTap,
-      child: ExcludeSemantics(
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTapDown: (_) => setState(() => _down = true),
-          onTapUp: (_) => setState(() => _down = false),
-          onTapCancel: () => setState(() => _down = false),
-          onTap: widget.onTap,
-          child: AnimatedScale(
-            scale: _down ? 0.92 : 1,
-            duration: const Duration(milliseconds: 120),
-            curve: Curves.easeOutCubic,
-            child: Container(
-              width: 76,
-              height: 76,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: primary,
-                border: Border.all(color: Colors.white, width: 3),
-                boxShadow: AppShadows.button,
-              ),
-              child: const Icon(
-                Icons.qr_code_scanner,
-                color: Colors.white,
-                size: 34,
+        const Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 150,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xB3000000), Color(0x00000000)],
               ),
             ),
           ),
         ),
-      ),
+        const Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 300,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                colors: [Color(0xCC000000), Color(0x00000000)],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

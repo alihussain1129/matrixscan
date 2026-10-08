@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 
-/// Draws the scan frame: corner brackets plus an animated scan line.
+/// Draws the scan frame: corner brackets plus an optional animated scan line.
 class ScanFramePainter extends CustomPainter {
-  ScanFramePainter({required this.progress, required this.color});
+  ScanFramePainter({
+    required this.progress,
+    required this.color,
+    this.showLine = true,
+  });
 
   /// 0.0 (top) to 1.0 (bottom) position of the scan line.
   final double progress;
   final Color color;
+  final bool showLine;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -23,7 +28,7 @@ class ScanFramePainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1
-        ..color = Colors.white.withValues(alpha: 0.12),
+        ..color = Colors.white.withValues(alpha: 0.18),
     );
 
     // Corner brackets.
@@ -63,6 +68,8 @@ class ScanFramePainter extends CustomPainter {
       bracket,
     );
 
+    if (!showLine) return;
+
     // Scan line with a soft glow.
     final y = 14 + (h - 28) * progress;
     final glowRect = Rect.fromLTWH(14, y - 8, w - 28, 16);
@@ -95,5 +102,31 @@ class ScanFramePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(ScanFramePainter oldDelegate) =>
-      oldDelegate.progress != progress || oldDelegate.color != color;
+      oldDelegate.progress != progress ||
+      oldDelegate.color != color ||
+      oldDelegate.showLine != showLine;
+}
+
+/// Dims everything outside the scan area so the code stands out.
+class ScrimPainter extends CustomPainter {
+  ScrimPainter({required this.hole, this.opacity = 0.55});
+
+  final Rect hole;
+  final double opacity;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..addRect(Offset.zero & size)
+      ..addRRect(RRect.fromRectAndRadius(hole, const Radius.circular(18)))
+      ..fillType = PathFillType.evenOdd;
+    canvas.drawPath(
+      path,
+      Paint()..color = Colors.black.withValues(alpha: opacity),
+    );
+  }
+
+  @override
+  bool shouldRepaint(ScrimPainter oldDelegate) =>
+      oldDelegate.hole != hole || oldDelegate.opacity != opacity;
 }

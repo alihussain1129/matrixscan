@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../constants/brand.dart';
 
 /// Temporary code-built logo. Replaced by the official SVG in Phase 2.

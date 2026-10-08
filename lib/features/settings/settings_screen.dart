@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -45,6 +46,40 @@ class SettingsScreen extends ConsumerWidget {
                   subtitle: 'Keep scanning several codes without stopping',
                   value: ui.continuous,
                   onChanged: (_) => scanner.toggleContinuous(),
+                ),
+                Divider(color: colors.outline, height: AppSpacing.xl),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Camera quality', style: text.bodyLarge),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Balanced is smoother on older phones. '
+                        'High reads small codes better.',
+                        style: text.bodySmall,
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      SizedBox(
+                        width: double.infinity,
+                        child: SegmentedButton<CameraQuality>(
+                          showSelectedIcon: false,
+                          segments: [
+                            for (final q in CameraQuality.values)
+                              ButtonSegment(value: q, label: Text(q.label)),
+                          ],
+                          selected: {ui.quality},
+                          onSelectionChanged: (s) =>
+                              scanner.setQuality(s.first),
+                          style: SegmentedButton.styleFrom(
+                            selectedBackgroundColor: scheme.primary,
+                            selectedForegroundColor: scheme.onPrimary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

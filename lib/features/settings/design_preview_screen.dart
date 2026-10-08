@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -79,8 +80,10 @@ class DesignPreviewScreen extends ConsumerWidget {
             Text('Display 28', style: text.displaySmall),
             Text('Title 20', style: text.titleLarge),
             Text('Body 15 - clear and readable', style: text.bodyMedium),
-            Text('MONO 0123456789 ABCDEF',
-                style: AppTypography.mono(size: 14, color: scheme.onSurface)),
+            Text(
+              'MONO 0123456789 ABCDEF',
+              style: AppTypography.mono(size: 14, color: scheme.onSurface),
+            ),
             const SizedBox(height: AppSpacing.xl),
             Text('BUTTONS', style: text.labelSmall),
             const SizedBox(height: AppSpacing.md),
@@ -113,8 +116,10 @@ class DesignPreviewScreen extends ConsumerWidget {
                     children: [
                       Icon(Icons.check_circle, color: colors.valid, size: 20),
                       const SizedBox(width: AppSpacing.sm),
-                      Text('DECODED',
-                          style: text.labelLarge!.copyWith(color: colors.valid)),
+                      Text(
+                        'DECODED',
+                        style: text.labelLarge!.copyWith(color: colors.valid),
+                      ),
                     ],
                   ),
                   const SizedBox(height: AppSpacing.md),
@@ -129,8 +134,10 @@ class DesignPreviewScreen extends ConsumerWidget {
                     ),
                     child: SelectableText(
                       '(01)09876543210123(17)280630(10)B6789',
-                      style:
-                          AppTypography.mono(size: 14, color: scheme.onSurface),
+                      style: AppTypography.mono(
+                        size: 14,
+                        color: scheme.onSurface,
+                      ),
                     ),
                   ),
                 ],
@@ -145,8 +152,10 @@ class DesignPreviewScreen extends ConsumerWidget {
                   Icon(Icons.error_outline, color: scheme.error),
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
-                    child: Text("Couldn't find a supported code.",
-                        style: text.bodyMedium),
+                    child: Text(
+                      "Couldn't find a supported code.",
+                      style: text.bodyMedium,
+                    ),
                   ),
                 ],
               ),

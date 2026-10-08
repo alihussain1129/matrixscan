@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import 'app_colors.dart';
 import 'app_typography.dart';
 
@@ -7,16 +8,16 @@ class AppTheme {
   AppTheme._();
 
   static ThemeData light() => _build(
-        scheme: AppColors.lightScheme,
-        colors: AppColors.lightExtra,
-        background: AppColors.lightBg,
-      );
+    scheme: AppColors.lightScheme,
+    colors: AppColors.lightExtra,
+    background: AppColors.lightBg,
+  );
 
   static ThemeData dark() => _build(
-        scheme: AppColors.darkScheme,
-        colors: AppColors.darkExtra,
-        background: AppColors.darkBg,
-      );
+    scheme: AppColors.darkScheme,
+    colors: AppColors.darkExtra,
+    background: AppColors.darkBg,
+  );
 
   static ThemeData _build({
     required ColorScheme scheme,

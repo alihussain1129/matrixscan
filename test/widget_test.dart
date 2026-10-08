@@ -6,9 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 ThemeData _testTheme() => ThemeData(
-      colorScheme: AppColors.lightScheme,
-      extensions: const [AppColors.lightExtra],
-    );
+  colorScheme: AppColors.lightScheme,
+  extensions: const [AppColors.lightExtra],
+);
 
 void main() {
   testWidgets('logo shows EXALTED', (tester) async {
