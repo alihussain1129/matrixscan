@@ -400,7 +400,10 @@ class ScannerController extends Notifier<ScannerUiState> {
       return;
     }
 
-    final want = _wantRunning && state.streaming;
+    // Keep the camera stream running while a result is on screen. Restarting
+    // it costs about 400 ms before the first frame arrives, so Scan Again
+    // would feel slow. _onFrame drops frames while paused.
+    final want = _wantRunning && state.autoScan;
 
     try {
       if (want && !cam.value.isStreamingImages) {
@@ -497,6 +500,7 @@ class ScannerController extends Notifier<ScannerUiState> {
   }
 
   Future<void> resumeScanning() async {
+    debugPrint('[EXALTED][SCAN] scan again');
     state = state.copyWith(clearResult: true, paused: false);
 
     await _syncStream();
@@ -513,7 +517,9 @@ class ScannerController extends Notifier<ScannerUiState> {
 
     // Prevent the same barcode from repeatedly firing while continuous
     // scanning is active.
-    if (barcode.text == _lastText && now - _lastResultMs < 2500) {
+    if (state.continuous &&
+        barcode.text == _lastText &&
+        now - _lastResultMs < 2500) {
       return;
     }
 
