@@ -85,7 +85,7 @@ class PipelineStats {
 /// decoder can never slow the preview down.
 class FramePipeline {
   FramePipeline({
-    this.targetFps = 15,
+    this.targetFps = 30,
     int Function()? clockMs,
     List<FrameAnalyzer>? analyzers,
   }) : _clockMs = clockMs ?? _stopwatchClock() {
