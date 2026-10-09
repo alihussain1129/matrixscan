@@ -6,7 +6,8 @@ import '../../gs1/gs1_parser.dart';
 import '../../interpret/default_registry.dart';
 import '../../interpret/interpreter.dart';
 import 'gs1_info_panel.dart';
-import 'interpretation_view.dart';
+import '../../verify/verification_engine.dart';
+import 'verified_interpretation_view.dart';
 import 'wifi_info_panel.dart';
 import 'wifi_utils.dart';
 
@@ -21,6 +22,8 @@ class ScanResultCard extends StatelessWidget {
     required this.onScanAgain,
     this.onOpenLink,
     this.onConnectWifi,
+    this.verifier,
+    this.allowedSources = const {},
   });
 
   final DecodedBarcode barcode;
@@ -32,6 +35,12 @@ class ScanResultCard extends StatelessWidget {
 
   /// Non-null to offer joining a Wi-Fi code. Shown only when it can be joined.
   final VoidCallback? onConnectWifi;
+
+  /// Runs verification checks when non-null.
+  final VerificationEngine? verifier;
+
+  /// IDs of online sources the user has allowed.
+  final Set<String> allowedSources;
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +93,7 @@ class ScanResultCard extends StatelessWidget {
               ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 320),
                 child: SingleChildScrollView(
-                  child: InterpretationView(interpretation: emv),
+                  child: VerifiedInterpretationView(interpretation: emv, verifier: verifier, allowedSources: allowedSources),
                 ),
               )
             else if (gs1 != null)
