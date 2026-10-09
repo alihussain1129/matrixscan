@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_spacing.dart';
 import '../../ffi/decode_result.dart';
+import '../../gs1/gs1_parser.dart';
+import 'gs1_info_panel.dart';
 import 'wifi_info_panel.dart';
 import 'wifi_utils.dart';
 
@@ -32,6 +34,7 @@ class ScanResultCard extends StatelessWidget {
     final scheme = theme.colorScheme;
     final text = theme.textTheme;
     final wifi = parseWifiQr(barcode.text);
+    final gs1 = wifi == null ? parseGs1(barcode.text) : null;
     final showConnect =
         wifi != null && wifi.canConnect && onConnectWifi != null;
 
@@ -48,7 +51,11 @@ class ScanResultCard extends StatelessWidget {
             Row(
               children: [
                 Icon(
-                  wifi != null ? Icons.wifi : Icons.qr_code_2,
+                  wifi != null
+                      ? Icons.wifi
+                      : gs1 != null
+                      ? Icons.inventory_2_outlined
+                      : Icons.qr_code_2,
                   color: scheme.primary,
                 ),
                 const SizedBox(width: AppSpacing.md),
@@ -64,6 +71,11 @@ class ScanResultCard extends StatelessWidget {
             const SizedBox(height: AppSpacing.md),
             if (wifi != null)
               WifiInfoPanel(wifi: wifi)
+            else if (gs1 != null)
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 320),
+                child: SingleChildScrollView(child: Gs1InfoPanel(result: gs1)),
+              )
             else
               ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 160),
