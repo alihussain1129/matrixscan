@@ -13,6 +13,9 @@ import 'wifi_utils.dart';
 
 final _registry = defaultInterpreterRegistry();
 
+/// Interpretations shown in full on the card. Everything else shows raw text.
+const Set<String> _richInterpreters = {'emv', 'gs1', 'contact'};
+
 /// Bottom card shown on the scanner screen when a barcode has been decoded.
 class ScanResultCard extends StatelessWidget {
   const ScanResultCard({
@@ -52,7 +55,8 @@ class ScanResultCard extends StatelessWidget {
     final interp = wifi == null
         ? _registry.interpret(ScanPayload(raw: barcode.text, symbology: barcode.kind.label, source: 'live'))
         : null;
-    final emv = (interp != null && (interp.interpreterId == 'emv' || interp.interpreterId == 'gs1')) ? interp : null;
+    final emv = (interp != null && _richInterpreters.contains(interp.interpreterId)) ? interp : null;
+    final linkWarnings = (interp != null && interp.interpreterId == 'url') ? interp.warnings : const <String>[];
     final showConnect =
         wifi != null && wifi.canConnect && onConnectWifi != null;
 
@@ -73,7 +77,7 @@ class ScanResultCard extends StatelessWidget {
                       ? Icons.wifi
                       : gs1 != null
                       ? Icons.inventory_2_outlined
-                      : emv != null ? Icons.payments_outlined : Icons.qr_code_2,
+                      : emv != null ? (emv.interpreterId == 'emv' ? Icons.payments_outlined : emv.interpreterId == 'gs1' ? Icons.inventory_2_outlined : Icons.contact_page_outlined) : Icons.qr_code_2,
                   color: scheme.primary,
                 ),
                 const SizedBox(width: AppSpacing.md),
@@ -105,7 +109,13 @@ class ScanResultCard extends StatelessWidget {
               ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 160),
                 child: SingleChildScrollView(
-                  child: SelectableText(barcode.text, style: text.bodyLarge),
+                  child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SelectableText(barcode.text, style: text.bodyLarge),
+                    for (final w in linkWarnings) _LinkWarning(w),
+                  ],
+                ),
                 ),
               ),
             const SizedBox(height: AppSpacing.lg),
@@ -158,6 +168,35 @@ class ScanResultCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// One warning line about a link, in the error colour.
+class _LinkWarning extends StatelessWidget {
+  const _LinkWarning(this.message);
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.error;
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.xs),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.warning_amber_rounded, size: 18, color: color),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              message,
+              style: theme.textTheme.bodySmall?.copyWith(color: color),
+            ),
+          ),
+        ],
       ),
     );
   }
