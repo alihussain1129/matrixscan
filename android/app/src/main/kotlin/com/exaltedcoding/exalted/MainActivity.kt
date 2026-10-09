@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.wifi.WifiConfiguration
 import android.net.wifi.WifiManager
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.net.wifi.WifiNetworkSuggestion
 import android.os.Build
 import android.provider.Settings
@@ -15,6 +17,7 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private var pendingResult: MethodChannel.Result? = null
+    private var scanToneGenerator: ToneGenerator? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -26,6 +29,35 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            FEEDBACK_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "beep" -> beep(result)
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun beep(result: MethodChannel.Result) {
+        try {
+            val tone = scanToneGenerator
+                ?: ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80).also {
+                    scanToneGenerator = it
+                }
+            tone.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
+            result.success(true)
+        } catch (e: Exception) {
+            result.error("sound_failed", e.message, null)
+        }
+    }
+
+    override fun onDestroy() {
+        scanToneGenerator?.release()
+        scanToneGenerator = null
+        super.onDestroy()
     }
 
     private fun connect(call: MethodCall, result: MethodChannel.Result) {
@@ -185,6 +217,8 @@ class MainActivity : FlutterActivity() {
 
     private companion object {
         const val CHANNEL = "com.exaltedcoding.exalted/wifi"
+        const val FEEDBACK_CHANNEL = "com.exaltedcoding.exalted/scan_feedback"
         const val REQUEST_ADD_WIFI = 4711
     }
 }
+

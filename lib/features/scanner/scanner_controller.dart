@@ -12,6 +12,7 @@ import '../history/history_entry.dart';
 import '../history/history_repository.dart';
 import 'frame_pipeline.dart';
 import 'scanner_analyzer.dart';
+import 'scan_feedback.dart';
 
 enum CameraStatus {
   idle,
@@ -570,6 +571,7 @@ class ScannerController extends Notifier<ScannerUiState> {
     _lastResultMs = now;
 
     HapticFeedback.mediumImpact();
+    unawaited(ScanFeedback.beep());
 
     debugPrint('[EXALTED][RESULT] shown: $barcode');
     debugPrint(
@@ -617,6 +619,7 @@ class ScannerController extends Notifier<ScannerUiState> {
     _lastResultMs = _resultClock.elapsedMilliseconds;
 
     HapticFeedback.mediumImpact();
+    unawaited(ScanFeedback.beep());
 
     debugPrint('[EXALTED][RESULT] shown (gallery): $barcode');
 
@@ -630,3 +633,4 @@ class ScannerController extends Notifier<ScannerUiState> {
 
 final scannerControllerProvider =
     NotifierProvider<ScannerController, ScannerUiState>(ScannerController.new);
+
