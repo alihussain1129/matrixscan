@@ -95,5 +95,6 @@ class DecodedBarcode {
 
   @override
   String toString() =>
-      '${kind.label} "$text" (${(decodeMicros / 1000).toStringAsFixed(1)} ms)';
+      '${kind.label} "${text.toUpperCase().startsWith('WIFI:') ? 'WIFI:[hidden]' : text}" '
+      '(${(decodeMicros / 1000).toStringAsFixed(1)} ms)';
 }

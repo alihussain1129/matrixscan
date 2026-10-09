@@ -44,7 +44,7 @@ class MainActivity : FlutterActivity() {
     private fun beep(result: MethodChannel.Result) {
         try {
             val tone = scanToneGenerator
-                ?: ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80).also {
+                ?: ToneGenerator(AudioManager.STREAM_MUSIC, 100).also {
                     scanToneGenerator = it
                 }
             tone.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
