@@ -15,6 +15,7 @@ class ExaltedBottomNav extends StatelessWidget {
   final ValueChanged<int> onChanged;
 
   static const List<(IconData, String)> _items = [
+    (Icons.home_outlined, 'Home'),
     (Icons.qr_code_scanner, 'Scan'),
     (Icons.history, 'History'),
     (Icons.settings_outlined, 'Settings'),

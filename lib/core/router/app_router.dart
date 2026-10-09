@@ -1,9 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Which bottom-nav tab is selected: 0 = Scan, 1 = History, 2 = Settings.
+/// Bottom-nav tab positions. Use these instead of bare numbers.
+const int kHomeTab = 0;
+const int kScanTab = 1;
+const int kHistoryTab = 2;
+const int kSettingsTab = 3;
+
+/// Which bottom-nav tab is selected.
 class NavIndexNotifier extends Notifier<int> {
   @override
-  int build() => 0;
+  int build() => kHomeTab;
 
   void set(int index) => state = index;
 }

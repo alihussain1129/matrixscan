@@ -52,7 +52,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     );
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && ref.read(navIndexProvider) == 0) {
+      if (mounted && ref.read(navIndexProvider) == kScanTab) {
         ref.read(scannerControllerProvider.notifier).start();
         _startLineAnimation();
       }
@@ -83,7 +83,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
     final ctrl = ref.read(scannerControllerProvider.notifier);
     if (lifecycle == AppLifecycleState.resumed) {
-      if (ref.read(navIndexProvider) == 0) {
+      if (ref.read(navIndexProvider) == kScanTab) {
         ctrl.start();
         _startLineAnimation();
       }
@@ -185,7 +185,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
 
     if (!mounted) return;
 
-    if (ref.read(navIndexProvider) == 0) {
+    if (ref.read(navIndexProvider) == kScanTab) {
       _startLineAnimation();
     }
   }
@@ -205,7 +205,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
 
     ref.read(ocrControllerProvider.notifier).reset();
 
-    if (mounted && ref.read(navIndexProvider) == 0) {
+    if (mounted && ref.read(navIndexProvider) == kScanTab) {
       ctrl.start();
       _startLineAnimation();
     }
@@ -277,7 +277,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     final pipeline = ref.read(framePipelineProvider);
 
     ref.listen<int>(navIndexProvider, (previous, next) {
-      if (next == 0) {
+      if (next == kScanTab) {
         ctrl.start();
         _startLineAnimation();
       } else {
@@ -470,7 +470,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                                       tooltip: 'Settings',
                                       onPressed: () => ref
                                           .read(navIndexProvider.notifier)
-                                          .set(2),
+                                          .set(kSettingsTab),
                                       icon: const Icon(Icons.settings_outlined),
                                       color: Colors.white,
                                       iconSize: 26,
