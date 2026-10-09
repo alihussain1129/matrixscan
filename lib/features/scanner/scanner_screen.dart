@@ -19,6 +19,7 @@ import 'frame_pipeline.dart';
 import 'link_utils.dart';
 import 'scan_frame_painter.dart';
 import 'scan_result_card.dart';
+import 'scanner_analyzer.dart';
 import 'scanner_controller.dart';
 import 'scanner_widgets.dart';
 import 'wifi_connector.dart';
@@ -332,6 +333,29 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                   );
 
                   final screenSize = Size(w, h);
+
+                  // Tell the analyzer where the scan window sits in the
+                  // camera image, so it can decode just a band around it.
+                  final previewSize = ui.camera?.value.previewSize;
+                  if (ready && previewSize != null) {
+                    final pw = previewSize.shortestSide;
+                    final ph = previewSize.longestSide;
+                    final sx = w / pw;
+                    final sy = h / ph;
+                    final scale = sx > sy ? sx : sy;
+                    final ox = (w - pw * scale) / 2;
+                    final oy = (h - ph * scale) / 2;
+                    double norm(double v, double offset, double span) =>
+                        ((v - offset) / span).clamp(0.0, 1.0).toDouble();
+                    ref
+                        .read(scannerAnalyzerProvider)
+                        .scanWindow = Rect.fromLTRB(
+                      norm(scanRect.left, ox, pw * scale),
+                      norm(scanRect.top, oy, ph * scale),
+                      norm(scanRect.right, ox, pw * scale),
+                      norm(scanRect.bottom, oy, ph * scale),
+                    );
+                  }
 
                   return Stack(
                     fit: StackFit.expand,

@@ -27,6 +27,11 @@ class HistoryController extends AsyncNotifier<List<HistoryEntry>> {
     ref.invalidateSelf();
   }
 
+  Future<void> clearAll() async {
+    await ref.read(historyRepositoryProvider).clear();
+    ref.invalidateSelf();
+  }
+
   Future<void> delete(String id) async {
     await ref.read(historyRepositoryProvider).delete(id);
     ref.invalidateSelf();

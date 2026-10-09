@@ -1,9 +1,9 @@
-import 'dart:io';
+import 'dart:async';
+import 'dart:ui' show Rect;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../ffi/decode_result.dart';
 import '../../ffi/decoder_service.dart';
@@ -31,19 +31,40 @@ class ScannerAnalyzerStats {
 ///
 /// Hands every accepted frame's luminance plane to the native C++ core
 /// (zxing-cpp behind libexalted_ffi.so) and reports each decoded barcode
-/// through [onDecoded]. Contains temporary live-scan diagnostics.
+/// through [onDecoded]. When it owns its decoder it runs two decoders in
+/// parallel, so decoding keeps up with the camera.
 class ScannerAnalyzer implements FrameAnalyzer {
-  ScannerAnalyzer({DecoderService? decoder})
-    : _decoder = decoder ?? DecoderService(),
-      _ownsDecoder = decoder == null;
+  ScannerAnalyzer({DecoderService? decoder}) : _ownsDecoder = decoder == null {
+    _slots.add(_Slot(decoder ?? DecoderService(), owned: decoder == null));
+    if (_ownsDecoder) {
+      // One decoder only: a second did not raise throughput on this phone.
+    }
+  }
 
-  final DecoderService _decoder;
+  /// Time since the scanner was first opened (startup diagnostics).
+  static final Stopwatch startup = Stopwatch()..start();
+
+  static void startupLog(String what) {
+    debugPrint('[EXALTED][START] +${startup.elapsedMilliseconds}ms $what');
+  }
+
   final bool _ownsDecoder;
+  final List<_Slot> _slots = [];
 
   void Function(DecodedBarcode barcode)? onDecoded;
 
+  /// Scan window as fractions (0..1) of the upright preview image. Set by the
+  /// scanner screen; null until the camera is showing.
+  Rect? scanWindow;
+
   @override
   String get name => 'scanner';
+
+  /// Loads the native library and starts the decode isolates ahead of the
+  /// first camera frame.
+  Future<void> prewarm() async {
+    await Future.wait(_slots.map((s) => s.decoder.prewarm()));
+  }
 
   int _analyzedFrames = 0;
   int _decodedFrames = 0;
@@ -57,14 +78,37 @@ class ScannerAnalyzer implements FrameAnalyzer {
   int _windowFrames = 0;
   int _windowMicros = 0;
   int _lastLogMs = 0;
+  int _lastHitMs = -1;
   final Map<int, int> _rcWindow = {};
 
-  // Decode passes, one per analyzed frame. Flags: 2 = invert, 4 = no rotate,
-  // 8 = no downscale, 16 = global histogram. 0 = full search (old behavior).
-  static const List<int> _passCycle = [24, 16, 24, 26, 24, 8];
-  final Map<int, int> _passN = {};
-  final Map<int, int> _passUs = {};
-  final Map<int, int> _passHits = {};
+  // Decode passes, one per analyzed frame. Native option flags: 2 = invert,
+  // 4 = no rotate, 8 = no downscale, 16 = global histogram, 32 = harder (more
+  // scan lines for 1D codes). Every pass reads every symbology.
+  // crop = decode only a band around the on-screen scan window.
+  static const double _bandMargin = 0.35;
+  static const List<_Pass> _passCycle = [
+    _Pass(24, true),
+    _Pass(56, true),
+    _Pass(26, true),
+    _Pass(8, true),
+    _Pass(24, false),
+    _Pass(48, false),
+  ];
+
+  // Dot-peen fallback passes: dark dots 1/2 px, light dots 1/2 px. Only used
+  // after a long run of misses, so normal scanning is not slowed.
+  static const List<_Pass> _dotPasses = [
+    _Pass(88, true),
+    _Pass(152, true),
+    _Pass(344, true),
+    _Pass(408, true),
+  ];
+  int _missStreak = 0;
+
+  final Map<String, int> _passN = {};
+  final Map<String, int> _passUs = {};
+  final Map<String, int> _passHits = {};
+  String _lastCropLog = '';
 
   // UI frame timing (temporary diagnostic), reset every second.
   bool _timingsHooked = false;
@@ -93,8 +137,6 @@ class ScannerAnalyzer implements FrameAnalyzer {
 
   final Stopwatch _clock = Stopwatch()..start();
 
-  static const Set<int> _dumpAt = {45, 150, 400};
-
   int get analyzedFrames => _analyzedFrames;
   int get decodedFrames => _decodedFrames;
   int get lastFrameWidth => _lastWidth;
@@ -109,14 +151,71 @@ class ScannerAnalyzer implements FrameAnalyzer {
     lastRotationDegrees: _lastRotation,
   );
 
+  /// Region of [frame], in buffer pixels: the full width of the upright image
+  /// and a band of it around the on-screen scan window, so wide 1D codes are
+  /// never cut sideways. Null when the window is unknown.
+  _Crop? _cropFor(AnalysisFrame frame) {
+    final win = scanWindow;
+    if (win == null) return null;
+
+    final margin = win.height * _bandMargin;
+    final t = (win.top - margin).clamp(0.0, 1.0).toDouble();
+    final b = (win.bottom + margin).clamp(0.0, 1.0).toDouble();
+
+    var left = 0;
+    var right = frame.width;
+    var top = 0;
+    var bottom = frame.height;
+    final rot = frame.rotationDegrees % 360;
+    if (rot == 90) {
+      left = (t * frame.width).floor();
+      right = (b * frame.width).ceil();
+    } else if (rot == 270) {
+      left = ((1 - b) * frame.width).floor();
+      right = ((1 - t) * frame.width).ceil();
+    } else if (rot == 0) {
+      top = (t * frame.height).floor();
+      bottom = (b * frame.height).ceil();
+    } else if (rot == 180) {
+      top = ((1 - b) * frame.height).floor();
+      bottom = ((1 - t) * frame.height).ceil();
+    } else {
+      return null;
+    }
+
+    left = left.clamp(0, frame.width - 1).toInt();
+    top = top.clamp(0, frame.height - 1).toInt();
+    right = right.clamp(left + 1, frame.width).toInt();
+    bottom = bottom.clamp(top + 1, frame.height).toInt();
+    final w = right - left;
+    final h = bottom - top;
+    if (w < 64 || h < 64) return null;
+    return _Crop(left, top, w, h);
+  }
+
+  _Slot? _freeSlot() {
+    for (final s in _slots) {
+      if (!s.busy) return s;
+    }
+    return null;
+  }
+
   @override
   Future<void> analyze(AnalysisFrame frame) async {
     if (_disposed) return;
     _hookTimings();
+
+    final slot = _freeSlot();
+    if (slot == null) return; // every decoder is busy: skip this frame
+
     _analyzedFrames++;
     _lastWidth = frame.width;
     _lastHeight = frame.height;
     _lastRotation = frame.rotationDegrees;
+
+    if (_analyzedFrames == 1) {
+      startupLog('first camera frame reached the analyzer');
+    }
 
     if (!_geometryLogged) {
       _geometryLogged = true;
@@ -129,37 +228,84 @@ class ScannerAnalyzer implements FrameAnalyzer {
       );
     }
 
-    // Dump raw frames if nothing has decoded yet (debug only).
-    if (!kReleaseMode &&
-        _decodedFrames == 0 &&
-        _dumpAt.contains(_analyzedFrames)) {
-      _dumpFrame(frame, 'f$_analyzedFrames');
-    }
-
     final watch = Stopwatch()..start();
     _attempts++;
-    final passFlags = _passCycle[(_attempts - 1) % _passCycle.length];
-    final barcode = await _decoder.decodeAsync(
+    final useDot = _missStreak >= 90 && _attempts % 10 == 0;
+    final pass = useDot
+        ? _dotPasses[(_attempts ~/ 10) % _dotPasses.length]
+        : _passCycle[(_attempts - 1) % _passCycle.length];
+    _missStreak++;
+    final crop = pass.crop ? _cropFor(frame) : null;
+    if (pass.crop) {
+      final cropLog = crop == null
+          ? 'none (scan window unknown)'
+          : '${crop.left},${crop.top} ${crop.width}x${crop.height} '
+                'of ${frame.width}x${frame.height} rot=${frame.rotationDegrees}';
+      if (cropLog != _lastCropLog) {
+        _lastCropLog = cropLog;
+        debugPrint('[EXALTED][CROP] $cropLog');
+      }
+    }
+
+    slot.busy = true;
+    final startMs = _clock.elapsedMilliseconds;
+    // decodeAsync copies the luminance plane into native memory before its
+    // first await, so the camera buffer is free once this call returns.
+    final call = slot.decoder.decodeAsync(
       luma: frame.yPlane,
       width: frame.width,
       height: frame.height,
       rowStride: frame.yRowStride,
-      flags: passFlags,
+      flags: pass.flags,
+      cropLeft: crop?.left ?? 0,
+      cropTop: crop?.top ?? 0,
+      cropWidth: crop?.width ?? 0,
+      cropHeight: crop?.height ?? 0,
     );
-    _passN[passFlags] = (_passN[passFlags] ?? 0) + 1;
-    _passUs[passFlags] = (_passUs[passFlags] ?? 0) + watch.elapsedMicroseconds;
-    if (barcode != null) {
-      _passHits[passFlags] = (_passHits[passFlags] ?? 0) + 1;
+    final done = _finish(slot, call, pass, startMs, watch);
+    if (_ownsDecoder) {
+      unawaited(done);
+    } else {
+      await done;
     }
+  }
+
+  Future<void> _finish(
+    _Slot slot,
+    Future<DecodedBarcode?> call,
+    _Pass pass,
+    int startMs,
+    Stopwatch watch,
+  ) async {
+    DecodedBarcode? barcode;
+    try {
+      barcode = await call;
+    } catch (e) {
+      debugPrint('[EXALTED][ANALYZER] decode failed: $e');
+    } finally {
+      slot.busy = false;
+    }
+    if (_disposed) return;
+
+    if (_analyzedFrames <= 2) {
+      startupLog('first decode finished (decoder ready)');
+    }
+    final label = pass.label;
+    _passN[label] = (_passN[label] ?? 0) + 1;
+    _passUs[label] = (_passUs[label] ?? 0) + watch.elapsedMicroseconds;
     _windowFrames++;
     _windowMicros += watch.elapsedMicroseconds;
-    final rc = _decoder.isAvailable ? _decoder.lastDecodeStatus : -99;
+    final rc = slot.decoder.isAvailable ? slot.decoder.lastDecodeStatus : -99;
     _rcWindow[rc] = (_rcWindow[rc] ?? 0) + 1;
 
-    if (barcode != null) {
+    // Ignore a result from a frame captured before the last accepted hit.
+    if (barcode != null && startMs >= _lastHitMs) {
+      _lastHitMs = _clock.elapsedMilliseconds;
+      _passHits[label] = (_passHits[label] ?? 0) + 1;
       _decodedFrames++;
+      _missStreak = 0;
       debugPrint('[EXALTED][RESULT] $barcode');
-      debugPrint('[EXALTED][PASS] hit flags=$passFlags');
+      debugPrint('[EXALTED][PASS] hit flags=${pass.flags} pass=$label');
       onDecoded?.call(barcode);
     }
 
@@ -174,17 +320,8 @@ class ScannerAnalyzer implements FrameAnalyzer {
         'decoded=$_decodedFrames rc=$_rcWindow '
         'avgDecode=${avgMs.toStringAsFixed(1)}ms',
       );
-      if (!_decoder.isAvailable) {
-        debugPrint('[EXALTED][NATIVE] unavailable: ${_decoder.loadError}');
-      } else {
-        final probe = _decoder.probe(
-          luma: frame.yPlane,
-          width: frame.width,
-          height: frame.height,
-          rowStride: frame.yRowStride,
-          rotationDegrees: frame.rotationDegrees,
-        );
-        debugPrint('[EXALTED][NATIVE] $probe');
+      if (!slot.decoder.isAvailable) {
+        debugPrint('[EXALTED][NATIVE] unavailable: ${slot.decoder.loadError}');
       }
       _windowFrames = 0;
       _windowMicros = 0;
@@ -201,60 +338,10 @@ class ScannerAnalyzer implements FrameAnalyzer {
       for (final f in _passN.keys) {
         final n = _passN[f]!;
         final avg = (_passUs[f]! / n / 1000).toStringAsFixed(1);
-        passLog.write(' f$f:n=$n avg=${avg}ms hit=${_passHits[f] ?? 0}');
+        passLog.write(' $f:n=$n avg=${avg}ms hit=${_passHits[f] ?? 0}');
       }
       debugPrint('[EXALTED][PASS]$passLog');
       _rcWindow.clear();
-    }
-  }
-
-  /// Saves the raw Y plane (no rotation) as an 8-bit grayscale BMP so it can
-  /// be pulled off the phone and looked at.
-  void _dumpFrame(AnalysisFrame f, String tag) {
-    final w = f.width;
-    final h = f.height;
-    final stride = f.yRowStride;
-    final y = f.yPlane;
-    final rowBytes = (w + 3) & ~3;
-    final dataSize = rowBytes * h;
-    const headerSize = 54 + 1024;
-    final bytes = Uint8List(headerSize + dataSize);
-    final bd = ByteData.sublistView(bytes);
-    bytes[0] = 0x42;
-    bytes[1] = 0x4D;
-    bd.setUint32(2, bytes.length, Endian.little);
-    bd.setUint32(10, headerSize, Endian.little);
-    bd.setUint32(14, 40, Endian.little);
-    bd.setInt32(18, w, Endian.little);
-    bd.setInt32(22, h, Endian.little);
-    bd.setUint16(26, 1, Endian.little);
-    bd.setUint16(28, 8, Endian.little);
-    bd.setUint32(34, dataSize, Endian.little);
-    bd.setUint32(46, 256, Endian.little);
-    for (var i = 0; i < 256; i++) {
-      final o = 54 + i * 4;
-      bytes[o] = i;
-      bytes[o + 1] = i;
-      bytes[o + 2] = i;
-    }
-    for (var row = 0; row < h; row++) {
-      final src = row * stride;
-      if (src + w > y.length) break;
-      final dst = headerSize + (h - 1 - row) * rowBytes; // BMP is bottom-up
-      bytes.setRange(dst, dst + w, y, src);
-    }
-    _writeBmp(bytes, tag, w, h);
-  }
-
-  Future<void> _writeBmp(Uint8List bytes, String tag, int w, int h) async {
-    try {
-      final dir =
-          await getExternalStorageDirectory() ?? await getTemporaryDirectory();
-      final file = File('${dir.path}/exalted_frame_$tag.bmp');
-      await file.writeAsBytes(bytes, flush: true);
-      debugPrint('[EXALTED][DUMP] ${w}x$h -> ${file.path}');
-    } catch (e) {
-      debugPrint('[EXALTED][DUMP] failed: $e');
     }
   }
 
@@ -262,8 +349,39 @@ class ScannerAnalyzer implements FrameAnalyzer {
   void dispose() {
     _disposed = true;
     onDecoded = null;
-    if (_ownsDecoder) _decoder.dispose();
+    for (final s in _slots) {
+      if (s.owned) s.decoder.dispose();
+    }
   }
+}
+
+/// One decoder and whether it is currently decoding a frame.
+class _Slot {
+  _Slot(this.decoder, {required this.owned});
+
+  final DecoderService decoder;
+  final bool owned;
+  bool busy = false;
+}
+
+/// One decode pass: native option flags and whether to decode only the band
+/// around the scan window.
+class _Pass {
+  const _Pass(this.flags, this.crop);
+
+  final int flags;
+  final bool crop;
+
+  String get label => 'f${flags}_${crop ? 'c' : 'F'}';
+}
+
+class _Crop {
+  const _Crop(this.left, this.top, this.width, this.height);
+
+  final int left;
+  final int top;
+  final int width;
+  final int height;
 }
 
 /// Provides the singleton [ScannerAnalyzer] for the scanner pipeline.

@@ -131,6 +131,11 @@ class HistoryRepository {
     await _write(entries);
   });
 
+  /// Removes every entry, pinned ones included.
+  Future<void> clear() => _serialized<void>(() async {
+    await _write(<HistoryEntry>[]);
+  });
+
   Future<void> delete(String id) => _serialized<void>(() async {
     final entries = await _read();
     entries.removeWhere((e) => e.id == id);

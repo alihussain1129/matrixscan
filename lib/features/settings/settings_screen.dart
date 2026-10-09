@@ -6,6 +6,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/exalted_card.dart';
 import '../scanner/scanner_controller.dart';
+import 'about_screen.dart';
 import 'settings_controller.dart';
 
 /// Settings tab.
@@ -27,7 +28,18 @@ class SettingsScreen extends ConsumerWidget {
       child: ListView(
         padding: const EdgeInsets.all(AppSpacing.xl),
         children: [
-          Text('Settings', style: text.displaySmall),
+          Row(
+            children: [
+              Expanded(child: Text('Settings', style: text.displaySmall)),
+              IconButton(
+                tooltip: 'About EXALTED',
+                icon: const Icon(Icons.info_outline_rounded),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const AboutScreen()),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: AppSpacing.xl),
           Text('SCANNING', style: text.labelSmall),
           const SizedBox(height: AppSpacing.md),

@@ -50,6 +50,12 @@ class DecodeWorker {
     }
   }
 
+  /// Starts the isolate now so the first decode does not pay for the spawn.
+  Future<void> warmUp() async {
+    if (_closed) return;
+    await _start();
+  }
+
   /// Returns `[status, info, text]`, or null when the worker is unusable.
   Future<List<Object?>?> decode({
     required int address,
@@ -74,7 +80,7 @@ class DecodeWorker {
       height,
       rowStride,
       formatsMask,
-      (tryHarder ? 1 : 0) | flags,
+      (tryHarder ? 1 : 0) | flags | 512, // 512: low-priority decode thread
     ]);
     try {
       final result = await reply.first.timeout(const Duration(seconds: 5));

@@ -6,12 +6,62 @@
 #include <cstring>
 #include <exception>
 #include <string>
+#include <vector>
+
+#if defined(__ANDROID__)
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
 
 #include "ReadBarcode.h"
 
 namespace
 {
 std::atomic<int32_t> g_callCount{0};
+
+// Separable min/max filter. Grows dark dots (min) or light dots (max) so the
+// separate dots of a dot-peened Data Matrix touch and form solid modules.
+void rankFilter(const uint8_t* src, int w, int h, int stride, int r,
+                bool useMax, std::vector<uint8_t>& out)
+{
+    std::vector<uint8_t> tmp(static_cast<size_t>(w) * h);
+    out.resize(static_cast<size_t>(w) * h);
+
+    for (int y = 0; y < h; ++y)
+    {
+        const uint8_t* row = src + static_cast<int64_t>(y) * stride;
+        uint8_t* dst = tmp.data() + static_cast<size_t>(y) * w;
+        for (int x = 0; x < w; ++x)
+        {
+            const int lo = std::max(0, x - r);
+            const int hi = std::min(w - 1, x + r);
+            uint8_t v = row[lo];
+            for (int i = lo + 1; i <= hi; ++i)
+            {
+                v = useMax ? std::max(v, row[i]) : std::min(v, row[i]);
+            }
+            dst[x] = v;
+        }
+    }
+
+    for (int y = 0; y < h; ++y)
+    {
+        const int lo = std::max(0, y - r);
+        const int hi = std::min(h - 1, y + r);
+        uint8_t* dst = out.data() + static_cast<size_t>(y) * w;
+        for (int x = 0; x < w; ++x)
+        {
+            uint8_t v = tmp[static_cast<size_t>(lo) * w + x];
+            for (int j = lo + 1; j <= hi; ++j)
+            {
+                const uint8_t p = tmp[static_cast<size_t>(j) * w + x];
+                v = useMax ? std::max(v, p) : std::min(v, p);
+            }
+            dst[x] = v;
+        }
+    }
+}
 
 ZXing::BarcodeFormats toFormats(int32_t mask)
 {
@@ -107,10 +157,39 @@ int32_t exalted_decode(
 
     try
     {
+        #if defined(__ANDROID__)
+        // Live-scan decode thread runs at low priority so the UI and raster
+        // threads get the CPU first. Lowering priority is always permitted.
+        if ((tryHarder & 512) != 0)
+        {
+            thread_local bool niceSet = false;
+            if (!niceSet)
+            {
+                niceSet = true;
+                setpriority(PRIO_PROCESS,
+                            static_cast<id_t>(syscall(SYS_gettid)), 10);
+            }
+        }
+#endif
         const auto start = std::chrono::steady_clock::now();
 
+        // Dot-peen support: 64 = grow dark dots 1 px, 128 = 2 px,
+        // +256 = grow light dots instead.
+        const int dotRadius = (tryHarder & 64) != 0 ? 1
+                              : (tryHarder & 128) != 0 ? 2 : 0;
+        std::vector<uint8_t> fused;
+        const uint8_t* src = luma;
+        int srcStride = rowStride;
+        if (dotRadius > 0)
+        {
+            rankFilter(luma, width, height, rowStride, dotRadius,
+                       (tryHarder & 256) != 0, fused);
+            src = fused.data();
+            srcStride = width;
+        }
+
         const ZXing::ImageView image(
-            luma, width, height, ZXing::ImageFormat::Lum, rowStride, 1);
+            src, width, height, ZXing::ImageFormat::Lum, srcStride, 1);
 
         ZXing::ReaderOptions options;
         options.setFormats(toFormats(formatsMask));

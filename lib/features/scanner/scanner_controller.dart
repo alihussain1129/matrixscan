@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -23,7 +24,8 @@ enum CameraStatus {
 
 enum CameraQuality {
   balanced('Balanced', ResolutionPreset.medium),
-  high('High', ResolutionPreset.high);
+  high('High', ResolutionPreset.high),
+  ultra('Ultra', ResolutionPreset.veryHigh);
 
   const CameraQuality(this.label, this.preset);
 
@@ -100,6 +102,7 @@ class ScannerUiState {
 class ScannerController extends Notifier<ScannerUiState> {
   CameraController? _camera;
   List<CameraDescription>? _cameras;
+  Future<List<CameraDescription>>? _camerasFuture;
 
   int _rotation = 90;
 
@@ -111,12 +114,15 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   FramePipeline get _pipeline => ref.read(framePipelineProvider);
 
+  void _startup(String what) => ScannerAnalyzer.startupLog(what);
+
   ScannerAnalyzer get _analyzer => ref.read(scannerAnalyzerProvider);
 
   final Stopwatch _resultClock = Stopwatch()..start();
 
   String? _lastText;
   int _lastResultMs = -10000;
+  int _scanStartMs = 0;
 
   @override
   ScannerUiState build() {
@@ -125,6 +131,15 @@ class ScannerController extends Notifier<ScannerUiState> {
     final analyzer = _analyzer;
     final pipeline = _pipeline;
     analyzer.onDecoded = _onDecoded;
+    _startup('scanner created');
+
+    // Warm up in parallel with the camera start: native library, decode
+    // isolate and the camera list.
+    unawaited(analyzer.prewarm());
+    if (Platform.isAndroid) {
+      final cameras = _camerasFuture ??= availableCameras();
+      unawaited(cameras.then<void>((_) {}, onError: (Object _) {}));
+    }
 
     ref.onDispose(() {
       // Providers must not be read inside onDispose, so use the objects
@@ -186,6 +201,7 @@ class ScannerController extends Notifier<ScannerUiState> {
 
     try {
       final permission = await Permission.camera.status;
+      _startup('camera permission checked');
 
       if (permission.isGranted) {
         await _openCamera();
@@ -209,7 +225,15 @@ class ScannerController extends Notifier<ScannerUiState> {
   Future<void> _openCamera() async {
     state = state.copyWith(status: CameraStatus.starting, clearError: true);
 
-    _cameras ??= await availableCameras();
+    if (_cameras == null) {
+      try {
+        _cameras = await (_camerasFuture ?? availableCameras());
+      } catch (_) {
+        _camerasFuture = null;
+        rethrow;
+      }
+    }
+    _startup('camera list ready');
 
     final cameras = _cameras!;
 
@@ -235,12 +259,20 @@ class ScannerController extends Notifier<ScannerUiState> {
 
     try {
       await controller.initialize();
+      _startup('camera initialized');
 
       // Explicitly request automatic focus. This is non-fatal because
       // camera implementations differ in their supported controls.
       try {
-        await controller.setFocusMode(FocusMode.auto);
-        debugPrint('[EXALTED][CAMERA] focus mode: auto');
+        unawaited(
+          controller
+              .setFocusMode(FocusMode.auto)
+              .then((_) => debugPrint('[EXALTED][CAMERA] focus mode: auto'))
+              .catchError(
+                (Object e) =>
+                    debugPrint('[EXALTED][CAMERA] focus mode unavailable: $e'),
+              ),
+        );
       } catch (e) {
         debugPrint('[EXALTED][CAMERA] focus mode unavailable: $e');
       }
@@ -248,8 +280,16 @@ class ScannerController extends Notifier<ScannerUiState> {
       // Keep exposure automatic so changing lighting does not leave the
       // barcode excessively dark or bright.
       try {
-        await controller.setExposureMode(ExposureMode.auto);
-        debugPrint('[EXALTED][CAMERA] exposure mode: auto');
+        unawaited(
+          controller
+              .setExposureMode(ExposureMode.auto)
+              .then((_) => debugPrint('[EXALTED][CAMERA] exposure mode: auto'))
+              .catchError(
+                (Object e) => debugPrint(
+                  '[EXALTED][CAMERA] exposure mode unavailable: $e',
+                ),
+              ),
+        );
       } catch (e) {
         debugPrint('[EXALTED][CAMERA] exposure mode unavailable: $e');
       }
@@ -297,6 +337,7 @@ class ScannerController extends Notifier<ScannerUiState> {
 
     _camera = controller;
     _rotation = description.sensorOrientation;
+    _startup('camera ready, preview can show');
 
     state = state.copyWith(
       status: CameraStatus.ready,
@@ -408,6 +449,7 @@ class ScannerController extends Notifier<ScannerUiState> {
     try {
       if (want && !cam.value.isStreamingImages) {
         await cam.startImageStream(_onFrame);
+        _startup('image stream started');
         _pipeline.start();
 
         debugPrint(
@@ -501,6 +543,7 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   Future<void> resumeScanning() async {
     debugPrint('[EXALTED][SCAN] scan again');
+    _scanStartMs = _resultClock.elapsedMilliseconds;
     state = state.copyWith(clearResult: true, paused: false);
 
     await _syncStream();
@@ -529,6 +572,11 @@ class ScannerController extends Notifier<ScannerUiState> {
     HapticFeedback.mediumImpact();
 
     debugPrint('[EXALTED][RESULT] shown: $barcode');
+    debugPrint(
+      '[EXALTED][BENCH] ${barcode.kind.label} ttd=${now - _scanStartMs}ms '
+      'decode=${(barcode.decodeMicros / 1000).toStringAsFixed(1)}ms '
+      'frame=${barcode.frameWidth}x${barcode.frameHeight}',
+    );
 
     _saveToHistory(barcode, HistorySource.live);
 

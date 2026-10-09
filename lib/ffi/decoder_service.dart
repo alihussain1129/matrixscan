@@ -173,6 +173,15 @@ class DecoderService {
     );
   }
 
+  /// Loads the native library and starts the decode isolate now, so the first
+  /// camera frame does not pay for it.
+  Future<void> prewarm() async {
+    if (_disposed) return;
+    _ensureLoaded();
+    if (_bindings == null) return;
+    await (_worker ??= DecodeWorker()).warmUp();
+  }
+
   /// Like [decode], but the native call runs on a background isolate, so it
   /// never blocks the UI isolate. One call at a time: a call made while
   /// another is running returns null. If the worker cannot be used this falls
@@ -185,6 +194,10 @@ class DecoderService {
     int formatsMask = 0,
     bool tryHarder = false,
     int flags = 0,
+    int cropLeft = 0,
+    int cropTop = 0,
+    int cropWidth = 0,
+    int cropHeight = 0,
   }) async {
     if (_disposed) return null;
     _ensureLoaded();
@@ -194,12 +207,30 @@ class DecoderService {
     _ensureCapacity(luma.length);
     _buffer.asTypedList(luma.length).setAll(0, luma);
 
+    // Optional crop: point the native decoder at a sub-rectangle of the same
+    // buffer (same row stride), so no extra copy is needed.
+    final cropped =
+        cropWidth > 0 &&
+        cropHeight > 0 &&
+        cropLeft >= 0 &&
+        cropTop >= 0 &&
+        cropLeft + cropWidth <= width &&
+        cropTop + cropHeight <= height;
+    final offset = cropped ? cropTop * rowStride + cropLeft : 0;
+    final decodeWidth = cropped ? cropWidth : width;
+    final decodeHeight = cropped ? cropHeight : height;
+    final decodeLength = cropped
+        ? (cropHeight - 1) * rowStride + cropWidth
+        : luma.length;
+    final shiftX = cropped ? cropLeft.toDouble() : 0.0;
+    final shiftY = cropped ? cropTop.toDouble() : 0.0;
+
     final worker = _worker ??= DecodeWorker();
     final call = worker.decode(
-      address: _buffer.address,
-      length: luma.length,
-      width: width,
-      height: height,
+      address: _buffer.address + offset,
+      length: decodeLength,
+      width: decodeWidth,
+      height: decodeHeight,
       rowStride: rowStride,
       formatsMask: formatsMask,
       tryHarder: tryHarder,
@@ -239,10 +270,10 @@ class DecoderService {
       text: text,
       kind: BarcodeKind.fromFlag(i[0]),
       corners: [
-        Offset(i[2].toDouble(), i[3].toDouble()),
-        Offset(i[4].toDouble(), i[5].toDouble()),
-        Offset(i[6].toDouble(), i[7].toDouble()),
-        Offset(i[8].toDouble(), i[9].toDouble()),
+        Offset(i[2].toDouble() + shiftX, i[3].toDouble() + shiftY),
+        Offset(i[4].toDouble() + shiftX, i[5].toDouble() + shiftY),
+        Offset(i[6].toDouble() + shiftX, i[7].toDouble() + shiftY),
+        Offset(i[8].toDouble() + shiftX, i[9].toDouble() + shiftY),
       ],
       decodeMicros: i[11],
       frameWidth: width,

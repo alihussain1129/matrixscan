@@ -12,7 +12,7 @@ class ExaltedApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(themeModeProvider);
     return MaterialApp(
-      title: 'Exalted',
+      title: 'Exalted Scanner',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),

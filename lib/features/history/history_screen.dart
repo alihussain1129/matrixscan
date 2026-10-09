@@ -28,6 +28,34 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     super.dispose();
   }
 
+  Future<void> _confirmClear() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete all history?'),
+        content: const Text(
+          'Every saved scan, including pinned ones, will be removed from '
+          'this device. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete all'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await ref.read(historyControllerProvider.notifier).clearAll();
+    if (!mounted) return;
+    _search.clear();
+    setState(() => _query = '');
+  }
+
   Future<void> _export(List<HistoryEntry> shown) async {
     try {
       await ref.read(historyExporterProvider)(shown);
@@ -85,6 +113,11 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   tooltip: 'Export CSV',
                   icon: const Icon(Icons.ios_share),
                   onPressed: shown.isEmpty ? null : () => _export(shown),
+                ),
+                IconButton(
+                  tooltip: 'Delete all history',
+                  icon: const Icon(Icons.delete_sweep_outlined),
+                  onPressed: all.isEmpty ? null : _confirmClear,
                 ),
               ],
             ),
