@@ -6,6 +6,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/exalted_card.dart';
 import '../scanner/scanner_controller.dart';
+import '../../verify/verification_settings.dart';
 import 'about_screen.dart';
 import 'settings_controller.dart';
 
@@ -21,6 +22,7 @@ class SettingsScreen extends ConsumerWidget {
     final text = theme.textTheme;
 
     final mode = ref.watch(themeModeProvider);
+    final allowed = ref.watch(allowedSourcesProvider);
     final ui = ref.watch(scannerControllerProvider);
     final scanner = ref.read(scannerControllerProvider.notifier);
 
@@ -120,6 +122,17 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.xl),
+          Text('ONLINE LOOKUPS', style: text.labelSmall),
+          const SizedBox(height: AppSpacing.md),
+          ExaltedCard(
+            child: _SwitchRow(
+              title: 'Allow Open Food Facts lookup',
+              subtitle: 'Sends the GTIN only, never lot, serial or expiry. Off by default. Community-edited data, never shown as verified.',
+              value: allowed.contains('openfoodfacts'),
+              onChanged: (v) => ref.read(allowedSourcesProvider.notifier).setAllowed('openfoodfacts', v),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xl),
           Text('ABOUT', style: text.labelSmall),
           const SizedBox(height: AppSpacing.md),
           ExaltedCard(
@@ -129,7 +142,7 @@ class SettingsScreen extends ConsumerWidget {
                 Divider(color: colors.outline, height: AppSpacing.xl),
                 const _InfoRow(label: 'Decoder', value: 'Not installed yet'),
                 Divider(color: colors.outline, height: AppSpacing.xl),
-                const _InfoRow(label: 'Privacy', value: 'Data stays on device'),
+                _InfoRow(label: 'Privacy', value: allowed.isEmpty ? 'Data stays on device' : 'Online lookups on'),
               ],
             ),
           ),

@@ -18,7 +18,7 @@ import '../ocr/widgets/image_action_sheet.dart';
 import 'frame_pipeline.dart';
 import 'link_utils.dart';
 import 'scan_frame_painter.dart';
-import 'scan_result_card.dart';
+import 'connected_scan_result_card.dart';
 import 'scanner_analyzer.dart';
 import 'scanner_controller.dart';
 import 'scanner_widgets.dart';
@@ -561,7 +561,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                           bottom:
                               AppSpacing.lg +
                               MediaQuery.of(context).padding.bottom,
-                          child: ScanResultCard(
+                          child: ConnectedScanResultCard(
                             barcode: ui.result!,
                             onCopy: () {
                               Clipboard.setData(

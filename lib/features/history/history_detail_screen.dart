@@ -7,7 +7,8 @@ import '../../gs1/gs1_parser.dart';
 import '../../interpret/default_registry.dart';
 import '../../interpret/interpreter.dart';
 import '../scanner/gs1_info_panel.dart';
-import '../scanner/interpretation_view.dart';
+import '../../verify/verification_settings.dart';
+import '../scanner/verified_interpretation_view.dart';
 import 'history_controller.dart';
 import 'history_entry.dart';
 import 'history_item_tile.dart';
@@ -25,6 +26,7 @@ class HistoryDetailScreen extends ConsumerStatefulWidget {
 
 class _HistoryDetailScreenState extends ConsumerState<HistoryDetailScreen> {
   late bool _pinned = widget.entry.pinned;
+  bool _check = false;
 
   Future<void> _copy() async {
     await Clipboard.setData(ClipboardData(text: widget.entry.text));
@@ -112,7 +114,8 @@ class _HistoryDetailScreenState extends ConsumerState<HistoryDetailScreen> {
             ),
             if (emv != null) ...[
               const SizedBox(height: AppSpacing.lg),
-              InterpretationView(interpretation: emv),
+              VerifiedInterpretationView(interpretation: emv, verifier: _check ? ref.read(verificationEngineProvider) : null, allowedSources: ref.watch(allowedSourcesProvider)),
+              Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: _check ? null : () => setState(() => _check = true), icon: const Icon(Icons.fact_check_outlined, size: 18), label: Text(_check ? 'Sources checked' : 'Check sources'))),
             ],
             if (gs1 != null && emv == null) ...[
               const SizedBox(height: AppSpacing.lg),
