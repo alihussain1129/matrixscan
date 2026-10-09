@@ -54,3 +54,6 @@ cpp/**/*.pre-*
 cpp/**/build/
 cpp/*.obj
 *.bak*
+
+scratch/
+logs/
