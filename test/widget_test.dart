@@ -50,6 +50,6 @@ void main() {
     );
     await tester.tap(find.text('History'));
     await tester.pump();
-    expect(picked, 1);
+    expect(picked, 2); // Home=0, Scan=1, History=2, Settings=3
   });
 }
