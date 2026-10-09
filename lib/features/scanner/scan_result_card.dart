@@ -40,10 +40,10 @@ class ScanResultCard extends StatelessWidget {
     final text = theme.textTheme;
     final wifi = parseWifiQr(barcode.text);
     final gs1 = wifi == null ? parseGs1(barcode.text) : null;
-    final interp = (wifi == null && gs1 == null)
+    final interp = wifi == null
         ? _registry.interpret(ScanPayload(raw: barcode.text, symbology: barcode.kind.label, source: 'live'))
         : null;
-    final emv = (interp != null && interp.interpreterId == 'emv') ? interp : null;
+    final emv = (interp != null && (interp.interpreterId == 'emv' || interp.interpreterId == 'gs1')) ? interp : null;
     final showConnect =
         wifi != null && wifi.canConnect && onConnectWifi != null;
 
