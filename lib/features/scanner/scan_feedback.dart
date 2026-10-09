@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// Plays a short native beep after a barcode has been accepted.
@@ -10,10 +11,11 @@ class ScanFeedback {
   static Future<void> beep() async {
     try {
       await _channel.invokeMethod<bool>('beep');
-    } on PlatformException {
-      // Sound must never interfere with scanning.
+    } on PlatformException catch (e) {
+      // Sound must never interfere with scanning, but the reason is logged.
+      debugPrint('[EXALTED][BEEP] failed: ${e.code} ${e.message}');
     } on MissingPluginException {
-      // Keep scanning functional if the native channel is unavailable.
+      debugPrint('[EXALTED][BEEP] native channel not registered');
     }
   }
 }
