@@ -3,9 +3,14 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../ffi/decode_result.dart';
 import '../../gs1/gs1_parser.dart';
+import '../../interpret/default_registry.dart';
+import '../../interpret/interpreter.dart';
 import 'gs1_info_panel.dart';
+import 'interpretation_view.dart';
 import 'wifi_info_panel.dart';
 import 'wifi_utils.dart';
+
+final _registry = defaultInterpreterRegistry();
 
 /// Bottom card shown on the scanner screen when a barcode has been decoded.
 class ScanResultCard extends StatelessWidget {
@@ -35,6 +40,10 @@ class ScanResultCard extends StatelessWidget {
     final text = theme.textTheme;
     final wifi = parseWifiQr(barcode.text);
     final gs1 = wifi == null ? parseGs1(barcode.text) : null;
+    final interp = (wifi == null && gs1 == null)
+        ? _registry.interpret(ScanPayload(raw: barcode.text, symbology: barcode.kind.label, source: 'live'))
+        : null;
+    final emv = (interp != null && interp.interpreterId == 'emv') ? interp : null;
     final showConnect =
         wifi != null && wifi.canConnect && onConnectWifi != null;
 
@@ -55,7 +64,7 @@ class ScanResultCard extends StatelessWidget {
                       ? Icons.wifi
                       : gs1 != null
                       ? Icons.inventory_2_outlined
-                      : Icons.qr_code_2,
+                      : emv != null ? Icons.payments_outlined : Icons.qr_code_2,
                   color: scheme.primary,
                 ),
                 const SizedBox(width: AppSpacing.md),
@@ -71,6 +80,13 @@ class ScanResultCard extends StatelessWidget {
             const SizedBox(height: AppSpacing.md),
             if (wifi != null)
               WifiInfoPanel(wifi: wifi)
+            else if (emv != null)
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 320),
+                child: SingleChildScrollView(
+                  child: InterpretationView(interpretation: emv),
+                ),
+              )
             else if (gs1 != null)
               ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 320),

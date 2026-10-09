@@ -4,7 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_spacing.dart';
 import '../../gs1/gs1_parser.dart';
+import '../../interpret/default_registry.dart';
+import '../../interpret/interpreter.dart';
 import '../scanner/gs1_info_panel.dart';
+import '../scanner/interpretation_view.dart';
 import 'history_controller.dart';
 import 'history_entry.dart';
 import 'history_item_tile.dart';
@@ -71,6 +74,10 @@ class _HistoryDetailScreenState extends ConsumerState<HistoryDetailScreen> {
     final text = theme.textTheme;
     final entry = widget.entry;
     final gs1 = entry.kind == HistoryKind.barcode ? parseGs1(entry.text) : null;
+    final interp = (entry.kind == HistoryKind.barcode && gs1 == null)
+        ? defaultInterpreterRegistry().interpret(ScanPayload(raw: entry.text, symbology: 'Barcode', source: 'history'))
+        : null;
+    final emv = (interp != null && interp.interpreterId == 'emv') ? interp : null;
 
     Widget row(String label, String value) => Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
@@ -103,6 +110,10 @@ class _HistoryDetailScreenState extends ConsumerState<HistoryDetailScreen> {
               ),
               child: SelectableText(entry.text, style: text.bodyLarge),
             ),
+            if (emv != null) ...[
+              const SizedBox(height: AppSpacing.lg),
+              InterpretationView(interpretation: emv),
+            ],
             if (gs1 != null) ...[
               const SizedBox(height: AppSpacing.lg),
               Gs1InfoPanel(result: gs1, showRaw: false),
