@@ -7,6 +7,7 @@ import '../../interpret/default_registry.dart';
 import '../../interpret/interpreter.dart';
 import 'gs1_info_panel.dart';
 import '../../verify/verification_engine.dart';
+import '../result/result_screen.dart';
 import 'verified_interpretation_view.dart';
 import 'wifi_info_panel.dart';
 import 'wifi_utils.dart';
@@ -119,6 +120,24 @@ class ScanResultCard extends StatelessWidget {
                 ),
               ),
             const SizedBox(height: AppSpacing.lg),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ResultScreen(
+                      raw: barcode.text,
+                      symbology: barcode.kind.label,
+                      decodeMicros: barcode.decodeMicros,
+                      verifier: verifier,
+                      allowedSources: allowedSources,
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.article_outlined, size: 18),
+                label: const Text('Full details'),
+              ),
+            ),
             if (showConnect) ...[
               SizedBox(
                 width: double.infinity,
