@@ -8,7 +8,14 @@ import 'verification_engine.dart';
 
 /// Online sources the user is allowed to switch on. Anything else in the
 /// saved file is ignored.
-const Set<String> knownOnlineSources = {'openfoodfacts'};
+const Set<String> knownOnlineSources = {
+  'openfoodfacts',
+  'openbeautyfacts',
+  'openproductsfacts',
+  'openlibrary',
+  'nhtsa-vpic',
+  'openfda-ndc',
+};
 
 /// Saves which online sources are allowed, in the app's private storage.
 class VerificationSettingsStore {
@@ -95,3 +102,47 @@ final allowedSourcesProvider =
     NotifierProvider<AllowedSourcesNotifier, Set<String>>(
       AllowedSourcesNotifier.new,
     );
+
+/// What the Settings screen shows for each online source.
+class OnlineSourceChoice {
+  const OnlineSourceChoice(this.id, this.name, this.subtitle);
+  final String id;
+  final String name;
+  final String subtitle;
+}
+
+const List<OnlineSourceChoice> onlineSourceChoices = [
+  OnlineSourceChoice(
+    'openfoodfacts',
+    'Open Food Facts',
+    'Food and drink. Sends the GTIN only. Off by default. Community data, never shown as verified.',
+  ),
+  OnlineSourceChoice(
+    'openbeautyfacts',
+    'Open Beauty Facts',
+    'Cosmetics. Sends the GTIN only. Off by default. Community data.',
+  ),
+  OnlineSourceChoice(
+    'openproductsfacts',
+    'Open Products Facts',
+    'Household and general products. Sends the GTIN only. Off by default. Community data.',
+  ),
+  OnlineSourceChoice(
+    'openlibrary',
+    'Open Library',
+    'Books. Sends the ISBN only. Off by default. Community data.',
+  ),
+  OnlineSourceChoice(
+    'nhtsa-vpic',
+    'NHTSA VIN decoder',
+    'Vehicles. Sends the VIN only. Off by default. Best for US vehicles.',
+  ),
+  OnlineSourceChoice(
+    'openfda-ndc',
+    'openFDA drug directory (US)',
+    'US drug and health-product listings. Sends the scanned UPC/GTIN only. Off by default. Official FDA listing, not proof a pack is genuine.',
+  ),
+];
+
+
+

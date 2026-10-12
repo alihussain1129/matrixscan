@@ -159,6 +159,54 @@ void main() {
     expect(_f(out, 'Record exists').value, 'Unable to verify');
   });
 
+  test('unexpected HTTP status cannot return product data', () async {
+    final result = await OpenFoodFactsSource(
+      fetch: (u) async => HttpReply(503, _found),
+    ).check(_i(_gs1));
+
+    expect(result.fields, isEmpty);
+    expect(
+      result.claims.any((c) => (c.detail?.contains('HTTP 503') ?? false)),
+      isTrue,
+    );
+  });
+
+  test('mismatched product GTIN cannot enrich the scanned code', () async {
+    final body = jsonDecode(_found) as Map<String, dynamic>;
+    final product = body['product'] as Map<String, dynamic>;
+    product['code'] = '5901234123457';
+
+    final result = await OpenFoodFactsSource(
+      fetch: (u) async => HttpReply(200, jsonEncode(body)),
+    ).check(_i(_gs1));
+
+    expect(result.fields, isEmpty);
+    expect(
+      result.claims.any((c) => c.status == VerificationStatus.mismatch),
+      isTrue,
+    );
+    expect(
+      result.claims.any((c) => c.status == VerificationStatus.unableToVerify),
+      isTrue,
+    );
+  });
+
+  test('missing product GTIN cannot enrich the scanned code', () async {
+    final body = jsonDecode(_found) as Map<String, dynamic>;
+    final product = body['product'] as Map<String, dynamic>;
+    product.remove('code');
+
+    final result = await OpenFoodFactsSource(
+      fetch: (u) async => HttpReply(200, jsonEncode(body)),
+    ).check(_i(_gs1));
+
+    expect(result.fields, isEmpty);
+    expect(
+      result.claims.any((c) => c.status == VerificationStatus.unableToVerify),
+      isTrue,
+    );
+  });
+
   test('payment QR data is never sent to an online source', () async {
     var calls = 0;
     final engine = VerificationEngine([
@@ -209,7 +257,11 @@ void main() {
       aspect: 'Registration',
       status: VerificationStatus.verified,
     );
-    const community = SourceInfo(id: 'c', name: 'C', kind: SourceKind.community);
+    const community = SourceInfo(
+      id: 'c',
+      name: 'C',
+      kind: SourceKind.community,
+    );
     const official = SourceInfo(
       id: 'o',
       name: 'O',
@@ -225,10 +277,7 @@ void main() {
       report.results[0].claims.single.status,
       VerificationStatus.recordFound,
     );
-    expect(
-      report.results[1].claims.single.status,
-      VerificationStatus.verified,
-    );
+    expect(report.results[1].claims.single.status, VerificationStatus.verified);
   });
 
   test('local checks flag an invalid GTIN and skip online lookup', () async {
@@ -248,23 +297,55 @@ void main() {
       await engine.verify(base, allowedSources: _allow),
     );
     expect(calls, 0);
-    final claim = out.section('verification')!.fields.firstWhere((f) => f.label == 'GTIN');
+    final claim = out
+        .section('verification')!
+        .fields
+        .firstWhere((f) => f.label == 'GTIN');
     expect(claim.value, 'Invalid format');
     expect(claim.validation, FieldValidation.invalid);
     expect(out.warnings.any((w) => w.contains('Invalid format')), isTrue);
   });
 
-  test('verification sections come before the raw payload, which is kept', () async {
-    final engine = VerificationEngine([StructuralSource()]);
-    final base = _i(_gs1);
-    final out = applyVerification(base, await engine.verify(base));
-    final ids = out.sections.map((s) => s.id).toList();
-    expect(ids.indexOf('verification'), lessThan(ids.indexOf('raw')));
-    expect(ids.indexOf('provenance'), lessThan(ids.indexOf('raw')));
-    expect(_f(out, 'Raw decoded data').value, _gs1);
-    expect(_f(out, 'GTIN').value, isNotNull);
-  });
+  test(
+    'verification sections come before the raw payload, which is kept',
+    () async {
+      final engine = VerificationEngine([StructuralSource()]);
+      final base = _i(_gs1);
+      final out = applyVerification(base, await engine.verify(base));
+      final ids = out.sections.map((s) => s.id).toList();
+      expect(ids.indexOf('verification'), lessThan(ids.indexOf('raw')));
+      expect(ids.indexOf('provenance'), lessThan(ids.indexOf('raw')));
+      expect(_f(out, 'Raw decoded data').value, _gs1);
+      expect(_f(out, 'GTIN').value, isNotNull);
+    },
+  );
 
+  test('GS1-style URL sends only its valid GTIN to Open Food Facts', () async {
+    const raw = 'https://example.com/01/09521207311511/21/1234ABDE1235';
+
+    final base = _reg.interpret(
+      ScanPayload(raw: raw, symbology: 'QR Code', source: 'test'),
+    );
+
+    Uri? requestedUri;
+    final source = OpenFoodFactsSource(
+      fetch: (uri) async {
+        requestedUri = uri;
+        return const HttpReply(404, '{"status":0}');
+      },
+    );
+
+    expect(base.interpreterId, 'url');
+    expect(source.appliesTo(base), isTrue);
+
+    await source.check(base);
+
+    expect(requestedUri, isNotNull);
+    expect(requestedUri!.host, 'world.openfoodfacts.org');
+    expect(requestedUri!.path, '/api/v2/product/9521207311511');
+    expect(requestedUri.toString(), isNot(contains('1234ABDE1235')));
+    expect(requestedUri.toString(), isNot(contains('example.com')));
+  });
   Future<void> pumpView(WidgetTester tester, Widget child) async {
     tester.view.physicalSize = const Size(800, 3000);
     tester.view.devicePixelRatio = 1.0;
@@ -282,7 +363,10 @@ void main() {
   testWidgets('without a verifier the view shows no lookup results', (
     tester,
   ) async {
-    await pumpView(tester, VerifiedInterpretationView(interpretation: _i(_gs1)));
+    await pumpView(
+      tester,
+      VerifiedInterpretationView(interpretation: _i(_gs1)),
+    );
     expect(find.text('Test Biscuit'), findsNothing);
     expect(find.text('Verification results'), findsNothing);
   });

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
@@ -124,14 +124,19 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: AppSpacing.xl),
           Text('ONLINE LOOKUPS', style: text.labelSmall),
           const SizedBox(height: AppSpacing.md),
-          ExaltedCard(
-            child: _SwitchRow(
-              title: 'Allow Open Food Facts lookup',
-              subtitle: 'Sends the GTIN only, never lot, serial or expiry. Off by default. Community-edited data, never shown as verified.',
-              value: allowed.contains('openfoodfacts'),
-              onChanged: (v) => ref.read(allowedSourcesProvider.notifier).setAllowed('openfoodfacts', v),
+          for (final s in onlineSourceChoices) ...[
+            ExaltedCard(
+              child: _SwitchRow(
+                title: 'Allow ${s.name} lookup',
+                subtitle: s.subtitle,
+                value: allowed.contains(s.id),
+                onChanged: (v) => ref
+                    .read(allowedSourcesProvider.notifier)
+                    .setAllowed(s.id, v),
+              ),
             ),
-          ),
+            const SizedBox(height: AppSpacing.md),
+          ],
           const SizedBox(height: AppSpacing.xl),
           Text('ABOUT', style: text.labelSmall),
           const SizedBox(height: AppSpacing.md),
@@ -212,3 +217,4 @@ class _InfoRow extends StatelessWidget {
     );
   }
 }
+

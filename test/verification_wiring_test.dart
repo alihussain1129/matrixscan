@@ -57,16 +57,19 @@ void main() {
     final store = VerificationSettingsStore(directory: () async => dir);
     expect(await store.load(), isEmpty);
     await store.save({'openfoodfacts'});
-    expect(
-      await VerificationSettingsStore(directory: () async => dir).load(),
-      {'openfoodfacts'},
-    );
+    expect(await VerificationSettingsStore(directory: () async => dir).load(), {
+      'openfoodfacts',
+    });
   });
 
   test('unknown source IDs in the file are ignored', () async {
     final dir = _tmp();
     File('${dir.path}${Platform.pathSeparator}verification_settings.json')
-        .writeAsStringSync(jsonEncode({'allowed': ['openfoodfacts', 'evil']}));
+        .writeAsStringSync(
+          jsonEncode({
+            'allowed': ['openfoodfacts', 'evil'],
+          }),
+        );
     final store = VerificationSettingsStore(directory: () async => dir);
     expect(await store.load(), {'openfoodfacts'});
   });
@@ -102,7 +105,9 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 150));
     expect(c2.read(allowedSourcesProvider), {'openfoodfacts'});
 
-    await c2.read(allowedSourcesProvider.notifier).setAllowed('openfoodfacts', false);
+    await c2
+        .read(allowedSourcesProvider.notifier)
+        .setAllowed('openfoodfacts', false);
     expect(c2.read(allowedSourcesProvider), isEmpty);
   });
 
@@ -154,8 +159,22 @@ void main() {
     expect(find.text('Test Biscuit'), findsNothing);
   });
 
-  testWidgets('with the switch on, the lookup result appears', (tester) async {
+  testWidgets('with the switch on, the lookup result appears in full details', (
+    tester,
+  ) async {
     await pumpCard(tester, allowed: true);
+
+    expect(find.text('Full details'), findsOneWidget);
+    await tester.ensureVisible(find.text('Full details'));
+    await tester.tap(find.text('Full details'));
+    await tester.pump();
+
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 300)),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
     expect(find.text('Test Biscuit'), findsOneWidget);
   });
 }

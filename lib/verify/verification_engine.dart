@@ -1,8 +1,14 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import '../interpret/interpreter.dart';
 import '../interpret/scan_field.dart';
+import 'http_client.dart';
+import 'nhtsa_vin_source.dart';
+import 'open_facts_source.dart';
 import 'open_food_facts_source.dart';
+import 'open_fda_ndc_source.dart';
+import 'open_library_source.dart';
+import 'url_safety_source.dart';
 import 'structural_source.dart';
 import 'verification.dart';
 
@@ -23,7 +29,7 @@ class VerificationReport {
 class VerificationEngine {
   VerificationEngine(
     List<VerificationSource> sources, {
-    this.timeout = const Duration(seconds: 10),
+    this.timeout = const Duration(seconds: 25),
     DateTime Function()? clock,
   }) : _sources = List.unmodifiable(sources),
        _clock = clock ?? DateTime.now;
@@ -52,7 +58,11 @@ class VerificationEngine {
       }
       toRun.add(s);
     }
+    _log('start run=[${toRun.map((s) => s.info.id).join(",")}] skipped=[${skipped.map((s) => s.id).join(",")}] allowed=[${allowedSources.join(",")}]');
     final results = await Future.wait([for (final s in toRun) _guard(s, base)]);
+    for (final r in results) {
+      _log('${r.info.id}: ${r.claims.map((c) => c.status.label).join(" | ")} ${r.error ?? ""}');
+    }
     return VerificationReport(
       results: results,
       notChecked: skipped,
@@ -128,7 +138,23 @@ class VerificationEngine {
 VerificationEngine defaultVerificationEngine({HttpFetch? fetch}) =>
     VerificationEngine([
       StructuralSource(),
-      OpenFoodFactsSource(fetch: fetch),
+      UrlSafetySource(),
+      OpenFoodFactsSource(fetch: fetch ?? robustHttpFetch),
+      OpenFactsSource(
+        id: 'openbeautyfacts',
+        name: 'Open Beauty Facts',
+        host: 'world.openbeautyfacts.org',
+        fetch: fetch,
+      ),
+      OpenFactsSource(
+        id: 'openproductsfacts',
+        name: 'Open Products Facts',
+        host: 'world.openproductsfacts.org',
+        fetch: fetch,
+      ),
+      OpenLibrarySource(fetch: fetch),
+      NhtsaVinSource(fetch: fetch),
+      OpenFdaNdcSource(fetch: fetch),
     ]);
 
 String _iso(DateTime t) => t.toUtc().toIso8601String();
@@ -253,3 +279,11 @@ Interpretation applyVerification(
     rawIsSensitive: base.rawIsSensitive,
   );
 }
+
+
+void _log(String m) {
+  // ignore: avoid_print
+  print('[EXALTED][VERIFY] $m');
+}
+
+
