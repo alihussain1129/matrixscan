@@ -173,10 +173,17 @@ int32_t exalted_decode(
 #endif
         const auto start = std::chrono::steady_clock::now();
 
-        // Dot-peen support: 64 = grow dark dots 1 px, 128 = 2 px,
-        // +256 = grow light dots instead.
-        const int dotRadius = (tryHarder & 64) != 0 ? 1
-                              : (tryHarder & 128) != 0 ? 2 : 0;
+        // Dot-peen support. Radius of the dark-dot grow in pixels:
+        //   64 = 1 px, 128 = 2 px, or bits 10-12 hold 1..7 (overrides 64/128).
+        // +256 = grow light dots instead. The merged symbol is then inverted,
+        // so combine it with 2 (invert) to decode it.
+        int dotRadius = (tryHarder & 64) != 0 ? 1
+                        : (tryHarder & 128) != 0 ? 2 : 0;
+        const int fieldRadius = (tryHarder >> 10) & 7;
+        if (fieldRadius > 0)
+        {
+            dotRadius = fieldRadius;
+        }
         std::vector<uint8_t> fused;
         const uint8_t* src = luma;
         int srcStride = rowStride;

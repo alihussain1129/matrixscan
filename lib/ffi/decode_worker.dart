@@ -83,12 +83,10 @@ class DecodeWorker {
       (tryHarder ? 1 : 0) | flags | 512, // 512: low-priority decode thread
     ]);
     try {
-      final result = await reply.first.timeout(const Duration(seconds: 5));
+      // A timeout cannot cancel synchronous native FFI work. Wait for the
+      // native call to return before allowing the caller to reuse its buffer.
+      final result = await reply.first;
       return (result as List).cast<Object?>();
-    } on TimeoutException {
-      _closed = true;
-      commands.send(null);
-      return null;
     } finally {
       reply.close();
     }

@@ -6,12 +6,20 @@ import 'dart:ui' as ui;
 
 import '../../ffi/decode_result.dart';
 import '../../ffi/decoder_service.dart';
+import '../../ffi/dot_peen_flags.dart';
 
 /// Finds one barcode in an image file (a gallery photo or screenshot) with
 /// the same native decoder the live scanner uses.
 class ImageBarcodeDecoder {
   /// Long-side sizes tried in order; decoding stops at the first hit.
   static const List<int> _longSides = [2048, 1024];
+
+  /// Smaller sizes for the dot-peen fallback: the dot-merging radius has to
+  /// match the dot spacing, and shrinking the image brings it into range.
+  static const List<int> _dotLongSides = [1024, 640, 400];
+
+  /// Native format flag for Data Matrix only (limits false reads).
+  static const int _dataMatrixOnly = 1 << 7;
 
   /// Returns null when the image holds no readable barcode.
   /// Throws [StateError] when the native decoder is unavailable or fails.
@@ -34,6 +42,28 @@ class ImageBarcodeDecoder {
         if (result != null) return result;
         if (decoder.lastDecodeStatus < 0) {
           throw StateError('Native decoder error ${decoder.lastDecodeStatus}');
+        }
+      }
+      // Dot-peened Data Matrix: merge the dots, trying smaller sizes too.
+      for (final longSide in _dotLongSides) {
+        final gray = await _decodeToGray(bytes, longSide);
+        for (final flags in dotPeenFlags) {
+          final result = decoder.decode(
+            luma: gray.pixels,
+            width: gray.width,
+            height: gray.height,
+            rowStride: gray.width,
+            formatsMask: _dataMatrixOnly,
+            flags: flags,
+          );
+          if (result != null) return result;
+          if (decoder.lastDecodeStatus < 0) {
+            throw StateError(
+              'Native decoder error ${decoder.lastDecodeStatus}',
+            );
+          }
+          // Let the UI draw between passes (this decode runs on its isolate).
+          await Future<void>.delayed(Duration.zero);
         }
       }
       return null;

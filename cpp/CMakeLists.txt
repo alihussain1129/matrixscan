@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.20)
 
 project(exalted_core LANGUAGES CXX)
 
@@ -96,5 +96,25 @@ if(NOT ANDROID)
             EXALTED_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden"
     )
 
+    # Dot-peen decode test: synthetic dot-peened symbols through exalted_decode.
+    add_executable(exalted_dotpeen_test
+        tests/exalted_dotpeen_test.cpp
+        src/ffi_api.cpp
+    )
+
+    target_include_directories(exalted_dotpeen_test
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+
+    target_link_libraries(exalted_dotpeen_test
+        PRIVATE
+            ZXing::ZXing
+    )
+
+    target_compile_definitions(exalted_dotpeen_test
+        PRIVATE
+            EXALTED_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden"
+    )
     add_subdirectory(tests)
 endif()

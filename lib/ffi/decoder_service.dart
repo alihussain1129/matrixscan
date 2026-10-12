@@ -131,6 +131,7 @@ class DecoderService {
     required int rowStride,
     int formatsMask = 0,
     bool tryHarder = false,
+    int flags = 0,
   }) {
     if (_disposed) return null;
     _ensureLoaded();
@@ -147,7 +148,7 @@ class DecoderService {
       height,
       rowStride,
       formatsMask,
-      tryHarder ? 1 : 0,
+      (tryHarder ? 1 : 0) | flags,
       _info,
       ExaltedBindings.decodeInfoLen,
       _text,
@@ -248,16 +249,11 @@ class DecoderService {
     if (reply == null || reply[0] == DecodeWorker.unavailableStatus) {
       if (!_fallbackLogged) {
         _fallbackLogged = true;
-        debugPrint('[EXALTED][WORKER] unavailable, decoding on the UI isolate');
+        debugPrint(
+          '[EXALTED][WORKER] unavailable; skipping frame to keep UI responsive',
+        );
       }
-      return decode(
-        luma: luma,
-        width: width,
-        height: height,
-        rowStride: rowStride,
-        formatsMask: formatsMask,
-        tryHarder: tryHarder,
-      );
+      return null;
     }
 
     final status = reply[0] as int;
