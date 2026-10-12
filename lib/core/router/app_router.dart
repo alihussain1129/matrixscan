@@ -9,7 +9,7 @@ const int kSettingsTab = 3;
 /// Which bottom-nav tab is selected.
 class NavIndexNotifier extends Notifier<int> {
   @override
-  int build() => kHomeTab;
+  int build() => kScanTab;
 
   void set(int index) => state = index;
 }

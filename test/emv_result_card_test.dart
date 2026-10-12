@@ -13,7 +13,8 @@ String _t(String id, String v) =>
     '$id${utf8.encode(v).length.toString().padLeft(2, '0')}$v';
 
 String _emv() {
-  final body = _t('00', '01') +
+  final body =
+      _t('00', '01') +
       _t('01', '12') +
       _t('26', _t('00', 'com.example.pay') + _t('01', 'ACC-0001234567')) +
       _t('53', '586') +
@@ -56,10 +57,18 @@ Future<void> _pump(WidgetTester tester, String text) async {
 }
 
 void main() {
-  testWidgets('a payment QR is shown with the interpretation view', (tester) async {
+  testWidgets('a payment QR shows a compact summary and full details', (
+    tester,
+  ) async {
     await _pump(tester, _emv());
-    expect(find.byType(InterpretationView), findsOneWidget);
+
+    expect(find.byType(InterpretationView), findsNothing);
     expect(find.text('Test Shop'), findsOneWidget);
+    expect(find.text('Full details'), findsOneWidget);
+
+    await tester.tap(find.text('Full details'));
+    await tester.pumpAndSettle();
+
     expect(find.text('PKR (Pakistani rupee)'), findsOneWidget);
   });
 

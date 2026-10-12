@@ -1,15 +1,15 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../interpret/interpreter.dart';
 import '../../interpret/scan_field.dart';
 
-/// Shows everything an [Interpretation] contains: warnings, search, collapsible
-/// sections, per-field copy, and masked sensitive values. Place it inside a
-/// scrollable parent.
+/// Shows an interpretation with searchable sections, field cards, copy actions,
+/// and masked sensitive values. Place it inside a scrollable parent.
 class InterpretationView extends StatefulWidget {
   const InterpretationView({super.key, required this.interpretation});
 
@@ -81,18 +81,31 @@ class _InterpretationViewState extends State<InterpretationView> {
         for (final w in i.warnings)
           Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.warning_amber_rounded, size: 18, color: scheme.error),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Text(
-                    w,
-                    style: text.bodySmall?.copyWith(color: scheme.error),
-                  ),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: scheme.errorContainer.withValues(alpha: 0.35),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.sm),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 18,
+                      color: scheme.error,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        w,
+                        style: text.bodySmall?.copyWith(color: scheme.error),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         const SizedBox(height: AppSpacing.sm),
@@ -104,7 +117,10 @@ class _InterpretationViewState extends State<InterpretationView> {
           ),
           onChanged: (v) => setState(() => _query = v.trim()),
         ),
-        Row(
+        const SizedBox(height: AppSpacing.xs),
+        Wrap(
+          spacing: AppSpacing.xs,
+          runSpacing: AppSpacing.xs,
           children: [
             if (raw != null)
               TextButton.icon(
@@ -129,19 +145,38 @@ class _InterpretationViewState extends State<InterpretationView> {
 
   Widget _section(ScanSection s) {
     if (!_sectionHas(s)) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final colors = theme.extension<ExaltedColors>()!;
     final searching = _query.isNotEmpty;
     final collapsedByDefault = s.id == 'raw' || s.id == 'technical';
-    return ExpansionTile(
-      key: ValueKey('${s.id}-$searching'),
-      initiallyExpanded: searching || !collapsedByDefault,
-      tilePadding: EdgeInsets.zero,
-      childrenPadding: const EdgeInsets.only(left: AppSpacing.sm),
-      title: Text(s.title, style: Theme.of(context).textTheme.titleSmall),
-      children: [
-        for (final f in s.fields)
-          if (_matches(f)) _fieldTile(f),
-        for (final n in s.sections) _section(n),
-      ],
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: colors.surfaceRaised.withValues(alpha: 0.45),
+        border: Border.all(color: colors.outline),
+        borderRadius: BorderRadius.circular(AppRadius.card),
+      ),
+      child: ExpansionTile(
+        key: ValueKey('${s.id}-$searching'),
+        initiallyExpanded: searching || !collapsedByDefault,
+        tilePadding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+        childrenPadding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          0,
+          AppSpacing.md,
+          AppSpacing.md,
+        ),
+        shape: const RoundedRectangleBorder(),
+        collapsedShape: const RoundedRectangleBorder(),
+        title: Text(s.title, style: theme.textTheme.titleSmall),
+        children: [
+          for (final f in s.fields)
+            if (_matches(f)) _fieldTile(f),
+          for (final n in s.sections) _section(n),
+        ],
+      ),
     );
   }
 
@@ -168,10 +203,31 @@ class _InterpretationViewState extends State<InterpretationView> {
     FieldOrigin.external => 'External source',
   };
 
+  Widget _statusIcon(ScanField f, ColorScheme scheme) {
+    if (f.validation == FieldValidation.invalid ||
+        f.verification == FieldVerification.mismatch) {
+      return Icon(Icons.error_outline, size: 18, color: scheme.error);
+    }
+    if (f.verification == FieldVerification.verified ||
+        f.validation == FieldValidation.valid) {
+      final colors = Theme.of(context).extension<ExaltedColors>()!;
+      return Icon(Icons.check_circle_outline, size: 18, color: colors.valid);
+    }
+    if (f.presence != FieldPresence.present) {
+      return Icon(
+        Icons.info_outline,
+        size: 18,
+        color: scheme.onSurfaceVariant,
+      );
+    }
+    return const SizedBox(width: 18, height: 18);
+  }
+
   Widget _fieldTile(ScanField f) {
     final theme = Theme.of(context);
     final text = theme.textTheme;
     final scheme = theme.colorScheme;
+    final colors = theme.extension<ExaltedColors>()!;
     final revealed = _revealed.contains(_key(f));
     final hasValue = f.presence == FieldPresence.present && f.value != null;
 
@@ -190,31 +246,86 @@ class _InterpretationViewState extends State<InterpretationView> {
       if (f.verification == FieldVerification.mismatch) 'Mismatch',
     ];
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+    final invalid = f.validation == FieldValidation.invalid ||
+        f.verification == FieldVerification.mismatch;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: invalid ? scheme.error.withValues(alpha: 0.65) : colors.outline,
+        ),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: _statusIcon(f, scheme),
+          ),
+          const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(f.label, style: text.bodySmall),
-                if (f.id != null) Text('ID ${f.id}', style: text.labelSmall),
-                Text(shown, style: text.bodyMedium),
+                Text(
+                  f.label,
+                  style: text.labelLarge?.copyWith(color: colors.muted),
+                ),
+                if (f.id != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text('ID ${f.id}', style: text.labelSmall),
+                  ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  shown,
+                  style: text.bodyLarge?.copyWith(
+                    fontWeight: hasValue ? FontWeight.w600 : FontWeight.normal,
+                    fontFamily: hasValue ? 'monospace' : null,
+                  ),
+                ),
                 if (hasValue &&
                     !f.sensitive &&
                     f.original != null &&
                     f.original != f.value)
-                  Text('Encoded: ${f.original}', style: text.bodySmall),
-                if (status.isNotEmpty)
-                  Text(status.join(' \u00b7 '), style: text.bodySmall),
-                if (f.note != null) Text(f.note!, style: text.bodySmall),
-                if (f.warning != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.xs),
+                    child: SelectableText(
+                      'Encoded: ${f.original}',
+                      style: text.bodySmall?.copyWith(color: colors.muted),
+                    ),
+                  ),
+                if (status.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  Wrap(
+                    spacing: AppSpacing.xs,
+                    runSpacing: AppSpacing.xs,
+                    children: [
+                      for (final item in status)
+                        _metadataChip(
+                          item,
+                          invalid: item == 'Invalid' || item == 'Mismatch',
+                          valid: item == 'Valid' || item == 'Verified',
+                        ),
+                    ],
+                  ),
+                ],
+                if (f.note != null) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(f.note!, style: text.bodySmall),
+                ],
+                if (f.warning != null) ...[
+                  const SizedBox(height: AppSpacing.xs),
                   Text(
                     f.warning!,
                     style: text.bodySmall?.copyWith(color: scheme.error),
                   ),
+                ],
               ],
             ),
           ),
@@ -238,4 +349,36 @@ class _InterpretationViewState extends State<InterpretationView> {
       ),
     );
   }
+
+  Widget _metadataChip(
+    String label, {
+    required bool invalid,
+    required bool valid,
+  }) {
+    final theme = Theme.of(context);
+    final colors = theme.extension<ExaltedColors>()!;
+    final scheme = theme.colorScheme;
+    final foreground = invalid
+        ? scheme.error
+        : valid
+        ? colors.valid
+        : colors.muted;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
+      decoration: BoxDecoration(
+        color: foreground.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelSmall?.copyWith(color: foreground),
+      ),
+    );
+  }
 }
+
+

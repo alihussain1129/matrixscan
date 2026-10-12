@@ -85,7 +85,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Refresh the recent list each time the user comes back to Home.
     ref.listen<int>(navIndexProvider, (previous, next) {
       if (next == kHomeTab && mounted) {
-        setState(() => _recent = _load());
+        final reloaded = _load();
+        setState(() {
+          _recent = reloaded;
+        });
       }
     });
 
@@ -272,3 +275,4 @@ class _RecentTile extends StatelessWidget {
     );
   }
 }
+

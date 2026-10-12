@@ -25,6 +25,9 @@ import 'scanner_widgets.dart';
 import 'wifi_connector.dart';
 import 'wifi_utils.dart';
 
+/// Diagnostic only: run with --dart-define=NO_SCAN_LINE=true to measure without the animation.
+const bool _kNoScanLine = bool.fromEnvironment('NO_SCAN_LINE');
+
 /// Main scanner screen: live camera, scan frame, controls.
 class ScannerScreen extends ConsumerStatefulWidget {
   const ScannerScreen({super.key});
@@ -67,7 +70,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   }
 
   void _startLineAnimation() {
-    if (!mounted) return;
+    if (!mounted || _kNoScanLine) return;
     if (!_line.isAnimating) {
       _line.repeat(reverse: true);
     }
@@ -286,6 +289,17 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       }
     });
 
+    // The scan line is hidden under a result card, so stop animating it.
+    ref.listen<bool>(scannerControllerProvider.select((s) => s.result != null), (
+      previous,
+      hasResult,
+    ) {
+      if (hasResult) {
+        _stopLineAnimation();
+      } else if (ref.read(navIndexProvider) == kScanTab) {
+        _startLineAnimation();
+      }
+    });
     ref.listen<String?>(scannerControllerProvider.select((s) => s.notice), (
       previous,
       next,

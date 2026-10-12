@@ -5,17 +5,17 @@ import '../../ffi/decode_result.dart';
 import '../../gs1/gs1_parser.dart';
 import '../../interpret/default_registry.dart';
 import '../../interpret/interpreter.dart';
+import '../../interpret/scan_field.dart';
 import 'gs1_info_panel.dart';
 import '../../verify/verification_engine.dart';
 import '../result/result_screen.dart';
-import 'verified_interpretation_view.dart';
 import 'wifi_info_panel.dart';
 import 'wifi_utils.dart';
 
 final _registry = defaultInterpreterRegistry();
 
 /// Interpretations shown in full on the card. Everything else shows raw text.
-const Set<String> _richInterpreters = {'emv', 'gs1', 'contact'};
+const Set<String> _richInterpreters = {'emv', 'contact'};
 
 /// Bottom card shown on the scanner screen when a barcode has been decoded.
 class ScanResultCard extends StatelessWidget {
@@ -54,10 +54,21 @@ class ScanResultCard extends StatelessWidget {
     final wifi = parseWifiQr(barcode.text);
     final gs1 = wifi == null ? parseGs1(barcode.text) : null;
     final interp = wifi == null
-        ? _registry.interpret(ScanPayload(raw: barcode.text, symbology: barcode.kind.label, source: 'live'))
+        ? _registry.interpret(
+            ScanPayload(
+              raw: barcode.text,
+              symbology: barcode.kind.label,
+              source: 'live',
+            ),
+          )
         : null;
-    final emv = (interp != null && _richInterpreters.contains(interp.interpreterId)) ? interp : null;
-    final linkWarnings = (interp != null && interp.interpreterId == 'url') ? interp.warnings : const <String>[];
+    final emv =
+        (interp != null && _richInterpreters.contains(interp.interpreterId))
+        ? interp
+        : null;
+    final linkWarnings = (interp != null && interp.interpreterId == 'url')
+        ? interp.warnings
+        : const <String>[];
     final showConnect =
         wifi != null && wifi.canConnect && onConnectWifi != null;
 
@@ -78,7 +89,13 @@ class ScanResultCard extends StatelessWidget {
                       ? Icons.wifi
                       : gs1 != null
                       ? Icons.inventory_2_outlined
-                      : emv != null ? (emv.interpreterId == 'emv' ? Icons.payments_outlined : emv.interpreterId == 'gs1' ? Icons.inventory_2_outlined : Icons.contact_page_outlined) : Icons.qr_code_2,
+                      : emv != null
+                      ? (emv.interpreterId == 'emv'
+                            ? Icons.payments_outlined
+                            : emv.interpreterId == 'gs1'
+                            ? Icons.inventory_2_outlined
+                            : Icons.contact_page_outlined)
+                      : Icons.qr_code_2,
                   color: scheme.primary,
                 ),
                 const SizedBox(width: AppSpacing.md),
@@ -98,25 +115,27 @@ class ScanResultCard extends StatelessWidget {
               ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 320),
                 child: SingleChildScrollView(
-                  child: VerifiedInterpretationView(interpretation: emv, verifier: verifier, allowedSources: allowedSources),
+                  child: _CompactSummary(interpretation: emv),
                 ),
               )
             else if (gs1 != null)
               ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 320),
-                child: SingleChildScrollView(child: Gs1InfoPanel(result: gs1)),
+                child: SingleChildScrollView(
+                  child: Gs1InfoPanel(result: gs1, showRaw: false),
+                ),
               )
             else
               ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 160),
                 child: SingleChildScrollView(
                   child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SelectableText(barcode.text, style: text.bodyLarge),
-                    for (final w in linkWarnings) _LinkWarning(w),
-                  ],
-                ),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SelectableText(barcode.text, style: text.bodyLarge),
+                      for (final w in linkWarnings) _LinkWarning(w),
+                    ],
+                  ),
                 ),
               ),
             const SizedBox(height: AppSpacing.lg),
@@ -217,6 +236,91 @@ class _LinkWarning extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A short summary for the scanner card. All fields, checks and sources are
+/// on the Decoded details screen.
+class _CompactSummary extends StatelessWidget {
+  const _CompactSummary({required this.interpretation});
+
+  final Interpretation interpretation;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = theme.textTheme;
+    final error = theme.colorScheme.error;
+
+    final shown = <ScanField>[];
+    for (final s in interpretation.sections) {
+      if (s.id == 'raw' || s.id == 'technical') continue;
+      for (final f in s.allFields) {
+        if (shown.length >= 4) break;
+        final v = f.value;
+        if (f.presence == FieldPresence.present &&
+            v != null &&
+            v.isNotEmpty &&
+            !f.sensitive) {
+          shown.add(f);
+        }
+      }
+    }
+    final warnings = interpretation.warnings.take(2).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(interpretation.formatName, style: text.titleSmall),
+        const SizedBox(height: AppSpacing.sm),
+        for (final f in shown)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 110,
+                  child: Text(
+                    f.label,
+                    style: text.bodySmall,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    f.value!,
+                    style: text.bodyMedium,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        for (final w in warnings)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.xs),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.warning_amber_rounded, size: 18, color: error),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(w, style: text.bodySmall?.copyWith(color: error)),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          'Tap Full details for all fields and checks.',
+          style: text.bodySmall,
+        ),
+      ],
     );
   }
 }
