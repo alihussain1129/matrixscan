@@ -253,7 +253,7 @@ class FramePipeline {
       _dbgLogMs = dbgNow;
       debugPrint(
         '[EXALTED][FRAME] total=$_dbgRecv ${width}x$height stride=$yRowStride '
-        'rot=$rotationDegrees analyzers=${_analyzers.length} busy=$_busy',
+        'rot=$rotationDegrees analyzers=${_analyzers.length} busy=$_busy acc=$_accepted busySkip=$_busySkipped thrSkip=$_throttleSkipped',
       );
     }
 
@@ -381,7 +381,7 @@ class FramePipeline {
 final framePipelineProvider = Provider<FramePipeline>((ref) {
   final analyzer = ref.watch(scannerAnalyzerProvider);
 
-  final pipeline = FramePipeline();
+  final pipeline = FramePipeline(targetFps: 60);
 
   pipeline.addAnalyzer(analyzer);
 

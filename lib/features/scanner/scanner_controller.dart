@@ -1,3 +1,4 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:io' show Platform;
 
@@ -23,6 +24,9 @@ enum CameraStatus {
   error,
 }
 
+const String _qualityDefine = String.fromEnvironment('EXALTED_QUALITY');
+const CameraQuality _defaultQuality = _qualityDefine == 'high' ? CameraQuality.high : (_qualityDefine == 'ultra' ? CameraQuality.ultra : CameraQuality.balanced);
+
 enum CameraQuality {
   balanced('Balanced', ResolutionPreset.medium),
   high('High', ResolutionPreset.high),
@@ -46,7 +50,7 @@ class ScannerUiState {
     this.continuous = false,
     this.autoScan = true,
     this.paused = false,
-    this.quality = CameraQuality.high,
+    this.quality = _defaultQuality,
     this.errorMessage,
     this.notice,
     this.result,
@@ -159,10 +163,32 @@ class ScannerController extends Notifier<ScannerUiState> {
       pipeline.stop();
     });
 
-    return const ScannerUiState();
+    unawaited(_loadQuality()); return const ScannerUiState();
   }
 
   // ---- simple toggles ----------------------------------------------------
+
+    static const String _qualityKey = 'exalted_camera_quality';
+
+  Future<void> _loadQuality() async {
+    if (_qualityDefine.isNotEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(_qualityKey);
+      for (final q in CameraQuality.values) {
+        if (q.name == saved && q != state.quality) {
+          state = state.copyWith(quality: q);
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveQuality(CameraQuality quality) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_qualityKey, quality.name);
+    } catch (_) {}
+  }
 
   void toggleContinuous() {
     state = state.copyWith(continuous: !state.continuous);
@@ -175,7 +201,7 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   /// Applied the next time the camera starts.
   void setQuality(CameraQuality quality) {
-    state = state.copyWith(quality: quality);
+    state = state.copyWith(quality: quality); unawaited(_saveQuality(quality));
   }
 
   void clearNotice() {
@@ -237,6 +263,10 @@ class ScannerController extends Notifier<ScannerUiState> {
     _startup('camera list ready');
 
     final cameras = _cameras!;
+    final camNames = cameras
+        .map((c) => '${c.name}:${c.lensDirection.name}:${c.sensorOrientation}')
+        .join(' ');
+    debugPrint('[EXALTED][CAMERA] cameras: $camNames');
 
     if (cameras.isEmpty) {
       state = state.copyWith(

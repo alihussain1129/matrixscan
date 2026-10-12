@@ -87,23 +87,35 @@ class ScannerAnalyzer implements FrameAnalyzer {
   // crop = decode only a band around the on-screen scan window.
   static const double _bandMargin = 0.35;
   static const List<_Pass> _passCycle = [
+    _Pass(8, true),
     _Pass(24, true),
     _Pass(56, true),
     _Pass(26, true),
-    _Pass(8, true),
     _Pass(24, false),
     _Pass(48, false),
   ];
 
-  // Dot-peen fallback passes: dark dots 1/2 px, light dots 1/2 px. Only used
-  // after a long run of misses, so normal scanning is not slowed.
+  // Dot-peen fallback passes. Native flags: 8 = no downscale, 16 = global
+  // histogram, bits 10-12 = dark-dot grow radius in px (1..7), 256 = grow
+  // light dots instead (must be combined with 2 = invert). The radius has to
+  // scale with the dot spacing, so the ladder covers several radii. Only used
+  // after a run of misses, so normal scanning is barely affected.
   static const List<_Pass> _dotPasses = [
-    _Pass(88, true),
-    _Pass(152, true),
-    _Pass(344, true),
-    _Pass(408, true),
+    _Pass(3096, true), // dark dots, global histogram, radius 3
+    _Pass(4104, true), // dark, local binarizer, radius 4
+    _Pass(4120, true), // dark, global, radius 4
+    _Pass(5144, true), // dark, global, radius 5
+    _Pass(2056, true), // dark, local, radius 2
+    _Pass(1032, true), // dark, local, radius 1
+    _Pass(3354, true), // light dots, global, radius 3
+    _Pass(4362, true), // light, local, radius 4
+    _Pass(4378, true), // light, global, radius 4
+    _Pass(2314, true), // light, local, radius 2
   ];
-  int _missStreak = 0;
+  static const int _dotAfterMisses = 12;
+  static const int _dotEvery = 3;
+  int _dotCursor = 0;
+  int _missStreak = 0;  int _lightCursor = 0;
 
   final Map<String, int> _passN = {};
   final Map<String, int> _passUs = {};
@@ -230,10 +242,10 @@ class ScannerAnalyzer implements FrameAnalyzer {
 
     final watch = Stopwatch()..start();
     _attempts++;
-    final useDot = _missStreak >= 90 && _attempts % 10 == 0;
+    final useDot = _missStreak >= _dotAfterMisses && _attempts % _dotEvery == 0;
     final pass = useDot
-        ? _dotPasses[(_attempts ~/ 10) % _dotPasses.length]
-        : _passCycle[(_attempts - 1) % _passCycle.length];
+        ? _dotPasses[_dotCursor++ % _dotPasses.length]
+        : _passCycle[_lightCursor++ % _passCycle.length];
     _missStreak++;
     final crop = pass.crop ? _cropFor(frame) : null;
     if (pass.crop) {
