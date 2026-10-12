@@ -1,0 +1,607 @@
+{
+  "meta": {
+    "disclaimer": "Do not rely on openFDA to make decisions regarding medical care. While we make every effort to ensure that data is accurate, you should assume all results are unvalidated. We may limit or otherwise restrict your access to the API in line with our Terms of Service.",
+    "terms": "https://open.fda.gov/terms/",
+    "license": "https://open.fda.gov/license/",
+    "last_updated": "2026-10-09",
+    "results": {
+      "skip": 0,
+      "limit": 10,
+      "total": 8
+    }
+  },
+  "results": [
+    {
+      "product_ndc": "76282-568",
+      "generic_name": "PREGABALIN",
+      "labeler_name": "Exelan Pharmaceuticals Inc.",
+      "dea_schedule": "CV",
+      "brand_name": "Pregabalin",
+      "active_ingredients": [
+        {
+          "name": "PREGABALIN",
+          "strength": "25 mg/1"
+        }
+      ],
+      "finished": true,
+      "packaging": [
+        {
+          "package_ndc": "76282-568-05",
+          "description": "500 CAPSULE in 1 BOTTLE (76282-568-05)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        },
+        {
+          "package_ndc": "76282-568-90",
+          "description": "90 CAPSULE in 1 BOTTLE (76282-568-90)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        }
+      ],
+      "listing_expiration_date": "20271231",
+      "openfda": {
+        "manufacturer_name": [
+          "Exelan Pharmaceuticals Inc."
+        ],
+        "rxcui": [
+          "483438",
+          "483440",
+          "483442",
+          "483444",
+          "483446",
+          "483448",
+          "483450",
+          "577127"
+        ],
+        "spl_set_id": [
+          "3fdc6e94-2504-416c-81dd-2db9bc194ebb"
+        ],
+        "is_original_packager": [
+          true
+        ],
+        "upc": [
+          "0376282569901",
+          "0376282571904",
+          "0376282570907",
+          "0376282572901",
+          "0376282568904",
+          "0376282575902",
+          "0376282574905",
+          "0376282573908"
+        ],
+        "unii": [
+          "55JG375S6M"
+        ]
+      },
+      "marketing_category": "ANDA",
+      "dosage_form": "CAPSULE",
+      "spl_id": "b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "product_type": "HUMAN PRESCRIPTION DRUG",
+      "route": [
+        "ORAL"
+      ],
+      "marketing_start_date": "20190719",
+      "product_id": "76282-568_b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "application_number": "ANDA211384",
+      "brand_name_base": "Pregabalin"
+    },
+    {
+      "product_ndc": "76282-573",
+      "generic_name": "PREGABALIN",
+      "labeler_name": "Exelan Pharmaceuticals Inc.",
+      "dea_schedule": "CV",
+      "brand_name": "Pregabalin",
+      "active_ingredients": [
+        {
+          "name": "PREGABALIN",
+          "strength": "200 mg/1"
+        }
+      ],
+      "finished": true,
+      "packaging": [
+        {
+          "package_ndc": "76282-573-05",
+          "description": "500 CAPSULE in 1 BOTTLE (76282-573-05)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        },
+        {
+          "package_ndc": "76282-573-90",
+          "description": "90 CAPSULE in 1 BOTTLE (76282-573-90)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        }
+      ],
+      "listing_expiration_date": "20271231",
+      "openfda": {
+        "manufacturer_name": [
+          "Exelan Pharmaceuticals Inc."
+        ],
+        "rxcui": [
+          "483438",
+          "483440",
+          "483442",
+          "483444",
+          "483446",
+          "483448",
+          "483450",
+          "577127"
+        ],
+        "spl_set_id": [
+          "3fdc6e94-2504-416c-81dd-2db9bc194ebb"
+        ],
+        "is_original_packager": [
+          true
+        ],
+        "upc": [
+          "0376282569901",
+          "0376282571904",
+          "0376282570907",
+          "0376282572901",
+          "0376282568904",
+          "0376282575902",
+          "0376282574905",
+          "0376282573908"
+        ],
+        "unii": [
+          "55JG375S6M"
+        ]
+      },
+      "marketing_category": "ANDA",
+      "dosage_form": "CAPSULE",
+      "spl_id": "b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "product_type": "HUMAN PRESCRIPTION DRUG",
+      "route": [
+        "ORAL"
+      ],
+      "marketing_start_date": "20190719",
+      "product_id": "76282-573_b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "application_number": "ANDA211384",
+      "brand_name_base": "Pregabalin"
+    },
+    {
+      "product_ndc": "76282-574",
+      "generic_name": "PREGABALIN",
+      "labeler_name": "Exelan Pharmaceuticals Inc.",
+      "dea_schedule": "CV",
+      "brand_name": "Pregabalin",
+      "active_ingredients": [
+        {
+          "name": "PREGABALIN",
+          "strength": "225 mg/1"
+        }
+      ],
+      "finished": true,
+      "packaging": [
+        {
+          "package_ndc": "76282-574-05",
+          "description": "500 CAPSULE in 1 BOTTLE (76282-574-05)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        },
+        {
+          "package_ndc": "76282-574-90",
+          "description": "90 CAPSULE in 1 BOTTLE (76282-574-90)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        }
+      ],
+      "listing_expiration_date": "20271231",
+      "openfda": {
+        "manufacturer_name": [
+          "Exelan Pharmaceuticals Inc."
+        ],
+        "rxcui": [
+          "483438",
+          "483440",
+          "483442",
+          "483444",
+          "483446",
+          "483448",
+          "483450",
+          "577127"
+        ],
+        "spl_set_id": [
+          "3fdc6e94-2504-416c-81dd-2db9bc194ebb"
+        ],
+        "is_original_packager": [
+          true
+        ],
+        "upc": [
+          "0376282569901",
+          "0376282571904",
+          "0376282570907",
+          "0376282572901",
+          "0376282568904",
+          "0376282575902",
+          "0376282574905",
+          "0376282573908"
+        ],
+        "unii": [
+          "55JG375S6M"
+        ]
+      },
+      "marketing_category": "ANDA",
+      "dosage_form": "CAPSULE",
+      "spl_id": "b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "product_type": "HUMAN PRESCRIPTION DRUG",
+      "route": [
+        "ORAL"
+      ],
+      "marketing_start_date": "20190719",
+      "product_id": "76282-574_b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "application_number": "ANDA211384",
+      "brand_name_base": "Pregabalin"
+    },
+    {
+      "product_ndc": "76282-575",
+      "generic_name": "PREGABALIN",
+      "labeler_name": "Exelan Pharmaceuticals Inc.",
+      "dea_schedule": "CV",
+      "brand_name": "Pregabalin",
+      "active_ingredients": [
+        {
+          "name": "PREGABALIN",
+          "strength": "300 mg/1"
+        }
+      ],
+      "finished": true,
+      "packaging": [
+        {
+          "package_ndc": "76282-575-05",
+          "description": "500 CAPSULE in 1 BOTTLE (76282-575-05)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        },
+        {
+          "package_ndc": "76282-575-90",
+          "description": "90 CAPSULE in 1 BOTTLE (76282-575-90)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        }
+      ],
+      "listing_expiration_date": "20271231",
+      "openfda": {
+        "manufacturer_name": [
+          "Exelan Pharmaceuticals Inc."
+        ],
+        "rxcui": [
+          "483438",
+          "483440",
+          "483442",
+          "483444",
+          "483446",
+          "483448",
+          "483450",
+          "577127"
+        ],
+        "spl_set_id": [
+          "3fdc6e94-2504-416c-81dd-2db9bc194ebb"
+        ],
+        "is_original_packager": [
+          true
+        ],
+        "upc": [
+          "0376282569901",
+          "0376282571904",
+          "0376282570907",
+          "0376282572901",
+          "0376282568904",
+          "0376282575902",
+          "0376282574905",
+          "0376282573908"
+        ],
+        "unii": [
+          "55JG375S6M"
+        ]
+      },
+      "marketing_category": "ANDA",
+      "dosage_form": "CAPSULE",
+      "spl_id": "b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "product_type": "HUMAN PRESCRIPTION DRUG",
+      "route": [
+        "ORAL"
+      ],
+      "marketing_start_date": "20190719",
+      "product_id": "76282-575_b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "application_number": "ANDA211384",
+      "brand_name_base": "Pregabalin"
+    },
+    {
+      "product_ndc": "76282-572",
+      "generic_name": "PREGABALIN",
+      "labeler_name": "Exelan Pharmaceuticals Inc.",
+      "dea_schedule": "CV",
+      "brand_name": "Pregabalin",
+      "active_ingredients": [
+        {
+          "name": "PREGABALIN",
+          "strength": "150 mg/1"
+        }
+      ],
+      "finished": true,
+      "packaging": [
+        {
+          "package_ndc": "76282-572-05",
+          "description": "500 CAPSULE in 1 BOTTLE (76282-572-05)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        },
+        {
+          "package_ndc": "76282-572-90",
+          "description": "90 CAPSULE in 1 BOTTLE (76282-572-90)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        }
+      ],
+      "listing_expiration_date": "20271231",
+      "openfda": {
+        "manufacturer_name": [
+          "Exelan Pharmaceuticals Inc."
+        ],
+        "rxcui": [
+          "483438",
+          "483440",
+          "483442",
+          "483444",
+          "483446",
+          "483448",
+          "483450",
+          "577127"
+        ],
+        "spl_set_id": [
+          "3fdc6e94-2504-416c-81dd-2db9bc194ebb"
+        ],
+        "is_original_packager": [
+          true
+        ],
+        "upc": [
+          "0376282569901",
+          "0376282571904",
+          "0376282570907",
+          "0376282572901",
+          "0376282568904",
+          "0376282575902",
+          "0376282574905",
+          "0376282573908"
+        ],
+        "unii": [
+          "55JG375S6M"
+        ]
+      },
+      "marketing_category": "ANDA",
+      "dosage_form": "CAPSULE",
+      "spl_id": "b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "product_type": "HUMAN PRESCRIPTION DRUG",
+      "route": [
+        "ORAL"
+      ],
+      "marketing_start_date": "20190719",
+      "product_id": "76282-572_b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "application_number": "ANDA211384",
+      "brand_name_base": "Pregabalin"
+    },
+    {
+      "product_ndc": "76282-569",
+      "generic_name": "PREGABALIN",
+      "labeler_name": "Exelan Pharmaceuticals Inc.",
+      "dea_schedule": "CV",
+      "brand_name": "Pregabalin",
+      "active_ingredients": [
+        {
+          "name": "PREGABALIN",
+          "strength": "50 mg/1"
+        }
+      ],
+      "finished": true,
+      "packaging": [
+        {
+          "package_ndc": "76282-569-05",
+          "description": "500 CAPSULE in 1 BOTTLE (76282-569-05)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        },
+        {
+          "package_ndc": "76282-569-90",
+          "description": "90 CAPSULE in 1 BOTTLE (76282-569-90)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        }
+      ],
+      "listing_expiration_date": "20271231",
+      "openfda": {
+        "manufacturer_name": [
+          "Exelan Pharmaceuticals Inc."
+        ],
+        "rxcui": [
+          "483438",
+          "483440",
+          "483442",
+          "483444",
+          "483446",
+          "483448",
+          "483450",
+          "577127"
+        ],
+        "spl_set_id": [
+          "3fdc6e94-2504-416c-81dd-2db9bc194ebb"
+        ],
+        "is_original_packager": [
+          true
+        ],
+        "upc": [
+          "0376282569901",
+          "0376282571904",
+          "0376282570907",
+          "0376282572901",
+          "0376282568904",
+          "0376282575902",
+          "0376282574905",
+          "0376282573908"
+        ],
+        "unii": [
+          "55JG375S6M"
+        ]
+      },
+      "marketing_category": "ANDA",
+      "dosage_form": "CAPSULE",
+      "spl_id": "b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "product_type": "HUMAN PRESCRIPTION DRUG",
+      "route": [
+        "ORAL"
+      ],
+      "marketing_start_date": "20190719",
+      "product_id": "76282-569_b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "application_number": "ANDA211384",
+      "brand_name_base": "Pregabalin"
+    },
+    {
+      "product_ndc": "76282-570",
+      "generic_name": "PREGABALIN",
+      "labeler_name": "Exelan Pharmaceuticals Inc.",
+      "dea_schedule": "CV",
+      "brand_name": "Pregabalin",
+      "active_ingredients": [
+        {
+          "name": "PREGABALIN",
+          "strength": "75 mg/1"
+        }
+      ],
+      "finished": true,
+      "packaging": [
+        {
+          "package_ndc": "76282-570-05",
+          "description": "500 CAPSULE in 1 BOTTLE (76282-570-05)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        },
+        {
+          "package_ndc": "76282-570-90",
+          "description": "90 CAPSULE in 1 BOTTLE (76282-570-90)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        }
+      ],
+      "listing_expiration_date": "20271231",
+      "openfda": {
+        "manufacturer_name": [
+          "Exelan Pharmaceuticals Inc."
+        ],
+        "rxcui": [
+          "483438",
+          "483440",
+          "483442",
+          "483444",
+          "483446",
+          "483448",
+          "483450",
+          "577127"
+        ],
+        "spl_set_id": [
+          "3fdc6e94-2504-416c-81dd-2db9bc194ebb"
+        ],
+        "is_original_packager": [
+          true
+        ],
+        "upc": [
+          "0376282569901",
+          "0376282571904",
+          "0376282570907",
+          "0376282572901",
+          "0376282568904",
+          "0376282575902",
+          "0376282574905",
+          "0376282573908"
+        ],
+        "unii": [
+          "55JG375S6M"
+        ]
+      },
+      "marketing_category": "ANDA",
+      "dosage_form": "CAPSULE",
+      "spl_id": "b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "product_type": "HUMAN PRESCRIPTION DRUG",
+      "route": [
+        "ORAL"
+      ],
+      "marketing_start_date": "20190719",
+      "product_id": "76282-570_b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "application_number": "ANDA211384",
+      "brand_name_base": "Pregabalin"
+    },
+    {
+      "product_ndc": "76282-571",
+      "generic_name": "PREGABALIN",
+      "labeler_name": "Exelan Pharmaceuticals Inc.",
+      "dea_schedule": "CV",
+      "brand_name": "Pregabalin",
+      "active_ingredients": [
+        {
+          "name": "PREGABALIN",
+          "strength": "100 mg/1"
+        }
+      ],
+      "finished": true,
+      "packaging": [
+        {
+          "package_ndc": "76282-571-05",
+          "description": "500 CAPSULE in 1 BOTTLE (76282-571-05)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        },
+        {
+          "package_ndc": "76282-571-90",
+          "description": "90 CAPSULE in 1 BOTTLE (76282-571-90)",
+          "marketing_start_date": "20190719",
+          "sample": false
+        }
+      ],
+      "listing_expiration_date": "20271231",
+      "openfda": {
+        "manufacturer_name": [
+          "Exelan Pharmaceuticals Inc."
+        ],
+        "rxcui": [
+          "483438",
+          "483440",
+          "483442",
+          "483444",
+          "483446",
+          "483448",
+          "483450",
+          "577127"
+        ],
+        "spl_set_id": [
+          "3fdc6e94-2504-416c-81dd-2db9bc194ebb"
+        ],
+        "is_original_packager": [
+          true
+        ],
+        "upc": [
+          "0376282569901",
+          "0376282571904",
+          "0376282570907",
+          "0376282572901",
+          "0376282568904",
+          "0376282575902",
+          "0376282574905",
+          "0376282573908"
+        ],
+        "unii": [
+          "55JG375S6M"
+        ]
+      },
+      "marketing_category": "ANDA",
+      "dosage_form": "CAPSULE",
+      "spl_id": "b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "product_type": "HUMAN PRESCRIPTION DRUG",
+      "route": [
+        "ORAL"
+      ],
+      "marketing_start_date": "20190719",
+      "product_id": "76282-571_b26b72af-62e4-4eb5-9cb8-e4eb05a22435",
+      "application_number": "ANDA211384",
+      "brand_name_base": "Pregabalin"
+    }
+  ]
+}

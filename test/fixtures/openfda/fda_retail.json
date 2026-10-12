@@ -1,0 +1,74 @@
+{
+  "meta": {
+    "disclaimer": "Do not rely on openFDA to make decisions regarding medical care. While we make every effort to ensure that data is accurate, you should assume all results are unvalidated. We may limit or otherwise restrict your access to the API in line with our Terms of Service.",
+    "terms": "https://open.fda.gov/terms/",
+    "license": "https://open.fda.gov/license/",
+    "last_updated": "2026-10-09",
+    "results": {
+      "skip": 0,
+      "limit": 10,
+      "total": 1
+    }
+  },
+  "results": [
+    {
+      "product_ndc": "76472-3009",
+      "generic_name": "CALCIUM SULFATE ANHYDROUS",
+      "labeler_name": "SEVENE USA",
+      "brand_name": "Calcarea Sulphurica 200ck",
+      "brand_name_suffix": "200ck",
+      "active_ingredients": [
+        {
+          "name": "CALCIUM SULFATE ANHYDROUS",
+          "strength": "200 [kp_C]/1"
+        }
+      ],
+      "finished": true,
+      "packaging": [
+        {
+          "package_ndc": "76472-3009-1",
+          "description": "80 PELLET in 1 CYLINDER (76472-3009-1)",
+          "marketing_start_date": "20111122",
+          "sample": false
+        }
+      ],
+      "listing_expiration_date": "20261231",
+      "openfda": {
+        "manufacturer_name": [
+          "SEVENE USA"
+        ],
+        "spl_set_id": [
+          "c8d51479-1fe1-68d5-e053-2995a90aae72"
+        ],
+        "is_original_packager": [
+          true
+        ],
+        "upc": [
+          "0850022941283"
+        ],
+        "unii": [
+          "E934B3V59H"
+        ]
+      },
+      "marketing_category": "UNAPPROVED HOMEOPATHIC",
+      "dosage_form": "PELLET",
+      "spl_id": "2ddc269b-5442-d6b3-e063-6394a90a5f0a",
+      "product_type": "HUMAN OTC DRUG",
+      "route": [
+        "SUBLINGUAL"
+      ],
+      "marketing_start_date": "20111122",
+      "product_id": "76472-3009_2ddc269b-5442-d6b3-e063-6394a90a5f0a",
+      "brand_name_base": "Calcarea Sulphurica",
+      "pharm_class": [
+        "Blood Coagulation Factor [EPC]",
+        "Calcium [CS]",
+        "Cations",
+        "Divalent [CS]",
+        "Increased Coagulation Factor Activity [PE]",
+        "Phosphate Binder [EPC]",
+        "Phosphate Chelating Activity [MoA]"
+      ]
+    }
+  ]
+}
