@@ -57,3 +57,15 @@ cpp/*.obj
 
 scratch/
 logs/
+
+# local backups and scratch files
+*.before-*
+*.recovery-*
+*.failed-repair-*
+backups/
+*.pnm
+performance_hotspots.txt
+scanner_source_review.txt
+ui_performance_review.txt
+verification_diagnostic.txt
+verification_inspection.txt
