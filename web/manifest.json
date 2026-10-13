@@ -1,11 +1,11 @@
 {
-    "name": "exalted",
-    "short_name": "exalted",
+    "name": "Exalted Scanner",
+    "short_name": "Exalted",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#f7f3ea",
+    "theme_color": "#681726",
+    "description": "Scan QR codes, Data Matrix, and a wide range of 1D and 2D barcodes.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
