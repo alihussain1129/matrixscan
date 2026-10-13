@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7f3ea" />
+    <meta
+      name="description"
+      content="Exalted Scanner reads QR codes, Data Matrix, and common 1D and 2D barcodes privately in your browser."
+    />
+    <title>Exalted Scanner — Private browser scanner</title>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="Exalted Scanner home">
+          <span class="brand-mark" aria-hidden="true">E</span>
+          <span>Exalted Scanner</span>
+        </a>
+        <a
+          class="repo-link"
+          href="https://github.com/alihussain1129/matrixscan"
+          target="_blank"
+          rel="noreferrer"
+        >
+          MatrixScan on GitHub <span aria-hidden="true">↗</span>
+        </a>
+      </header>
+
+      <main>
+        <section class="intro" aria-labelledby="page-title">
+          <p class="eyebrow"><span></span> Your camera. Your device. Your data.</p>
+          <h1 id="page-title">One scanner.<br /><em>Many formats.</em></h1>
+          <p class="intro-copy">
+            Scan QR, Data Matrix, and a broad range of 1D and 2D barcode formats
+            with your camera or an image. Decoding stays on your device.
+          </p>
+        </section>
+
+        <section class="scanner-layout" aria-label="Barcode scanner">
+          <div class="scanner-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="eyebrow eyebrow-muted">Live scanner</span>
+                <h2>Point and capture</h2>
+              </div>
+              <span class="live-indicator" id="camera-indicator">
+                <span></span> Camera off
+              </span>
+            </div>
+
+            <div class="camera-stage" id="camera-stage">
+              <video id="camera-preview" playsinline muted aria-label="Camera preview"></video>
+              <div class="camera-placeholder" id="camera-placeholder">
+                <div class="scan-symbol" aria-hidden="true">
+                  <span></span><span></span><span></span><span></span>
+                  <i></i>
+                </div>
+                <p>Your camera preview will appear here</p>
+              </div>
+              <div class="scan-overlay" aria-hidden="true"><span></span></div>
+            </div>
+
+            <p class="status-line" id="status-message" role="status" aria-live="polite">
+              Start the camera, or choose an image to scan.
+            </p>
+
+            <div class="scanner-actions">
+              <button class="button button-primary" id="camera-button" type="button">
+                <span aria-hidden="true">◎</span> Start camera
+              </button>
+              <label class="button button-secondary upload-button" for="image-input">
+                <span aria-hidden="true">↑</span> Scan an image
+              </label>
+              <input id="image-input" type="file" accept="image/*" />
+            </div>
+            <p class="secure-note">
+              Camera access requires HTTPS and your permission. Image scans stay on this device.
+            </p>
+          </div>
+
+          <aside class="result-panel" aria-labelledby="result-title">
+            <div class="panel-heading">
+              <div>
+                <span class="eyebrow eyebrow-muted">Latest result</span>
+                <h2 id="result-title">Ready when you are</h2>
+              </div>
+              <span class="result-icon" aria-hidden="true">↗</span>
+            </div>
+
+            <div class="result-content" id="result-content" aria-live="polite">
+              <div class="empty-mark" aria-hidden="true">E</div>
+              <p>Scan a code to see its contents here.</p>
+            </div>
+
+            <div class="result-actions" id="result-actions" hidden>
+              <button class="button button-primary" id="copy-button" type="button">
+                Copy result
+              </button>
+              <button class="button button-quiet" id="scan-again-button" type="button">
+                Scan another
+              </button>
+            </div>
+
+            <div class="history-block">
+              <div class="history-heading">
+                <h3>Session scans</h3>
+                <button class="text-button" id="clear-history-button" type="button" hidden>
+                  Clear
+                </button>
+              </div>
+              <ul class="history-list" id="history-list">
+                <li class="history-empty">Your recent scans will appear here.</li>
+              </ul>
+              <p class="history-footnote">Only kept in this tab while it is open.</p>
+            </div>
+          </aside>
+        </section>
+
+        <section class="notes-grid" aria-label="Scanner details">
+          <article>
+            <span class="note-index">01</span>
+            <h3>Private by design</h3>
+            <p>Decoding happens on your device. Your camera feed and images are never uploaded.</p>
+          </article>
+          <article>
+            <span class="note-index">02</span>
+            <h3>Codes that matter</h3>
+            <p>QR, Micro QR, Data Matrix, Aztec, PDF417, MaxiCode, EAN/UPC, Code 39/93/128, Codabar, ITF, and RSS.</p>
+          </article>
+          <article>
+            <span class="note-index">03</span>
+            <h3>Built for the browser</h3>
+            <p>Allow camera access on a secure connection, or scan a saved image instead.</p>
+          </article>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <span>Exalted Scanner <span class="footer-dot">/</span> A MatrixScan project</span>
+        <span>Made by Ali Hussain</span>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
