@@ -1,6 +1,6 @@
 # Exalted Scanner
 
-Exalted Scanner is the product name. **MatrixScan** is the GitHub repository.
+Exalted Scanner is the product name. MatrixScan is the GitHub repository.
 
 The Flutter Android app scans QR codes, Data Matrix, and a wide range of 1D and 2D barcode formats using its native C++ decoder and platform integrations.
 
