@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Exalted
+GenericName=Industrial Machine Vision & OCR
+Comment=Industrial Machine Vision, OCR/OCV and Barcode Scanning Platform
+Exec=/opt/exalted/exalted
+Icon=exalted
+Terminal=false
+Categories=Utility;Development;Engineering;
+Keywords=OCR;OCV;Barcode;DataMatrix;MachineVision;Industrial;Keyence;
+StartupWMClass=exalted
