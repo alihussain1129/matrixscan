@@ -9,17 +9,23 @@ on:
       - main
     paths:
       - 'lib/**'
+      - 'test/**'
+      - 'assets/**'
       - 'cpp/**'
       - 'windows/**'
       - 'packaging/windows/**'
       - 'pubspec.yaml'
+      - 'pubspec.lock'
       - '.github/workflows/windows-release.yml'
 
 jobs:
   build-windows:
-    name: Build & Package Windows x64 Release
+    name: Build, Package and Verify Windows x64
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
 
     steps:
       - name: Check out repository
@@ -30,85 +36,149 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: stable
+          flutter-version: '3.47.9'
           cache: true
 
-      - name: Enable Flutter Windows Desktop
-        run: flutter config --enable-windows-desktop
-
-      - name: Print Environment Information
+      - name: Environment
         run: |
+          flutter config --enable-windows-desktop
           flutter --version
           cmake --version
-          ninja --version
 
-      - name: Install Flutter Dependencies
+      - name: Install dependencies
         run: flutter pub get
 
-      - name: Run Flutter Test Suite
+      - name: Analyze (errors fail the build)
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Flutter tests
         run: flutter test
 
-      - name: Build Windows Desktop Release Bundle
+      - name: Build Windows release (Flutter + C++ exalted_ffi)
         run: flutter build windows --release
 
-      - name: Verify Windows Release Files
-        shell: pwsh
+      - name: Verify release files
         run: |
-          $buildDir = "build/windows/x64/runner/Release"
-          $exePath = "$buildDir/exalted.exe"
-          $dllPath = "$buildDir/exalted_ffi.dll"
+          $rel = "build/windows/x64/runner/Release"
+          $need = 'exalted.exe','exalted_ffi.dll','flutter_windows.dll','vcruntime140.dll','vcruntime140_1.dll','msvcp140.dll','data/app.so','data/icudtl.dat','data/flutter_assets'
+          $missing = @()
+          foreach ($n in $need) { if (-not (Test-Path "$rel/$n")) { $missing += $n } }
+          Get-ChildItem $rel | Format-Table Name, Length
+          if ($missing.Count -gt 0) { throw "MISSING in bundle: $($missing -join ', ')" }
+          Write-Host "All required release files present."
 
-          if (!(Test-Path $exePath)) {
-            Write-Error "CRITICAL: exalted.exe was not created in $buildDir"
-            exit 1
-          }
-          if (!(Test-Path $dllPath)) {
-            Write-Error "CRITICAL: exalted_ffi.dll was not found in $buildDir"
-            exit 1
-          }
-          Write-Host "Success: exalted.exe and exalted_ffi.dll verified."
-          Get-ChildItem -Path $buildDir
-
-      - name: Install Inno Setup
-        run: choco install innosetup --no-progress
-
-      - name: Compile Windows Installer (Inno Setup)
-        run: iscc packaging/windows/installer.iss
-
-      - name: Verify Installer Artifact & Compute SHA256
-        shell: pwsh
+      - name: Verify exalted_ffi.dll exports, dependencies and loading
         run: |
-          $installerPath = "build/exalted_setup_1.0.0_win64.exe"
-          if (!(Test-Path $installerPath)) {
-            Write-Error "CRITICAL: Installer $installerPath not found!"
-            exit 1
-          }
-          $item = Get-Item $installerPath
-          Write-Host "Installer created successfully: $($item.FullName) ($($item.Length) bytes)"
+          $rel = (Resolve-Path "build/windows/x64/runner/Release").Path
+          $dll = Join-Path $rel 'exalted_ffi.dll'
+          $vsw = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vsw -latest -products * -find "VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          if (-not $dumpbin) { throw "dumpbin.exe not found" }
+          Write-Host "---- machine type / dependents ----"
+          & $dumpbin /headers $dll | Select-String 'machine|x64'
+          & $dumpbin /dependents $dll
+          Write-Host "---- exports ----"
+          $exp = & $dumpbin /exports $dll
+          $names = $exp | ForEach-Object { if ($_ -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)') { $Matches[1] } }
+          $names | ForEach-Object { Write-Host "  $_" }
+          if (-not $names -or $names.Count -eq 0) { throw "exalted_ffi.dll exports NOTHING - Dart FFI lookups will fail" }
+          Write-Host "---- LoadLibrary ----"
+          Add-Type -Namespace Native -Name K32 -MemberDefinition @'
+          [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] public static extern IntPtr LoadLibraryW(string p);
+          [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] public static extern bool SetDllDirectoryW(string p);
+          '@
+          [void][Native.K32]::SetDllDirectoryW($rel)
+          $h = [Native.K32]::LoadLibraryW($dll)
+          if ($h -eq [IntPtr]::Zero) { throw "LoadLibrary failed, Win32 error $([Runtime.InteropServices.Marshal]::GetLastWin32Error())" }
+          Write-Host "exalted_ffi.dll loaded OK"
 
-          # Compute Checksums
-          $files = @(
-            "build/windows/x64/runner/Release/exalted.exe",
-            "build/windows/x64/runner/Release/exalted_ffi.dll",
-            "build/exalted_setup_1.0.0_win64.exe"
-          )
-          $checksums = foreach ($file in $files) {
-            if (Test-Path $file) {
-              $hash = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLower()
-              "$hash  $file"
-            }
-          }
-          $checksums | Out-File -FilePath "build/windows-release-sha256.txt" -Encoding utf8
-          Get-Content "build/windows-release-sha256.txt"
+      - name: Install and bundle Tesseract OCR
+        run: |
+          choco install tesseract --no-progress -y
+          $src = "C:\Program Files\Tesseract-OCR"
+          if (-not (Test-Path "$src\tesseract.exe")) { throw "tesseract.exe not found after install" }
+          if (-not (Test-Path "$src\tessdata\eng.traineddata")) { throw "eng.traineddata missing" }
+          $dst = "build/windows/x64/runner/Release/tesseract"
+          New-Item -ItemType Directory -Force $dst | Out-Null
+          Copy-Item "$src\*" $dst -Recurse -Force
+          $env:TESSDATA_PREFIX = (Resolve-Path "$dst\tessdata").Path
+          & "$dst\tesseract.exe" --version
 
-      - name: Upload Windows Standalone Release Bundle
+      - name: Build installer (Inno Setup)
+        run: |
+          $cands = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe")
+          $iscc = $cands | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup --no-progress -y
+            $iscc = $cands | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $iscc) { throw "ISCC.exe not found" }
+          if (-not (Test-Path "windows/runner/resources/app_icon.ico")) { throw "app_icon.ico missing" }
+          & $iscc packaging/windows/installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
+          if (-not (Test-Path "build/exalted_setup_1.0.0_win64.exe")) { throw "installer not produced" }
+          Get-Item build/exalted_setup_1.0.0_win64.exe | Format-List FullName, Length
+
+      - name: Silent-install test, real OCR, launch, uninstall
+        run: |
+          $setup = (Resolve-Path "build/exalted_setup_1.0.0_win64.exe").Path
+          $dir = Join-Path $env:RUNNER_TEMP 'ExaltedInstalled'
+          $log = Join-Path $env:RUNNER_TEMP 'install.log'
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$dir","/LOG=$log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content $log -Tail 60; throw "installer exit code $($p.ExitCode)" }
+
+          $need = 'exalted.exe','exalted_ffi.dll','flutter_windows.dll','vcruntime140.dll','msvcp140.dll','data\app.so','data\icudtl.dat','tesseract\tesseract.exe','tesseract\tessdata\eng.traineddata','unins000.exe'
+          $missing = $need | Where-Object { -not (Test-Path (Join-Path $dir $_)) }
+          if ($missing) { throw "Installed files missing: $($missing -join ', ')" }
+          $lnk = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Exalted.lnk'
+          if (-not (Test-Path $lnk)) { throw "Start Menu shortcut missing: $lnk" }
+          $ver = (Get-Item (Join-Path $dir 'unins000.exe')).VersionInfo
+          Write-Host "Installed OK to $dir"
+
+          # Real OCR with the INSTALLED Tesseract
+          Add-Type -AssemblyName System.Drawing
+          $img = Join-Path $env:RUNNER_TEMP 'ocr_test.png'
+          $bmp = New-Object System.Drawing.Bitmap 900,200
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.Clear([System.Drawing.Color]::White)
+          $font = New-Object System.Drawing.Font('Arial',64,[System.Drawing.FontStyle]::Bold)
+          $g.DrawString('LOT-2026-X', $font, [System.Drawing.Brushes]::Black, 30, 40)
+          $bmp.Save($img, [System.Drawing.Imaging.ImageFormat]::Png)
+          $g.Dispose(); $bmp.Dispose()
+          $env:TESSDATA_PREFIX = Join-Path $dir 'tesseract\tessdata'
+          $out = & (Join-Path $dir 'tesseract\tesseract.exe') $img stdout --psm 3 -l eng tsv | Out-String
+          Write-Host $out
+          if ($out -notmatch '2026') { throw "Installed Tesseract did not read the test image" }
+          Write-Host "Installed Tesseract OCR works."
+
+          # Launch the installed app and make sure it stays alive
+          $app = Start-Process (Join-Path $dir 'exalted.exe') -PassThru
+          Start-Sleep -Seconds 12
+          if ($app.HasExited) { throw "exalted.exe exited early with code $($app.ExitCode)" }
+          Write-Host "exalted.exe still running after 12s."
+          Stop-Process -Id $app.Id -Force
+
+          # Uninstall
+          Start-Process (Join-Path $dir 'unins000.exe') -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          Start-Sleep -Seconds 4
+          if (Test-Path (Join-Path $dir 'exalted.exe')) { throw "Uninstall left exalted.exe behind" }
+          Write-Host "Uninstall OK."
+
+      - name: Checksums
+        run: |
+          $files = "build/windows/x64/runner/Release/exalted.exe","build/windows/x64/runner/Release/exalted_ffi.dll","build/exalted_setup_1.0.0_win64.exe"
+          $files | ForEach-Object { "$((Get-FileHash $_ -Algorithm SHA256).Hash.ToLower())  $_" } | Out-File build/windows-release-sha256.txt -Encoding utf8
+          Get-Content build/windows-release-sha256.txt
+
+      - name: Upload standalone bundle
         uses: actions/upload-artifact@v4
         with:
           name: exalted-windows-x64-bundle
           path: build/windows/x64/runner/Release/
           retention-days: 14
 
-      - name: Upload Windows Installer (.exe)
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: exalted-windows-x64-installer

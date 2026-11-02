@@ -20,9 +20,7 @@ import '../../ocv/services/ocv_rules_repository.dart';
 import '../controllers/ocr_controller.dart';
 import '../models/ocr_record.dart';
 import '../models/ocr_result.dart';
-import '../services/desktop_ocr_engine.dart';
 import '../services/image_prep.dart';
-import '../services/ocr_engine.dart';
 import '../services/ocr_history_repository.dart';
 
 /// Full-featured industrial OCR and OCV Workspace supporting image acquisition,

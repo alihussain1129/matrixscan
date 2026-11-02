@@ -1,4 +1,3 @@
-import 'dart:convert';
 
 /// An immutable inspection and recognition record created by the OCR Workspace.
 ///

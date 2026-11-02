@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
@@ -44,7 +45,10 @@ class DesktopOcrEngine implements OcrEngine {
         '/snap/bin/tesseract',
       ]);
     } else if (Platform.isWindows) {
+      // Tesseract bundled by the installer, next to exalted.exe.
+      final appDir = File(Platform.resolvedExecutable).parent.path;
       candidates.addAll([
+        '$appDir\\tesseract\\tesseract.exe',
         r'C:\Program Files\Tesseract-OCR\tesseract.exe',
         r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
       ]);
@@ -68,6 +72,17 @@ class DesktopOcrEngine implements OcrEngine {
       }
     } catch (_) {}
 
+    return null;
+  }
+
+  /// When a `tessdata` folder sits next to the executable (bundled Windows
+  /// install), point Tesseract at it. Returns null for system installs.
+  static Map<String, String>? _environmentFor(String exe) {
+    final dir = File(exe).parent.path;
+    final tessdata = Directory('$dir${Platform.pathSeparator}tessdata');
+    if (tessdata.existsSync()) {
+      return {'TESSDATA_PREFIX': tessdata.path};
+    }
     return null;
   }
 
@@ -114,7 +129,7 @@ class DesktopOcrEngine implements OcrEngine {
         '-l',
         language,
         'tsv',
-      ]);
+      ], environment: _environmentFor(exe), stdoutEncoding: utf8, stderrEncoding: utf8);
       final recognition = sw.elapsed;
 
       if (result.exitCode != 0) {
