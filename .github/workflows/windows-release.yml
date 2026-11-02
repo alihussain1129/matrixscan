@@ -1,0 +1,118 @@
+name: Windows Desktop Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - exalted-desktop-foundation
+      - live-scan-debug
+      - main
+    paths:
+      - 'lib/**'
+      - 'cpp/**'
+      - 'windows/**'
+      - 'packaging/windows/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/windows-release.yml'
+
+jobs:
+  build-windows:
+    name: Build & Package Windows x64 Release
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Enable Flutter Windows Desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Print Environment Information
+        run: |
+          flutter --version
+          cmake --version
+          ninja --version
+
+      - name: Install Flutter Dependencies
+        run: flutter pub get
+
+      - name: Run Flutter Test Suite
+        run: flutter test
+
+      - name: Build Windows Desktop Release Bundle
+        run: flutter build windows --release
+
+      - name: Verify Windows Release Files
+        shell: pwsh
+        run: |
+          $buildDir = "build/windows/x64/runner/Release"
+          $exePath = "$buildDir/exalted.exe"
+          $dllPath = "$buildDir/exalted_ffi.dll"
+
+          if (!(Test-Path $exePath)) {
+            Write-Error "CRITICAL: exalted.exe was not created in $buildDir"
+            exit 1
+          }
+          if (!(Test-Path $dllPath)) {
+            Write-Error "CRITICAL: exalted_ffi.dll was not found in $buildDir"
+            exit 1
+          }
+          Write-Host "Success: exalted.exe and exalted_ffi.dll verified."
+          Get-ChildItem -Path $buildDir
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress
+
+      - name: Compile Windows Installer (Inno Setup)
+        run: iscc packaging/windows/installer.iss
+
+      - name: Verify Installer Artifact & Compute SHA256
+        shell: pwsh
+        run: |
+          $installerPath = "build/exalted_setup_1.0.0_win64.exe"
+          if (!(Test-Path $installerPath)) {
+            Write-Error "CRITICAL: Installer $installerPath not found!"
+            exit 1
+          }
+          $item = Get-Item $installerPath
+          Write-Host "Installer created successfully: $($item.FullName) ($($item.Length) bytes)"
+
+          # Compute Checksums
+          $files = @(
+            "build/windows/x64/runner/Release/exalted.exe",
+            "build/windows/x64/runner/Release/exalted_ffi.dll",
+            "build/exalted_setup_1.0.0_win64.exe"
+          )
+          $checksums = foreach ($file in $files) {
+            if (Test-Path $file) {
+              $hash = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLower()
+              "$hash  $file"
+            }
+          }
+          $checksums | Out-File -FilePath "build/windows-release-sha256.txt" -Encoding utf8
+          Get-Content "build/windows-release-sha256.txt"
+
+      - name: Upload Windows Standalone Release Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: exalted-windows-x64-bundle
+          path: build/windows/x64/runner/Release/
+          retention-days: 14
+
+      - name: Upload Windows Installer (.exe)
+        uses: actions/upload-artifact@v4
+        with:
+          name: exalted-windows-x64-installer
+          path: |
+            build/exalted_setup_1.0.0_win64.exe
+            build/windows-release-sha256.txt
+          retention-days: 14
