@@ -92,6 +92,8 @@ class HistoryRepository {
     required HistorySource source,
     required String text,
     String? format,
+    String? imagePath,
+    double? processingDurationMs,
   }) {
     return _serialized<HistoryEntry?>(() async {
       if (text.isEmpty) return null;
@@ -113,6 +115,8 @@ class HistoryRepository {
           text: text,
           createdAt: now,
           format: format,
+          imagePath: imagePath,
+          processingDurationMs: processingDurationMs,
         );
         entries.insert(0, entry);
         await _write(_trim(entries));

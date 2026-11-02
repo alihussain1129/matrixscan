@@ -15,9 +15,11 @@ Future<void> main() async {
     // frame (about 1.7 s on the A12). The result is not needed here.
     unawaited(availableCameras().then<void>((_) {}, onError: (Object _) {}));
   }
-  // The scanner is portrait-only for now.
-  await SystemChrome.setPreferredOrientations(const [
-    DeviceOrientation.portraitUp,
-  ]);
+  // The mobile scanner is portrait-only for now; desktop is free to resize.
+  if (Platform.isAndroid || Platform.isIOS) {
+    await SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+    ]);
+  }
   runApp(const ProviderScope(child: ExaltedApp()));
 }

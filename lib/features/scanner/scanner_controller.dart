@@ -227,23 +227,44 @@ class ScannerController extends Notifier<ScannerUiState> {
     _starting = true;
 
     try {
-      final permission = await Permission.camera.status;
-      _startup('camera permission checked');
+      if (Platform.isAndroid || Platform.isIOS) {
+        final permission = await Permission.camera.status;
+        _startup('camera permission checked');
 
-      if (permission.isGranted) {
-        await _openCamera();
-      } else if (permission.isPermanentlyDenied) {
-        state = state.copyWith(status: CameraStatus.permissionDenied);
+        if (permission.isGranted) {
+          await _openCamera();
+        } else if (permission.isPermanentlyDenied) {
+          state = state.copyWith(status: CameraStatus.permissionDenied);
+        } else {
+          state = state.copyWith(status: CameraStatus.needsPermission);
+        }
       } else {
-        state = state.copyWith(status: CameraStatus.needsPermission);
+        // Desktop platforms (Linux / Windows)
+        try {
+          await _openCamera();
+        } catch (_) {
+          state = state.copyWith(
+            status: CameraStatus.ready,
+            clearCamera: true,
+            notice: 'Desktop Mode: Image & Document Decoder Ready',
+          );
+        }
       }
     } catch (e) {
       debugPrint('[EXALTED][CAMERA] start failed: $e');
 
-      state = state.copyWith(
-        status: CameraStatus.error,
-        errorMessage: 'Could not start the camera.',
-      );
+      if (!Platform.isAndroid && !Platform.isIOS) {
+        state = state.copyWith(
+          status: CameraStatus.ready,
+          clearCamera: true,
+          notice: 'Desktop Mode: Image & Document Decoder Ready',
+        );
+      } else {
+        state = state.copyWith(
+          status: CameraStatus.error,
+          errorMessage: 'Could not start the camera.',
+        );
+      }
     } finally {
       _starting = false;
     }
@@ -505,6 +526,10 @@ class ScannerController extends Notifier<ScannerUiState> {
   // ---- permission --------------------------------------------------------
 
   Future<void> requestPermission() async {
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      await start();
+      return;
+    }
     final result = await Permission.camera.request();
 
     if (result.isGranted) {
@@ -517,7 +542,9 @@ class ScannerController extends Notifier<ScannerUiState> {
   }
 
   Future<void> openSettings() async {
-    await openAppSettings();
+    if (Platform.isAndroid || Platform.isIOS) {
+      await openAppSettings();
+    }
   }
 
   // ---- scanner controls --------------------------------------------------

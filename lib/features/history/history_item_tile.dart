@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_spacing.dart';
@@ -69,21 +71,44 @@ class HistoryItemTile extends StatelessWidget {
     final scheme = theme.colorScheme;
     final text = theme.textTheme;
 
+    final hasImage = entry.imagePath != null &&
+        entry.imagePath!.isNotEmpty &&
+        File(entry.imagePath!).existsSync();
+
     return ListTile(
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(
         horizontal: 0,
         vertical: AppSpacing.xs,
       ),
-      leading: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: scheme.primary.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(_iconFor(entry), color: scheme.primary),
-      ),
+      leading: hasImage
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(
+                File(entry.imagePath!),
+                width: 44,
+                height: 44,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(_iconFor(entry), color: scheme.primary),
+                ),
+              ),
+            )
+          : Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(_iconFor(entry), color: scheme.primary),
+            ),
       title: Text(
         entry.text,
         maxLines: 2,

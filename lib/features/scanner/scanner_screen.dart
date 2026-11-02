@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -630,6 +632,17 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
         );
 
       default:
+        if (!Platform.isAndroid && !Platform.isIOS) {
+          return ScannerStatePanel(
+            icon: Icons.qr_code_scanner,
+            title: 'Industrial Desktop Decoder',
+            message:
+                'Select an image or document from your computer to decode '
+                'Barcodes, Data Matrix, QR codes, and GS1 with the native C++20 engine.',
+            actionLabel: 'Select Image File',
+            onAction: _openGallery,
+          );
+        }
         return ScannerStatePanel(
           icon: Icons.error_outline,
           title: "Couldn't start the camera",
