@@ -56,6 +56,9 @@ jobs:
         run: flutter test
 
       - name: Build Windows release (Flutter + C++ exalted_ffi)
+        env:
+          # permission_handler_windows uses <experimental/coroutine>, which new MSVC rejects
+          CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
         run: flutter build windows --release
 
       - name: Verify release files
