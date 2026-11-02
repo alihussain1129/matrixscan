@@ -1,19 +1,23 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app_shell.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/widgets/exalted_button.dart';
 import '../../core/widgets/exalted_logo.dart';
+import '../devices/keyence/keyence_sr751_client.dart';
 import '../gallery/gallery_import_service.dart';
 import '../history/history_entry.dart';
 import '../history/history_repository.dart';
 import '../ocr/ocr_entry.dart';
 
-/// Home: scan a code, read text (OCR) on its own, and see recent scans.
-/// Recent scans come from the real history; nothing here is made up.
+/// Industrial Dashboard: quick actions into Decoder, OCR Workspace, Keyence Machine Vision,
+/// and recent traceability history.
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -45,9 +49,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       );
   }
 
-  /// OCR on its own: pick an image, then open the existing OCR screen.
-  /// The barcode camera is not involved.
+  void _navigateTo(int mobileTab, int desktopTab) {
+    final isDesktop =
+        (Platform.isLinux || Platform.isWindows || Platform.isMacOS) &&
+        MediaQuery.sizeOf(context).width >= 720;
+
+    if (isDesktop) {
+      ref.read(desktopNavIndexProvider.notifier).set(desktopTab);
+    } else {
+      ref.read(navIndexProvider.notifier).set(mobileTab);
+    }
+  }
+
   Future<void> _readText() async {
+    final isDesktop =
+        (Platform.isLinux || Platform.isWindows || Platform.isMacOS) &&
+        MediaQuery.sizeOf(context).width >= 720;
+
+    if (isDesktop) {
+      _navigateTo(kScanTab, 2); // Switch to dedicated OCR Workspace
+      return;
+    }
+
     if (_picking) return;
     _picking = true;
     try {
@@ -82,13 +105,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final colors = theme.extension<ExaltedColors>()!;
     final text = theme.textTheme;
 
-    // Refresh the recent list each time the user comes back to Home.
+    final keyence = ref.watch(keyenceSr751ClientProvider);
+    final isDesktop =
+        (Platform.isLinux || Platform.isWindows || Platform.isMacOS) &&
+        MediaQuery.sizeOf(context).width >= 720;
+
+    // Refresh recent list on tab switches
     ref.listen<int>(navIndexProvider, (previous, next) {
       if (next == kHomeTab && mounted) {
-        final reloaded = _load();
-        setState(() {
-          _recent = reloaded;
-        });
+        setState(() => _recent = _load());
+      }
+    });
+
+    ref.listen<int>(desktopNavIndexProvider, (previous, next) {
+      if (next == 0 && mounted) {
+        setState(() => _recent = _load());
       }
     });
 
@@ -96,7 +127,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       body: SafeArea(
         child: TweenAnimationBuilder<double>(
           tween: Tween<double>(begin: 0, end: 1),
-          duration: const Duration(milliseconds: 420),
+          duration: const Duration(milliseconds: 350),
           curve: Curves.easeOutCubic,
           builder: (context, t, child) => Opacity(
             opacity: t,
@@ -113,49 +144,129 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               AppSpacing.xl,
             ),
             children: [
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: ExaltedLogo(width: 140),
+              Row(
+                children: [
+                  const ExaltedLogo(width: 140),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF22C55E).withAlpha(25),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: const Color(0xFF22C55E)),
+                    ),
+                    child: Text(
+                      'OFFLINE SYSTEM READY',
+                      style: text.labelSmall!.copyWith(
+                        color: const Color(0xFF22C55E),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: AppSpacing.xl),
-              Text('Scan or read', style: text.headlineSmall),
+              Text(
+                isDesktop
+                    ? 'Industrial Machine Vision & Inspection'
+                    : 'Scan or read',
+                style: text.headlineSmall,
+              ),
               const SizedBox(height: AppSpacing.sm),
               Text(
-                'Everything runs on this device. Nothing is uploaded.',
+                'High-performance offline 2D code decoding, optical character verification (OCV), '
+                'and Keyence SR-751 hardware control.',
                 style: text.bodyMedium!.copyWith(color: colors.muted),
               ),
               const SizedBox(height: AppSpacing.xl),
-              ExaltedButton(
-                label: 'Scan barcode / QR',
-                icon: Icons.qr_code_scanner,
-                expand: true,
-                onPressed: () =>
-                    ref.read(navIndexProvider.notifier).set(kScanTab),
+
+              // Action Buttons Grid / Column
+              Row(
+                children: [
+                  Expanded(
+                    child: ExaltedButton(
+                      label: 'Decoder Workspace',
+                      icon: Icons.qr_code_scanner,
+                      expand: true,
+                      onPressed: () => _navigateTo(kScanTab, 1),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: ExaltedButton(
+                      label: 'OCR Workspace',
+                      icon: Icons.document_scanner_outlined,
+                      outlined: true,
+                      expand: true,
+                      onPressed: _readText,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: AppSpacing.md),
-              ExaltedButton(
-                label: 'Text scanner (OCR)',
-                icon: Icons.text_fields,
-                outlined: true,
-                expand: true,
-                onPressed: _readText,
+
+              // Hardware Card for Keyence SR-751
+              Card(
+                color: colors.surfaceRaised,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(color: colors.outline),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: keyence.status == KeyenceConnectionStatus.connected
+                              ? const Color(0xFF22C55E).withAlpha(30)
+                              : Colors.grey.withAlpha(30),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          Icons.router_outlined,
+                          color: keyence.status == KeyenceConnectionStatus.connected
+                              ? const Color(0xFF22C55E)
+                              : colors.muted,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('KEYENCE SR-751 Industrial Reader', style: text.bodyLarge),
+                            const SizedBox(height: 2),
+                            Text(
+                              keyence.status == KeyenceConnectionStatus.connected
+                                  ? 'Connected at ${keyence.host}:${keyence.port} (FTP receiver active)'
+                                  : 'Disconnected · Standby for automated line triggers',
+                              style: text.bodySmall!.copyWith(color: colors.muted),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton(
+                        onPressed: () => _navigateTo(kScanTab, 3),
+                        child: const Text('Open Hardware'),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                'Pick a photo and read the text in it. This does not open the '
-                'barcode camera.',
-                style: text.bodySmall!.copyWith(color: colors.muted),
-              ),
+
               const SizedBox(height: AppSpacing.xl),
               Row(
                 children: [
                   Expanded(
-                    child: Text('Recent scans', style: text.titleMedium),
+                    child: Text('Recent Inspections & Scans', style: text.titleMedium),
                   ),
                   TextButton(
-                    onPressed: () =>
-                        ref.read(navIndexProvider.notifier).set(kHistoryTab),
-                    child: const Text('View all'),
+                    onPressed: () => _navigateTo(kHistoryTab, 4),
+                    child: const Text('View all history'),
                   ),
                 ],
               ),
@@ -198,10 +309,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           subtitle: [
                             e.format ?? e.kind.name,
                             _when(e.createdAt),
-                          ].join('  ·  '),
-                          onTap: () => ref
-                              .read(navIndexProvider.notifier)
-                              .set(kHistoryTab),
+                          ].join(' · '),
                         ),
                     ],
                   );
@@ -216,63 +324,59 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 }
 
 class _RecentTile extends StatelessWidget {
-  const _RecentTile({
-    required this.entry,
-    required this.subtitle,
-    required this.onTap,
-  });
+  const _RecentTile({required this.entry, required this.subtitle});
 
   final HistoryEntry entry;
   final String subtitle;
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.extension<ExaltedColors>()!;
-    final text = theme.textTheme;
-    final preview = entry.text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final colors = Theme.of(context).extension<ExaltedColors>()!;
+    final text = Theme.of(context).textTheme;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: Material(
-        color: colors.surfaceRaised,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        child: InkWell(
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: colors.surfaceRaised,
           borderRadius: BorderRadius.circular(AppRadius.card),
-          onTap: onTap,
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 56),
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.lg,
-              vertical: AppSpacing.md,
+          border: Border.all(color: colors.outline),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              entry.kind == HistoryKind.ocr
+                  ? Icons.text_snippet_outlined
+                  : Icons.qr_code_2,
+              color: colors.muted,
+              size: 20,
             ),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppRadius.card),
-              border: Border.all(color: colors.outline),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    entry.text,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.bodyMedium,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: text.bodySmall!.copyWith(color: colors.muted),
+                  ),
+                ],
+              ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  preview,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: text.bodyLarge,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: text.bodySmall!.copyWith(color: colors.muted),
-                ),
-              ],
-            ),
-          ),
+          ],
         ),
       ),
     );
   }
 }
-

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,10 +13,15 @@ import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/exalted_button.dart';
 import '../../../core/widgets/format_chip.dart';
 import '../../gallery/gallery_import_service.dart';
+import '../../ocv/models/ocv_evaluation_result.dart';
+import '../../ocv/models/ocv_rule.dart';
+import '../../ocv/services/ocv_engine.dart';
+import '../../ocv/services/ocv_rules_repository.dart';
 import '../controllers/ocr_controller.dart';
 import '../models/ocr_record.dart';
 import '../models/ocr_result.dart';
 import '../services/desktop_ocr_engine.dart';
+import '../services/image_prep.dart';
 import '../services/ocr_engine.dart';
 import '../services/ocr_history_repository.dart';
 
@@ -33,6 +39,7 @@ class OcrWorkspaceScreen extends ConsumerStatefulWidget {
 
 class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
   String? _currentImagePath;
+  String? _roiImagePath;
   final TextEditingController _textController = TextEditingController();
   final TextEditingController _ocvPatternController =
       TextEditingController(text: r'LOT-[A-Z0-9]+');
@@ -40,24 +47,40 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
   bool _isProcessing = false;
   OcrResult? _lastResult;
   int _processingTimeMs = 0;
-  bool? _ocvPassed;
   String _selectedLanguage = 'eng';
 
+  // OCV Rule Management
+  List<OcvRule> _rules = OcvRule.presets();
+  OcvRule? _selectedRule;
+  OcvEvaluationResult? _ocvEvaluation;
+
   // Region of Interest (ROI) normalized coords (0..1)
-  Rect? _roiRect;
-  bool _roiMode = false;
-  Offset? _roiStart;
-  Offset? _roiEnd;
+  Rect? _normalizedRoi;
+  bool _roiSelectionActive = false;
+  Offset? _dragStart;
+  Offset? _dragCurrent;
 
   @override
   void initState() {
     super.initState();
-    if (widget.initialImagePath != null) {
-      _currentImagePath = widget.initialImagePath;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _runOcr();
-      });
-    }
+    _selectedRule = _rules.first;
+    _ocvPatternController.text = _selectedRule!.pattern;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final loaded = await ref.read(ocvRulesRepositoryProvider).loadRules();
+      if (mounted && loaded.isNotEmpty) {
+        setState(() {
+          _rules = loaded;
+          _selectedRule = _rules.first;
+          _ocvPatternController.text = _selectedRule!.pattern;
+        });
+      }
+
+      if (widget.initialImagePath != null) {
+        _currentImagePath = widget.initialImagePath;
+        await _runOcr();
+      }
+    });
   }
 
   @override
@@ -79,27 +102,35 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
     if (picked.path != null && mounted) {
       setState(() {
         _currentImagePath = picked.path;
+        _roiImagePath = null;
+        _normalizedRoi = null;
         _lastResult = null;
         _textController.clear();
-        _ocvPassed = null;
-        _roiRect = null;
+        _ocvEvaluation = null;
       });
       await _runOcr();
     }
   }
 
-  Future<void> _runOcr() async {
+  Future<void> _runOcr({bool useRoi = false}) async {
     if (_currentImagePath == null) return;
 
     setState(() {
       _isProcessing = true;
-      _ocvPassed = null;
+      _ocvEvaluation = null;
     });
 
     final stopwatch = Stopwatch()..start();
     try {
+      String imagePathToScan = _currentImagePath!;
+
+      if (useRoi && _normalizedRoi != null) {
+        _roiImagePath = await ImagePrep.cropRoi(_currentImagePath!, _normalizedRoi!);
+        imagePathToScan = _roiImagePath!;
+      }
+
       final engine = ref.read(ocrEngineProvider);
-      final result = await engine.recognizeFile(_currentImagePath!);
+      final result = await engine.recognizeFile(imagePathToScan);
 
       if (mounted) {
         setState(() {
@@ -108,7 +139,7 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
           _lastResult = result;
           if (result.error == null) {
             _textController.text = result.fullText;
-            _verifyOcv();
+            _evaluateOcv();
           } else {
             _textController.text = '';
             _snack(result.error!.message);
@@ -123,35 +154,49 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
     }
   }
 
-  void _verifyOcv() {
-    final pattern = _ocvPatternController.text.trim();
-    if (pattern.isEmpty || _textController.text.isEmpty) {
-      setState(() => _ocvPassed = null);
+  void _evaluateOcv() {
+    if (_textController.text.isEmpty || _selectedRule == null) {
+      setState(() => _ocvEvaluation = null);
       return;
     }
 
-    try {
-      final regex = RegExp(pattern, caseSensitive: false);
-      setState(() {
-        _ocvPassed = regex.hasMatch(_textController.text);
-      });
-    } catch (_) {
-      setState(() => _ocvPassed = false);
-    }
+    // Update rule pattern from controller if custom
+    final activeRule = OcvRule(
+      id: _selectedRule!.id,
+      name: _selectedRule!.name,
+      type: _selectedRule!.type,
+      pattern: _ocvPatternController.text.trim(),
+      minConfidence: _selectedRule!.minConfidence,
+      caseSensitive: _selectedRule!.caseSensitive,
+      dateWithinDays: _selectedRule!.dateWithinDays,
+      minNumber: _selectedRule!.minNumber,
+      maxNumber: _selectedRule!.maxNumber,
+      expectedPrefix: _selectedRule!.expectedPrefix,
+      expectedSuffix: _selectedRule!.expectedSuffix,
+    );
+
+    final engine = ref.read(ocvEngineProvider);
+    final eval = engine.evaluate(
+      _textController.text,
+      activeRule,
+      confidence: _lastResult?.confidence ?? 1.0,
+    );
+
+    setState(() {
+      _ocvEvaluation = eval;
+    });
   }
 
   Future<void> _saveRecord() async {
     if (_currentImagePath == null || _textController.text.isEmpty) return;
 
     try {
-      // 1. Permanently copy source image into media repository
       final storage = ref.read(imageStorageServiceProvider);
       final permanentPath = await storage.persistSourceImage(
         _currentImagePath!,
         prefix: 'ocr_record',
       );
 
-      // 2. Save full metadata into dedicated OCR repository
       final ocrRepo = ref.read(ocrHistoryRepositoryProvider);
       final record = OcrRecord(
         id: 'ocr_${DateTime.now().microsecondsSinceEpoch}',
@@ -167,7 +212,7 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
         ocvPattern: _ocvPatternController.text.trim().isNotEmpty
             ? _ocvPatternController.text.trim()
             : null,
-        ocvPassed: _ocvPassed,
+        ocvPassed: _ocvEvaluation?.isPass,
       );
 
       await ocrRepo.addRecord(record);
@@ -238,10 +283,8 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
           : (isWide
               ? Row(
                   children: [
-                    // Left Pane: Image & ROI viewer
                     Expanded(flex: 5, child: _buildImagePane(colors, text)),
                     VerticalDivider(width: 1, color: colors.outline),
-                    // Right Pane: Extracted text, OCV & Actions
                     Expanded(flex: 5, child: _buildTextPane(theme, colors, text)),
                   ],
                 )
@@ -249,7 +292,7 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
                   child: Column(
                     children: [
                       SizedBox(
-                        height: 300,
+                        height: 340,
                         child: _buildImagePane(colors, text),
                       ),
                       const Divider(height: 1),
@@ -274,6 +317,38 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
             child: Row(
               children: [
                 Text('SOURCE IMAGE', style: text.labelSmall!.copyWith(color: colors.muted)),
+                const SizedBox(width: 12),
+                FilterChip(
+                  label: const Text('Draw ROI'),
+                  selected: _roiSelectionActive,
+                  onSelected: (val) {
+                    setState(() {
+                      _roiSelectionActive = val;
+                      if (!val) {
+                        _dragStart = null;
+                        _dragCurrent = null;
+                      }
+                    });
+                  },
+                ),
+                if (_normalizedRoi != null) ...[
+                  const SizedBox(width: 6),
+                  ActionChip(
+                    avatar: const Icon(Icons.crop, size: 14),
+                    label: const Text('Run on ROI'),
+                    onPressed: () => _runOcr(useRoi: true),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    tooltip: 'Reset ROI',
+                    icon: const Icon(Icons.cancel, size: 16),
+                    onPressed: () => setState(() {
+                      _normalizedRoi = null;
+                      _dragStart = null;
+                      _dragCurrent = null;
+                    }),
+                  ),
+                ],
                 const Spacer(),
                 OutlinedButton.icon(
                   onPressed: _pickImage,
@@ -289,45 +364,130 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
                   icon: const Icon(Icons.close, size: 18),
                   onPressed: () => setState(() {
                     _currentImagePath = null;
+                    _roiImagePath = null;
+                    _normalizedRoi = null;
                     _lastResult = null;
                     _textController.clear();
+                    _ocvEvaluation = null;
                   }),
                 ),
               ],
             ),
           ),
-          // Main image view
+          // Main image view with ROI overlay
           Expanded(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                InteractiveViewer(
-                  maxScale: 5.0,
-                  child: Center(
-                    child: Image.file(
-                      File(_currentImagePath!),
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                ),
-                if (_isProcessing)
-                  Container(
-                    color: Colors.black45,
-                    child: const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CircularProgressIndicator(),
-                          SizedBox(height: 12),
-                          Text(
-                            'Extracting text offline...',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return GestureDetector(
+                  onPanStart: _roiSelectionActive
+                      ? (details) {
+                          setState(() {
+                            _dragStart = details.localPosition;
+                            _dragCurrent = details.localPosition;
+                          });
+                        }
+                      : null,
+                  onPanUpdate: _roiSelectionActive
+                      ? (details) {
+                          setState(() {
+                            _dragCurrent = details.localPosition;
+                          });
+                        }
+                      : null,
+                  onPanEnd: _roiSelectionActive
+                      ? (details) {
+                          if (_dragStart != null && _dragCurrent != null) {
+                            final w = constraints.maxWidth;
+                            final h = constraints.maxHeight;
+
+                            final l = math.min(_dragStart!.dx, _dragCurrent!.dx) / w;
+                            final t = math.min(_dragStart!.dy, _dragCurrent!.dy) / h;
+                            final r = math.max(_dragStart!.dx, _dragCurrent!.dx) / w;
+                            final b = math.max(_dragStart!.dy, _dragCurrent!.dy) / h;
+
+                            setState(() {
+                              _normalizedRoi = Rect.fromLTRB(
+                                l.clamp(0.0, 1.0),
+                                t.clamp(0.0, 1.0),
+                                r.clamp(0.0, 1.0),
+                                b.clamp(0.0, 1.0),
+                              );
+                              _dragStart = null;
+                              _dragCurrent = null;
+                            });
+                          }
+                        }
+                      : null,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      InteractiveViewer(
+                        maxScale: 5.0,
+                        panEnabled: !_roiSelectionActive,
+                        child: Center(
+                          child: Image.file(
+                            File(_currentImagePath!),
+                            fit: BoxFit.contain,
                           ),
-                        ],
+                        ),
                       ),
-                    ),
+
+                      // Drawn ROI rectangle
+                      if (_normalizedRoi != null)
+                        Positioned.fromRect(
+                          rect: Rect.fromLTRB(
+                            _normalizedRoi!.left * constraints.maxWidth,
+                            _normalizedRoi!.top * constraints.maxHeight,
+                            _normalizedRoi!.right * constraints.maxWidth,
+                            _normalizedRoi!.bottom * constraints.maxHeight,
+                          ),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.amberAccent, width: 2),
+                              color: Colors.amberAccent.withAlpha(30),
+                            ),
+                          ),
+                        ),
+
+                      // In-progress drag rectangle
+                      if (_dragStart != null && _dragCurrent != null)
+                        Positioned(
+                          left: math.min(_dragStart!.dx, _dragCurrent!.dx),
+                          top: math.min(_dragStart!.dy, _dragCurrent!.dy),
+                          width: (_dragCurrent!.dx - _dragStart!.dx).abs(),
+                          height: (_dragCurrent!.dy - _dragStart!.dy).abs(),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.cyanAccent, width: 2),
+                              color: Colors.cyanAccent.withAlpha(40),
+                            ),
+                          ),
+                        ),
+
+                      if (_isProcessing)
+                        Container(
+                          color: Colors.black45,
+                          child: const Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(height: 12),
+                                Text(
+                                  'Extracting text offline...',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-              ],
+                );
+              },
             ),
           ),
         ],
@@ -367,7 +527,7 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
               ElevatedButton.icon(
                 icon: const Icon(Icons.play_arrow, size: 16),
                 label: const Text('Re-run OCR'),
-                onPressed: _isProcessing ? null : _runOcr,
+                onPressed: _isProcessing ? null : () => _runOcr(useRoi: false),
               ),
             ],
           ),
@@ -391,77 +551,13 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
                   borderSide: BorderSide(color: colors.outline),
                 ),
               ),
-              onChanged: (_) => _verifyOcv(),
+              onChanged: (_) => _evaluateOcv(),
             ),
           ),
           const SizedBox(height: AppSpacing.md),
 
-          // OCV Verification Panel
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(
-              color: colors.surfaceRaised,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: _ocvPassed == true
-                    ? const Color(0xFF22C55E)
-                    : (_ocvPassed == false ? Colors.red : colors.outline),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.verified_outlined, size: 18),
-                    const SizedBox(width: 6),
-                    Text(
-                      'OPTICAL CHARACTER VERIFICATION (OCV)',
-                      style: text.labelSmall!.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                    const Spacer(),
-                    if (_ocvPassed != null)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: _ocvPassed! ? const Color(0xFF22C55E) : Colors.red,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          _ocvPassed! ? 'PASS' : 'FAIL',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _ocvPatternController,
-                        decoration: const InputDecoration(
-                          labelText: 'Expected Pattern / Regex',
-                          hintText: 'e.g. LOT-[0-9]{6}',
-                          isDense: true,
-                        ),
-                        onChanged: (_) => _verifyOcv(),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton(
-                      onPressed: _verifyOcv,
-                      child: const Text('Verify'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+          // Industrial OCV Verification Panel
+          _buildOcvInspectionCard(theme, colors, text),
 
           const SizedBox(height: AppSpacing.md),
 
@@ -500,6 +596,166 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
     );
   }
 
+  Widget _buildOcvInspectionCard(
+    ThemeData theme,
+    ExaltedColors colors,
+    TextTheme text,
+  ) {
+    Color statusColor;
+    String statusBadge;
+
+    if (_ocvEvaluation == null) {
+      statusColor = colors.outline;
+      statusBadge = 'STANDBY';
+    } else {
+      switch (_ocvEvaluation!.status) {
+        case OcvStatus.pass:
+          statusColor = const Color(0xFF22C55E);
+          statusBadge = 'PASS';
+          break;
+        case OcvStatus.fail:
+          statusColor = Colors.red;
+          statusBadge = 'FAIL';
+          break;
+        case OcvStatus.inconclusive:
+          statusColor = Colors.orange;
+          statusBadge = 'INCONCLUSIVE';
+          break;
+        case OcvStatus.noText:
+          statusColor = Colors.grey;
+          statusBadge = 'NO TEXT';
+          break;
+      }
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: colors.surfaceRaised,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: statusColor, width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.verified_outlined, size: 18),
+              const SizedBox(width: 6),
+              Text(
+                'OPTICAL CHARACTER VERIFICATION (OCV)',
+                style: text.labelSmall!.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: statusColor.withAlpha(30),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: statusColor),
+                ),
+                child: Text(
+                  statusBadge,
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // Preset Rule Dropdown & Pattern
+          Row(
+            children: [
+              Expanded(
+                flex: 4,
+                child: DropdownButtonFormField<OcvRule>(
+                  value: _selectedRule,
+                  isDense: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Inspection Rule Recipe',
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  ),
+                  items: _rules.map((rule) {
+                    return DropdownMenuItem<OcvRule>(
+                      value: rule,
+                      child: Text(rule.name, overflow: TextOverflow.ellipsis),
+                    );
+                  }).toList(),
+                  onChanged: (newRule) {
+                    if (newRule != null) {
+                      setState(() {
+                        _selectedRule = newRule;
+                        _ocvPatternController.text = newRule.pattern;
+                      });
+                      _evaluateOcv();
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 6,
+                child: TextField(
+                  controller: _ocvPatternController,
+                  decoration: const InputDecoration(
+                    labelText: 'Pattern / Criteria',
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  ),
+                  onChanged: (_) => _evaluateOcv(),
+                ),
+              ),
+            ],
+          ),
+
+          if (_ocvEvaluation != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: statusColor.withAlpha(15),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _ocvEvaluation!.explanation,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: statusColor,
+                    ),
+                  ),
+                  if (_ocvEvaluation!.diffs.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 4,
+                      children: _ocvEvaluation!.diffs.take(4).map((d) {
+                        return Chip(
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          label: Text(
+                            'pos ${d.position}: "${d.actualChar}" ≠ "${d.expectedChar}"',
+                            style: const TextStyle(fontSize: 10),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   void _openOcrHistorySheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -512,9 +768,9 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
             _currentImagePath = record.imagePath;
             _textController.text = record.text;
             _ocvPatternController.text = record.ocvPattern ?? '';
-            _ocvPassed = record.ocvPassed;
             _processingTimeMs = record.processingDurationMs;
           });
+          _evaluateOcv();
         },
       ),
     );
@@ -617,7 +873,10 @@ class _OcrHistoryModalState extends ConsumerState<_OcrHistoryModal> {
                               item.text.replaceAll('\n', ' '),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                             subtitle: Text(
                               '${item.engine} • ${item.createdAt.toIso8601String().substring(0, 16)}'

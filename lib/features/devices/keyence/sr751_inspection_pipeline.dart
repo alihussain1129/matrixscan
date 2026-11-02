@@ -12,6 +12,9 @@ import '../../ocr/models/ocr_record.dart';
 import '../../ocr/models/ocr_result.dart';
 import '../../ocr/services/ocr_engine.dart';
 import '../../ocr/services/ocr_history_repository.dart';
+import '../../ocv/models/ocv_evaluation_result.dart';
+import '../../ocv/models/ocv_rule.dart';
+import '../../ocv/services/ocv_engine.dart';
 import 'keyence_ftp_receiver.dart';
 import 'keyence_sr751_client.dart';
 
@@ -90,6 +93,7 @@ class Sr751InspectionPipeline extends ChangeNotifier {
     required this.ocrHistory,
     required this.historyRepo,
     required this.imageStorage,
+    this.ocvEngine = const OcvEngine(),
   }) {
     _initListeners();
   }
@@ -100,6 +104,7 @@ class Sr751InspectionPipeline extends ChangeNotifier {
   final OcrHistoryRepository ocrHistory;
   final HistoryRepository historyRepo;
   final ImageStorageService imageStorage;
+  final OcvEngine ocvEngine;
 
   StreamSubscription? _scanSub;
   StreamSubscription? _ftpSub;
@@ -209,8 +214,17 @@ class Sr751InspectionPipeline extends ChangeNotifier {
             if (_expectedOcvPattern != null &&
                 _expectedOcvPattern!.isNotEmpty &&
                 ocrText.isNotEmpty) {
-              final reg = RegExp(_expectedOcvPattern!, caseSensitive: false);
-              ocvPassed = reg.hasMatch(ocrText);
+              final eval = ocvEngine.evaluate(
+                ocrText,
+                OcvRule(
+                  id: 'sr751_ocv',
+                  name: 'Keyence CMOS OCV',
+                  type: OcvRuleType.regex,
+                  pattern: _expectedOcvPattern!,
+                ),
+                confidence: ocrResult.confidence ?? 1.0,
+              );
+              ocvPassed = eval.isPass;
             }
 
             // Save to dedicated OCR History
@@ -307,6 +321,8 @@ final sr751InspectionPipelineProvider =
   final historyRepo = ref.watch(historyRepositoryProvider);
   final imageStorage = ref.watch(imageStorageServiceProvider);
 
+  final ocvEngine = ref.watch(ocvEngineProvider);
+
   final pipeline = Sr751InspectionPipeline(
     client: client,
     ftpReceiver: ftp,
@@ -314,6 +330,7 @@ final sr751InspectionPipelineProvider =
     ocrHistory: ocrHistory,
     historyRepo: historyRepo,
     imageStorage: imageStorage,
+    ocvEngine: ocvEngine,
   );
   ref.onDispose(pipeline.dispose);
   return pipeline;

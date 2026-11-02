@@ -39,7 +39,8 @@ class KeyenceScanResult {
 /// TCP/IP client interface for communicating with the KEYENCE SR-751 series
 /// industrial code reader over Ethernet.
 ///
-/// Implements standard Keyence command protocols (LON, LOFF, T1, T2, PRG, FTPOUT).
+/// Implements standard Keyence command protocols (LON, LOFF, T1, T2, PRG, FTPOUT, RESET, BEEP, KEYENCE).
+/// Includes automatic connection recovery, timeouts, and diagnostic polling.
 class KeyenceSr751Client {
   KeyenceSr751Client({
     this.defaultHost = '192.168.100.100',
@@ -69,6 +70,11 @@ class KeyenceSr751Client {
   String? _lastError;
   String? get lastError => _lastError;
 
+  bool autoReconnect = true;
+  int _reconnectAttempts = 0;
+  Timer? _reconnectTimer;
+  bool _explicitDisconnect = false;
+
   void _setStatus(KeyenceConnectionStatus s, [String? error]) {
     _status = s;
     _lastError = error;
@@ -76,15 +82,22 @@ class KeyenceSr751Client {
   }
 
   /// Connects to the Keyence SR-751 reader over TCP.
-  Future<bool> connect({String? targetHost, int? targetPort, Duration timeout = const Duration(seconds: 4)}) async {
+  Future<bool> connect({
+    String? targetHost,
+    int? targetPort,
+    Duration timeout = const Duration(seconds: 4),
+  }) async {
     if (targetHost != null) host = targetHost;
     if (targetPort != null) port = targetPort;
 
-    await disconnect();
+    _explicitDisconnect = false;
+    _cancelReconnectTimer();
+    await _closeSocketOnly();
     _setStatus(KeyenceConnectionStatus.connecting);
 
     try {
       _socket = await Socket.connect(host, port, timeout: timeout);
+      _reconnectAttempts = 0;
       _setStatus(KeyenceConnectionStatus.connected);
 
       _socketSub = _socket!.listen(
@@ -92,24 +105,45 @@ class KeyenceSr751Client {
         onError: (e) {
           debugPrint('[KEYENCE][TCP] Socket error: $e');
           _setStatus(KeyenceConnectionStatus.error, e.toString());
-          disconnect();
+          _handleAbnormalDisconnect();
         },
         onDone: () {
           debugPrint('[KEYENCE][TCP] Socket closed by remote');
           _setStatus(KeyenceConnectionStatus.disconnected);
-          disconnect();
+          _handleAbnormalDisconnect();
         },
       );
       return true;
     } catch (e) {
       debugPrint('[KEYENCE][TCP] Connection failed: $e');
       _setStatus(KeyenceConnectionStatus.error, e.toString());
+      _handleAbnormalDisconnect();
       return false;
     }
   }
 
-  /// Disconnects from the reader.
-  Future<void> disconnect() async {
+  void _handleAbnormalDisconnect() {
+    _closeSocketOnly();
+    if (autoReconnect && !_explicitDisconnect && _reconnectAttempts < 10) {
+      _reconnectAttempts++;
+      final delaySeconds = (_reconnectAttempts <= 3) ? 2 : 5;
+      debugPrint(
+        '[KEYENCE][TCP] Reconnect attempt $_reconnectAttempts in $delaySeconds seconds...',
+      );
+      _reconnectTimer = Timer(Duration(seconds: delaySeconds), () {
+        if (!_explicitDisconnect && _status != KeyenceConnectionStatus.connected) {
+          connect();
+        }
+      });
+    }
+  }
+
+  void _cancelReconnectTimer() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+  }
+
+  Future<void> _closeSocketOnly() async {
     await _socketSub?.cancel();
     _socketSub = null;
     try {
@@ -118,6 +152,13 @@ class KeyenceSr751Client {
     } catch (_) {}
     _socket = null;
     _receiveBuffer.clear();
+  }
+
+  /// Disconnects from the reader.
+  Future<void> disconnect() async {
+    _explicitDisconnect = true;
+    _cancelReconnectTimer();
+    await _closeSocketOnly();
     if (_status != KeyenceConnectionStatus.disconnected) {
       _setStatus(KeyenceConnectionStatus.disconnected);
     }
@@ -139,6 +180,7 @@ class KeyenceSr751Client {
     } catch (e) {
       debugPrint('[KEYENCE][TX] Send error: $e');
       _setStatus(KeyenceConnectionStatus.error, e.toString());
+      _handleAbnormalDisconnect();
       return false;
     }
   }
@@ -167,6 +209,12 @@ class KeyenceSr751Client {
   /// Resets error state on the reader.
   Future<bool> resetError() => sendCommand('RESET');
 
+  /// Triggers test buzzer on the SR-751 unit.
+  Future<bool> beep() => sendCommand('BEEP');
+
+  /// Queries the reader model and firmware information.
+  Future<bool> queryModel() => sendCommand('KEYENCE');
+
   void _onDataReceived(List<int> bytes) {
     final chunk = utf8.decode(bytes, allowMalformed: true);
     _receiveBuffer.write(chunk);
@@ -174,7 +222,6 @@ class KeyenceSr751Client {
     final raw = _receiveBuffer.toString();
     if (raw.contains('\r') || raw.contains('\n')) {
       final lines = raw.split(RegExp(r'[\r\n]+'));
-      // Keep any trailing unterminated fragment in buffer
       if (!raw.endsWith('\r') && !raw.endsWith('\n')) {
         _receiveBuffer.clear();
         _receiveBuffer.write(lines.last);
@@ -208,6 +255,8 @@ class KeyenceSr751Client {
   }
 
   void dispose() {
+    _explicitDisconnect = true;
+    _cancelReconnectTimer();
     disconnect();
     _statusController.close();
     _scanController.close();
