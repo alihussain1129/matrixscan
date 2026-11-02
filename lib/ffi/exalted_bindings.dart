@@ -75,12 +75,14 @@ class ExaltedBindings {
 
   /// Opens the native library. Throws if it is missing or a symbol is absent.
   static ExaltedBindings open() {
-    if (!Platform.isAndroid) {
-      throw UnsupportedError(
-        'The native core is only loaded on Android '
-        '(running on ${Platform.operatingSystem}).',
-      );
+    if (Platform.isAndroid || Platform.isLinux) {
+      return ExaltedBindings._(DynamicLibrary.open(libraryName));
     }
-    return ExaltedBindings._(DynamicLibrary.open(libraryName));
+    if (Platform.isWindows) {
+      return ExaltedBindings._(DynamicLibrary.open('exalted_ffi.dll'));
+    }
+    throw UnsupportedError(
+      'The native core is not supported on ${Platform.operatingSystem}.',
+    );
   }
 }
