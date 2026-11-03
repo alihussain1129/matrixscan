@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import 'app_colors.dart';
 import 'app_spacing.dart';
-import 'app_tokens.dart';
 import 'app_typography.dart';
 
 /// Builds the light and dark Exalted themes.
