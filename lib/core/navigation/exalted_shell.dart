@@ -11,7 +11,7 @@ import '../../features/history/history_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/ocr/ocr_entry.dart';
 import '../../features/ocr/views/ocr_workspace_screen.dart';
-import '../../features/scanner/scanner_screen.dart';
+import '../../features/scanner/desktop_decoder_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../router/app_router.dart';
 import '../theme/app_colors.dart';
@@ -20,6 +20,7 @@ import '../theme/app_theme.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/exalted_logo.dart';
 import 'app_destinations.dart';
+import 'desktop_chrome.dart';
 
 // The scanner tab uses dark chrome, so its bottom bar is dark too.
 final ThemeData _darkNavTheme = AppTheme.dark();
@@ -33,8 +34,7 @@ const List<LogicalKeyboardKey> _digitKeys = [
   LogicalKeyboardKey.digit6,
 ];
 
-/// One shell for Android, Linux and Windows. The layout depends only on the
-/// window width, never on the operating system.
+/// The Windows and Linux workstation shell. Phones use [MobileShell].
 class ExaltedShell extends ConsumerStatefulWidget {
   const ExaltedShell({super.key});
 
@@ -53,7 +53,7 @@ class _ExaltedShellState extends ConsumerState<ExaltedShell> {
 
   Widget _screenFor(int i) => switch (i) {
     kHomeTab => const HomeScreen(),
-    kScanTab => const ScannerScreen(),
+    kScanTab => const DesktopDecoderScreen(),
     kOcrTab => const OcrWorkspaceScreen(),
     kHistoryTab => const HistoryScreen(),
     kDevicesTab => const KeyenceDeviceScreen(),
@@ -108,7 +108,11 @@ class _ExaltedShellState extends ConsumerState<ExaltedShell> {
   @override
   Widget build(BuildContext context) {
     final index = ref.watch(navIndexProvider);
-    final layout = context.layout;
+    // Desktop windows never fall back to the phone layout. A narrow window
+    // collapses the sidebar to a rail instead.
+    final layout = context.layout == ExaltedLayout.compact
+        ? ExaltedLayout.medium
+        : context.layout;
     final body = _body(index);
 
     if (layout == ExaltedLayout.compact) {
@@ -160,7 +164,7 @@ class _ExaltedShellState extends ConsumerState<ExaltedShell> {
                     Expanded(
                       child: Column(
                         children: [
-                          _TopBar(title: title),
+                          DesktopTopBar(title: title),
                           Expanded(child: body),
                         ],
                       ),
@@ -168,7 +172,7 @@ class _ExaltedShellState extends ConsumerState<ExaltedShell> {
                   ],
                 ),
               ),
-              const _StatusBar(),
+              const DesktopStatusBar(),
             ],
           ),
         ),

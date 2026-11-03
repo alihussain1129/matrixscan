@@ -308,12 +308,15 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen> {
                       ),
                     ),
                     const SizedBox(height: AppSpacing.sm),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Auto OCR CMOS Frames', style: TextStyle(fontSize: 14)),
-                      subtitle: const Text('Extract text from Keyence camera images', style: TextStyle(fontSize: 12)),
-                      value: pipeline.autoOcr,
-                      onChanged: (v) => pipeline.autoOcr = v,
+                    Material(
+                      type: MaterialType.transparency,
+                      child: SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Auto OCR CMOS Frames', style: TextStyle(fontSize: 14)),
+                        subtitle: const Text('Extract text from Keyence camera images', style: TextStyle(fontSize: 12)),
+                        value: pipeline.autoOcr,
+                        onChanged: (v) => pipeline.autoOcr = v,
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.xs),
                     TextField(

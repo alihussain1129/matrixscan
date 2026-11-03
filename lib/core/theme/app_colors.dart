@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 
 /// Extra Exalted color tokens that Material's ColorScheme does not cover.
@@ -110,10 +112,10 @@ class AppColors {
   static const Color cyan = Color(0xFF2BD4F5);
   static const Color cyanDeep = Color(0xFF0A7EA4);
 
-  static const Color lightBg = Color(0xFFF3F6FA);
-  static const Color darkBg = Color(0xFF0A0F1A);
+  static const Color _deskLightBg = Color(0xFFF3F6FA);
+  static const Color _deskDarkBg = Color(0xFF0A0F1A);
 
-  static const ColorScheme lightScheme = ColorScheme(
+  static const ColorScheme _deskLightScheme = ColorScheme(
     brightness: Brightness.light,
     primary: cyanDeep,
     onPrimary: Colors.white,
@@ -125,7 +127,7 @@ class AppColors {
     onSurface: Color(0xFF0F1A2E),
   );
 
-  static const ColorScheme darkScheme = ColorScheme(
+  static const ColorScheme _deskDarkScheme = ColorScheme(
     brightness: Brightness.dark,
     primary: cyan,
     onPrimary: Color(0xFF031219),
@@ -137,7 +139,7 @@ class AppColors {
     onSurface: Color(0xFFE8EDF6),
   );
 
-  static const ExaltedColors lightExtra = ExaltedColors(
+  static const ExaltedColors _deskLightExtra = ExaltedColors(
     primaryPressed: Color(0xFF086A8A),
     primaryText: Color(0xFF086A8A),
     surfaceRaised: Color(0xFFEBF0F7),
@@ -151,7 +153,7 @@ class AppColors {
     hover: Color(0x140A7EA4),
   );
 
-  static const ExaltedColors darkExtra = ExaltedColors(
+  static const ExaltedColors _deskDarkExtra = ExaltedColors(
     primaryPressed: Color(0xFF1FB3D1),
     primaryText: Color(0xFF5BDDF7),
     surfaceRaised: Color(0xFF151E32),
@@ -164,4 +166,63 @@ class AppColors {
     info: Color(0xFF2BD4F5),
     hover: Color(0x142BD4F5),
   );
+
+  // ---- Platform look ------------------------------------------------------
+  // Phones (Android, iOS) keep the original Exalted look: brand red on neutral
+  // surfaces. Windows and Linux use the navy and cyan workstation look.
+  static final bool _phone = Platform.isAndroid || Platform.isIOS;
+
+  static final Color lightBg = _phone ? const Color(0xFFFFFFFF) : _deskLightBg;
+  static final Color darkBg = _phone ? const Color(0xFF0E0E10) : _deskDarkBg;
+
+  static const ColorScheme _phoneLightScheme = ColorScheme(
+    brightness: Brightness.light,
+    primary: red,
+    onPrimary: Colors.white,
+    secondary: gray,
+    onSecondary: Colors.white,
+    error: Color(0xFFB5121B),
+    onError: Colors.white,
+    surface: Color(0xFFF5F5F6),
+    onSurface: Color(0xFF1A1A1C),
+  );
+
+  static const ColorScheme _phoneDarkScheme = ColorScheme(
+    brightness: Brightness.dark,
+    primary: red,
+    onPrimary: Colors.white,
+    secondary: Color(0xFFA0A2A8),
+    onSecondary: Colors.black,
+    error: Color(0xFFFF6B6B),
+    onError: Colors.black,
+    surface: Color(0xFF18181B),
+    onSurface: Color(0xFFF2F2F3),
+  );
+
+  static const ExaltedColors _phoneLightExtra = ExaltedColors(
+    primaryPressed: Color(0xFFB8141B),
+    primaryText: Color(0xFFC8161D),
+    surfaceRaised: Color(0xFFEDEDEF),
+    outline: Color(0xFFDADADD),
+    muted: Color(0xFF6D6E70),
+    valid: Color(0xFF1E7B3C),
+  );
+
+  static const ExaltedColors _phoneDarkExtra = ExaltedColors(
+    primaryPressed: Color(0xFFC8161D),
+    primaryText: Color(0xFFFF5A60),
+    surfaceRaised: Color(0xFF222226),
+    outline: Color(0xFF34343A),
+    muted: Color(0xFFA0A2A8),
+    valid: Color(0xFF4CC07A),
+  );
+
+  static final ColorScheme lightScheme =
+      _phone ? _phoneLightScheme : _deskLightScheme;
+  static final ColorScheme darkScheme =
+      _phone ? _phoneDarkScheme : _deskDarkScheme;
+  static final ExaltedColors lightExtra =
+      _phone ? _phoneLightExtra : _deskLightExtra;
+  static final ExaltedColors darkExtra =
+      _phone ? _phoneDarkExtra : _deskDarkExtra;
 }

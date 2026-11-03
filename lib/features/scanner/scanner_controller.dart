@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 
 import 'package:camera/camera.dart';
 import 'package:camera_desktop/camera_desktop.dart';
+import 'dart:typed_data';
 import 'desktop_frame.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -113,6 +114,11 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   int _rotation = 90;
   int _lastGrayMs = -1000;
+  final GrayConverter _gray = GrayConverter();
+
+  /// Camera frames received so far. Read once per second to measure the
+  /// real frame rate.
+  int cameraFrames = 0;
 
   bool _starting = false;
   bool _wantRunning = false;
@@ -139,6 +145,7 @@ class ScannerController extends Notifier<ScannerUiState> {
     final analyzer = _analyzer;
     final pipeline = _pipeline;
     analyzer.onDecoded = _onDecoded;
+    _gray.onGray = _onGray;
     _startup('scanner created');
 
     // Warm up in parallel with the camera start: native library, decode
@@ -153,6 +160,7 @@ class ScannerController extends Notifier<ScannerUiState> {
       // Providers must not be read inside onDispose, so use the objects
       // captured above.
       analyzer.onDecoded = null;
+      _gray.dispose();
 
       _wantRunning = false;
 
@@ -466,7 +474,19 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   // ---- frame stream ------------------------------------------------------
 
+  void _onGray(Uint8List gray, int width, int height) {
+    if (!_wantRunning || state.paused || !state.autoScan) return;
+    _pipeline.submit(
+      width: width,
+      height: height,
+      rotationDegrees: _rotation,
+      yPlane: gray,
+      yRowStride: width,
+    );
+  }
+
   void _onFrame(CameraImage image) {
+    cameraFrames++;
     if (!_wantRunning || state.paused || !state.autoScan) {
       return;
     }
@@ -478,14 +498,11 @@ class ScannerController extends Notifier<ScannerUiState> {
       // pixel, so convert here, at most about 15 times per second.
       final now = _resultClock.elapsedMilliseconds;
       if (now - _lastGrayMs < 66) return;
-      _lastGrayMs = now;
-      _pipeline.submit(
-        width: image.width,
-        height: image.height,
-        rotationDegrees: _rotation,
-        yPlane: bgraToGray(y.bytes, image.width, image.height, y.bytesPerRow),
-        yRowStride: image.width,
-      );
+      // The conversion runs on a background isolate. The frame is skipped
+      // when that isolate is still busy with the previous one.
+      if (_gray.submit(y.bytes, image.width, image.height, y.bytesPerRow)) {
+        _lastGrayMs = now;
+      }
       return;
     }
 
