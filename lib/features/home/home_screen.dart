@@ -1,13 +1,11 @@
-import 'dart:io' show Platform;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../app_shell.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../core/widgets/exalted_button.dart';
 import '../../core/widgets/exalted_logo.dart';
 import '../devices/keyence/keyence_sr751_client.dart';
@@ -49,25 +47,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       );
   }
 
-  void _navigateTo(int mobileTab, int desktopTab) {
-    final isDesktop =
-        (Platform.isLinux || Platform.isWindows || Platform.isMacOS) &&
-        MediaQuery.sizeOf(context).width >= 720;
-
-    if (isDesktop) {
-      ref.read(desktopNavIndexProvider.notifier).set(desktopTab);
-    } else {
-      ref.read(navIndexProvider.notifier).set(mobileTab);
-    }
+  void _navigateTo(int tab) {
+    ref.read(navIndexProvider.notifier).set(tab);
   }
 
   Future<void> _readText() async {
-    final isDesktop =
-        (Platform.isLinux || Platform.isWindows || Platform.isMacOS) &&
-        MediaQuery.sizeOf(context).width >= 720;
+    final isDesktop = context.layout != ExaltedLayout.compact;
 
     if (isDesktop) {
-      _navigateTo(kScanTab, 2); // Switch to dedicated OCR Workspace
+      _navigateTo(kOcrTab); // Switch to the OCR workspace
       return;
     }
 
@@ -106,19 +94,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final text = theme.textTheme;
 
     final keyence = ref.watch(keyenceSr751ClientProvider);
-    final isDesktop =
-        (Platform.isLinux || Platform.isWindows || Platform.isMacOS) &&
-        MediaQuery.sizeOf(context).width >= 720;
+    final isDesktop = context.layout != ExaltedLayout.compact;
 
     // Refresh recent list on tab switches
     ref.listen<int>(navIndexProvider, (previous, next) {
       if (next == kHomeTab && mounted) {
-        setState(() => _recent = _load());
-      }
-    });
-
-    ref.listen<int>(desktopNavIndexProvider, (previous, next) {
-      if (next == 0 && mounted) {
         setState(() => _recent = _load());
       }
     });
@@ -151,14 +131,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF22C55E).withAlpha(25),
+                      color: colors.valid.withAlpha(25),
                       borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: const Color(0xFF22C55E)),
+                      border: Border.all(color: colors.valid),
                     ),
                     child: Text(
                       'OFFLINE SYSTEM READY',
                       style: text.labelSmall!.copyWith(
-                        color: const Color(0xFF22C55E),
+                        color: colors.valid,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -188,7 +168,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       label: 'Decoder Workspace',
                       icon: Icons.qr_code_scanner,
                       expand: true,
-                      onPressed: () => _navigateTo(kScanTab, 1),
+                      onPressed: () => _navigateTo(kScanTab),
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),
@@ -221,14 +201,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         height: 40,
                         decoration: BoxDecoration(
                           color: keyence.status == KeyenceConnectionStatus.connected
-                              ? const Color(0xFF22C55E).withAlpha(30)
+                              ? colors.valid.withAlpha(30)
                               : Colors.grey.withAlpha(30),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Icon(
                           Icons.router_outlined,
                           color: keyence.status == KeyenceConnectionStatus.connected
-                              ? const Color(0xFF22C55E)
+                              ? colors.valid
                               : colors.muted,
                         ),
                       ),
@@ -250,7 +230,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ),
                       const SizedBox(width: 8),
                       OutlinedButton(
-                        onPressed: () => _navigateTo(kScanTab, 3),
+                        onPressed: () => _navigateTo(kDevicesTab),
                         child: const Text('Open Hardware'),
                       ),
                     ],
@@ -265,7 +245,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     child: Text('Recent Inspections & Scans', style: text.titleMedium),
                   ),
                   TextButton(
-                    onPressed: () => _navigateTo(kHistoryTab, 4),
+                    onPressed: () => _navigateTo(kHistoryTab),
                     child: const Text('View all history'),
                   ),
                 ],

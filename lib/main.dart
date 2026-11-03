@@ -5,11 +5,14 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'app.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Fonts ship in assets/google_fonts so every platform looks the same offline.
+  GoogleFonts.config.allowRuntimeFetching = false;
   if (Platform.isAndroid) {
     // Warm CameraX up now so the scanner does not wait for it after the first
     // frame (about 1.7 s on the A12). The result is not needed here.
