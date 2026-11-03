@@ -3,6 +3,8 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:camera/camera.dart';
+import 'package:camera_desktop/camera_desktop.dart';
+import 'desktop_frame.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -110,6 +112,7 @@ class ScannerController extends Notifier<ScannerUiState> {
   Future<List<CameraDescription>>? _camerasFuture;
 
   int _rotation = 90;
+  int _lastGrayMs = -1000;
 
   bool _starting = false;
   bool _wantRunning = false;
@@ -313,6 +316,17 @@ class ScannerController extends Notifier<ScannerUiState> {
       await controller.initialize();
       _startup('camera initialized');
 
+      if (Platform.isLinux) {
+        // The Linux plugin mirrors by default. A mirrored image breaks
+        // barcode decoding, so turn it off.
+        try {
+          await CameraDesktopPlugin().setMirror(controller.cameraId, false);
+          debugPrint('[EXALTED][CAMERA] mirror off');
+        } catch (e) {
+          debugPrint('[EXALTED][CAMERA] mirror setting failed: $e');
+        }
+      }
+
       // Explicitly request automatic focus. This is non-fatal because
       // camera implementations differ in their supported controls.
       try {
@@ -458,6 +472,22 @@ class ScannerController extends Notifier<ScannerUiState> {
     }
 
     final y = image.planes.first;
+
+    if (image.format.group == ImageFormatGroup.bgra8888) {
+      // Desktop cameras send BGRA. The decoder wants one gray byte per
+      // pixel, so convert here, at most about 15 times per second.
+      final now = _resultClock.elapsedMilliseconds;
+      if (now - _lastGrayMs < 66) return;
+      _lastGrayMs = now;
+      _pipeline.submit(
+        width: image.width,
+        height: image.height,
+        rotationDegrees: _rotation,
+        yPlane: bgraToGray(y.bytes, image.width, image.height, y.bytesPerRow),
+        yRowStride: image.width,
+      );
+      return;
+    }
 
     _pipeline.submit(
       width: image.width,

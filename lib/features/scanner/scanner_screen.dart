@@ -246,6 +246,11 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     }
   }
 
+  bool get _isPhone {
+    final p = Theme.of(context).platform;
+    return p == TargetPlatform.android || p == TargetPlatform.iOS;
+  }
+
   /// Full-bleed preview. The camera reports its size in landscape; the app is
   /// locked to portrait, so the portrait box is (short side x long side).
   Widget _preview(CameraController cam) {
@@ -259,8 +264,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       child: FittedBox(
         fit: BoxFit.cover,
         child: SizedBox(
-          width: size.shortestSide,
-          height: size.longestSide,
+          width: _isPhone ? size.shortestSide : size.width,
+          height: _isPhone ? size.longestSide : size.height,
           child: CameraPreview(cam),
         ),
       ),
