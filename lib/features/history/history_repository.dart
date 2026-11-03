@@ -94,13 +94,14 @@ class HistoryRepository {
     String? format,
     String? imagePath,
     double? processingDurationMs,
+    bool allowRepeat = false,
   }) {
     return _serialized<HistoryEntry?>(() async {
       if (text.isEmpty) return null;
       try {
         final entries = await _read();
         final now = _clock();
-        if (entries.isNotEmpty) {
+        if (!allowRepeat && entries.isNotEmpty) {
           final newest = entries.first;
           if (newest.kind == kind &&
               newest.text == text &&

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/router/app_router.dart';
+import 'detection_events.dart';
 import 'scanner_controller.dart';
 
 /// Camera settings for the desktop workspace.
@@ -48,6 +49,8 @@ class _CameraSettingsDialog extends ConsumerWidget {
                   : '${size.width.toInt()} x ${size.height.toInt()}',
             ),
             const SizedBox(height: 16),
+            const _RearmGapTile(),
+            const SizedBox(height: 16),
             Text('Resolution preset', style: label),
             const SizedBox(height: 8),
             SegmentedButton<CameraQuality>(
@@ -82,6 +85,35 @@ class _CameraSettingsDialog extends ConsumerWidget {
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+}
+
+class _RearmGapTile extends ConsumerWidget {
+  const _RearmGapTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gap = ref.watch(rearmGapProvider);
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Repeat detection gap', style: theme.textTheme.labelMedium),
+        Slider(
+          value: gap.toDouble().clamp(200, 5000).toDouble(),
+          min: 200,
+          max: 5000,
+          divisions: 24,
+          label: '$gap ms',
+          onChanged: (v) => ref.read(rearmGapProvider.notifier).set(v.round()),
+        ),
+        Text(
+          'A code in view counts as one detection. The same code is saved again '
+          'only after it has been out of view for $gap ms, or when the code changes.',
+          style: theme.textTheme.bodySmall,
         ),
       ],
     );

@@ -17,6 +17,8 @@ import '../history/history_repository.dart';
 import 'frame_pipeline.dart';
 import 'scanner_analyzer.dart';
 import 'scan_feedback.dart';
+import 'detection_events.dart';
+import '../inspection/inspection_log.dart';
 
 enum CameraStatus {
   idle,
@@ -134,8 +136,9 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   final Stopwatch _resultClock = Stopwatch()..start();
 
-  String? _lastText;
-  int _lastResultMs = -10000;
+  /// Groups the per-frame decoder hits into detection events.
+  final DetectionEventTracker _events = DetectionEventTracker();
+  int _suppressedHits = 0;
   int _scanStartMs = 0;
 
   @override
@@ -202,7 +205,16 @@ class ScannerController extends Notifier<ScannerUiState> {
   }
 
   void toggleContinuous() {
-    state = state.copyWith(continuous: !state.continuous);
+    final next = !state.continuous;
+    // Leaving Single mode while it is stopped on a result: scanning must
+    // restart by itself, without Scan Again.
+    if (next && state.paused && state.result != null) {
+      _events.reset();
+      state = state.copyWith(continuous: true, clearResult: true, paused: false);
+      unawaited(_syncStream());
+      return;
+    }
+    state = state.copyWith(continuous: next);
   }
 
   Future<void> toggleAuto() async {
@@ -640,6 +652,7 @@ class ScannerController extends Notifier<ScannerUiState> {
     }
 
     final resuming = state.paused;
+    if (resuming) _events.reset();
 
     state = state.copyWith(paused: !state.paused, clearResult: resuming);
 
@@ -648,6 +661,7 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   Future<void> resumeScanning() async {
     debugPrint('[EXALTED][SCAN] scan again');
+    _events.reset();
     _scanStartMs = _resultClock.elapsedMilliseconds;
     state = state.copyWith(clearResult: true, paused: false);
 
@@ -663,16 +677,20 @@ class ScannerController extends Notifier<ScannerUiState> {
 
     final now = _resultClock.elapsedMilliseconds;
 
-    // Prevent the same barcode from repeatedly firing while continuous
-    // scanning is active.
-    if (state.continuous &&
-        barcode.text == _lastText &&
-        now - _lastResultMs < 2500) {
+    // The analyzer reports a hit on nearly every frame while a code stays in
+    // view. All of those frames are one detection event. A new event starts
+    // when the payload changes or the code was out of view for the re-arm gap,
+    // so the same payload on a new product is recorded again.
+    if (!_events.observe(barcode.text, now, ref.read(rearmGapProvider))) {
+      _suppressedHits++;
       return;
     }
-
-    _lastText = barcode.text;
-    _lastResultMs = now;
+    debugPrint(
+      '[EXALTED][EVENT] t=${now}ms continuous=${state.continuous} '
+      'gap=${ref.read(rearmGapProvider)}ms sameFramesBefore=$_suppressedHits '
+      'text=${barcode.text}',
+    );
+    _suppressedHits = 0;
 
     HapticFeedback.mediumImpact();
     unawaited(ScanFeedback.beep());
@@ -710,6 +728,20 @@ class ScannerController extends Notifier<ScannerUiState> {
               source: source,
               text: barcode.text,
               format: barcode.kind.label,
+              processingDurationMs: barcode.decodeMicros / 1000,
+              // Event tracking already removed per-frame repeats.
+              allowRepeat: source == HistorySource.live,
+            ),
+      );
+      // One related data row per inspection event (fields, checks, status).
+      unawaited(
+        ref
+            .read(inspectionLogProvider)
+            .recordDecode(
+              raw: barcode.text,
+              symbology: barcode.kind.label,
+              source: source.name,
+              decodeMs: barcode.decodeMicros / 1000,
             ),
       );
     } catch (e) {
@@ -719,8 +751,7 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   /// Shows a barcode decoded from an imported gallery image.
   void presentImported(DecodedBarcode barcode) {
-    _lastText = barcode.text;
-    _lastResultMs = _resultClock.elapsedMilliseconds;
+    _events.reset();
 
     HapticFeedback.mediumImpact();
     unawaited(ScanFeedback.beep());
