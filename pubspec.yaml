@@ -8,6 +8,7 @@ environment:
 
 dependencies:
   camera: ^0.12.1
+  camera_desktop: ^2.0.0
   cupertino_icons: ^2.0.0
   ffi: ^2.2.0
   flutter:
