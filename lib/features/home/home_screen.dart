@@ -99,7 +99,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Refresh recent list on tab switches
     ref.listen<int>(navIndexProvider, (previous, next) {
       if (next == kHomeTab && mounted) {
-        setState(() => _recent = _load());
+        setState(() {
+          _recent = _load();
+        });
       }
     });
 
@@ -129,7 +131,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   const ExaltedLogo(width: 140),
                   const Spacer(),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: colors.valid.withAlpha(25),
                       borderRadius: BorderRadius.circular(4),
@@ -200,14 +205,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          color: keyence.status == KeyenceConnectionStatus.connected
+                          color:
+                              keyence.status ==
+                                  KeyenceConnectionStatus.connected
                               ? colors.valid.withAlpha(30)
                               : Colors.grey.withAlpha(30),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Icon(
                           Icons.router_outlined,
-                          color: keyence.status == KeyenceConnectionStatus.connected
+                          color:
+                              keyence.status ==
+                                  KeyenceConnectionStatus.connected
                               ? colors.valid
                               : colors.muted,
                         ),
@@ -217,13 +226,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('KEYENCE SR-751 Industrial Reader', style: text.bodyLarge),
+                            Text(
+                              'KEYENCE SR-751 Industrial Reader',
+                              style: text.bodyLarge,
+                            ),
                             const SizedBox(height: 2),
                             Text(
-                              keyence.status == KeyenceConnectionStatus.connected
+                              keyence.status ==
+                                      KeyenceConnectionStatus.connected
                                   ? 'Connected at ${keyence.host}:${keyence.port} (FTP receiver active)'
                                   : 'Disconnected · Standby for automated line triggers',
-                              style: text.bodySmall!.copyWith(color: colors.muted),
+                              style: text.bodySmall!.copyWith(
+                                color: colors.muted,
+                              ),
                             ),
                           ],
                         ),
@@ -242,7 +257,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               Row(
                 children: [
                   Expanded(
-                    child: Text('Recent Inspections & Scans', style: text.titleMedium),
+                    child: Text(
+                      'Recent Inspections & Scans',
+                      style: text.titleMedium,
+                    ),
                   ),
                   TextButton(
                     onPressed: () => _navigateTo(kHistoryTab),
