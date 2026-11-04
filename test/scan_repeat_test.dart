@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:exalted/features/history/history_repository.dart';
+import 'package:exalted/features/inspection/inspection_log.dart';
 import 'package:exalted/features/scanner/scanner_analyzer.dart';
 import 'package:exalted/features/scanner/scanner_controller.dart';
 import 'package:exalted/ffi/decode_result.dart';
@@ -22,11 +23,18 @@ void main() {
 
   late Directory dir;
   late HistoryRepository repo;
+  late InspectionLog log;
   late ProviderContainer container;
   late ScannerAnalyzer analyzer;
   late ScannerController controller;
 
   String? shown() => container.read(scannerControllerProvider).result?.text;
+
+  Future<void> settle() async {
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await repo.loadAll();
+    await log.loadAll();
+  }
 
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -36,15 +44,19 @@ void main() {
         );
     dir = Directory.systemTemp.createTempSync('exalted_repeat_test');
     repo = HistoryRepository(directory: () async => dir);
+    log = InspectionLog(directory: () async => dir);
     container = ProviderContainer(
-      overrides: [historyRepositoryProvider.overrideWithValue(repo)],
+      overrides: [
+        historyRepositoryProvider.overrideWithValue(repo),
+        inspectionLogProvider.overrideWithValue(log),
+      ],
     );
     analyzer = container.read(scannerAnalyzerProvider);
     controller = container.read(scannerControllerProvider.notifier);
   });
 
   tearDown(() async {
-    await repo.loadAll();
+    await settle();
     container.dispose();
     dir.deleteSync(recursive: true);
   });
@@ -60,24 +72,39 @@ void main() {
     expect(shown(), 'SAME-CODE');
   });
 
-  test('continuous mode still ignores a repeat of the same code', () async {
-    controller.toggleContinuous();
-
-    analyzer.onDecoded!(_barcode('SAME-CODE'));
-    expect(shown(), 'SAME-CODE');
-
-    await controller.resumeScanning();
-    analyzer.onDecoded!(_barcode('SAME-CODE'));
-    expect(shown(), isNull);
-  });
+  test(
+    'continuous mode records one event for a code that stays in view',
+    () async {
+      controller.toggleContinuous();
+      for (var i = 0; i < 5; i++) {
+        analyzer.onDecoded!(_barcode('SAME-CODE'));
+      }
+      expect(shown(), 'SAME-CODE');
+      await settle();
+      expect((await repo.loadAll()).length, 1);
+      expect((await log.loadAll()).length, 1);
+    },
+  );
 
   test('continuous mode never ignores a different code', () async {
     controller.toggleContinuous();
-
     analyzer.onDecoded!(_barcode('CODE-ONE'));
-    await controller.resumeScanning();
     analyzer.onDecoded!(_barcode('CODE-TWO'));
-
     expect(shown(), 'CODE-TWO');
+    await settle();
+    expect((await log.loadAll()).length, 2);
+  });
+
+  test('switching from Single to Continuous resumes scanning by itself', () {
+    analyzer.onDecoded!(_barcode('A'));
+    var s = container.read(scannerControllerProvider);
+    expect(s.paused, isTrue);
+    expect(s.result?.text, 'A');
+
+    controller.toggleContinuous();
+    s = container.read(scannerControllerProvider);
+    expect(s.continuous, isTrue);
+    expect(s.paused, isFalse);
+    expect(s.result, isNull);
   });
 }

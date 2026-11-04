@@ -18,7 +18,8 @@ import 'frame_pipeline.dart';
 import 'scanner_analyzer.dart';
 import 'scan_feedback.dart';
 import 'detection_events.dart';
-import '../inspection/inspection_log.dart';
+import '../inspection/combined_inspector.dart';
+import 'captured_frame.dart';
 
 enum CameraStatus {
   idle,
@@ -139,6 +140,9 @@ class ScannerController extends Notifier<ScannerUiState> {
   /// Groups the per-frame decoder hits into detection events.
   final DetectionEventTracker _events = DetectionEventTracker();
   int _suppressedHits = 0;
+
+  /// Pending request for the next camera frame (used by OCR).
+  Completer<CapturedFrame>? _grab;
   int _scanStartMs = 0;
 
   @override
@@ -484,6 +488,21 @@ class ScannerController extends Notifier<ScannerUiState> {
     await start();
   }
 
+  /// A copy of the next camera frame, or null when none arrives in time.
+  /// Used to run OCR on the same image the decoder is looking at.
+  Future<CapturedFrame?> grabFrame({
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    if (_camera == null || !_wantRunning) return null;
+    final c = _grab ??= Completer<CapturedFrame>();
+    try {
+      return await c.future.timeout(timeout);
+    } on TimeoutException {
+      if (identical(_grab, c)) _grab = null;
+      return null;
+    }
+  }
+
   // ---- frame stream ------------------------------------------------------
 
   void _onGray(Uint8List gray, int width, int height) {
@@ -499,6 +518,11 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   void _onFrame(CameraImage image) {
     cameraFrames++;
+    final grab = _grab;
+    if (grab != null && !grab.isCompleted) {
+      _grab = null;
+      grab.complete(CapturedFrame.fromCameraImage(image, _rotation));
+    }
     if (!_wantRunning || state.paused || !state.autoScan) {
       return;
     }
@@ -736,8 +760,8 @@ class ScannerController extends Notifier<ScannerUiState> {
       // One related data row per inspection event (fields, checks, status).
       unawaited(
         ref
-            .read(inspectionLogProvider)
-            .recordDecode(
+            .read(combinedInspectorProvider.notifier)
+            .record(
               raw: barcode.text,
               symbology: barcode.kind.label,
               source: source.name,

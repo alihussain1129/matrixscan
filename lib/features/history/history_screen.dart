@@ -1,3 +1,4 @@
+import 'ocr_history_detail_screen.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -148,6 +149,14 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
 
         return ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: AppSpacing.xs),
+          onTap: () async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => OcrHistoryDetailScreen(record: item),
+              ),
+            );
+            if (mounted) setState(() {});
+          },
           leading: hasImage
               ? ClipRRect(
                   borderRadius: BorderRadius.circular(8),

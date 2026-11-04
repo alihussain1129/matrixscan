@@ -13,7 +13,10 @@ import '../../core/theme/app_spacing.dart';
 import '../../ffi/decode_result.dart';
 import 'camera_settings_dialog.dart';
 import 'connected_scan_result_card.dart';
+import '../inspection/inspection_row_card.dart';
 import 'frame_pipeline.dart';
+import 'live_ocr_analyzer.dart';
+import 'ocr_auto_saver.dart';
 import 'link_utils.dart';
 import 'scan_frame_painter.dart';
 import 'scanner_analyzer.dart';
@@ -48,10 +51,12 @@ class _DesktopDecoderScreenState extends ConsumerState<DesktopDecoderScreen>
   Timer? _tick;
   int _lastFrames = -1;
   double _fps = 0;
+  late final OcrAutoSaver _ocrSaver = OcrAutoSaver(ref, () => mounted);
 
   @override
   void initState() {
     super.initState();
+    _ocrSaver.start();
     WidgetsBinding.instance.addObserver(this);
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
@@ -75,6 +80,7 @@ class _DesktopDecoderScreenState extends ConsumerState<DesktopDecoderScreen>
     WidgetsBinding.instance.removeObserver(this);
     _tick?.cancel();
     _polygonTimer?.cancel();
+    _ocrSaver.stop();
     super.dispose();
   }
 
@@ -317,6 +323,35 @@ class _DesktopDecoderScreenState extends ConsumerState<DesktopDecoderScreen>
               fit: StackFit.expand,
               children: [
                 RepaintBoundary(child: CameraPreview(live)),
+                Positioned(
+                  left: 12,
+                  right: 12,
+                  bottom: 12,
+                  child: IgnorePointer(
+                    child: ValueListenableBuilder<String>(
+                      valueListenable: ref.read(liveOcrAnalyzerProvider).text,
+                      builder: (context, liveText, _) {
+                        if (liveText.isEmpty) return const SizedBox.shrink();
+                        return Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withAlpha(170),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            liveText,
+                            maxLines: 6,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
                 IgnorePointer(
                   child: CustomPaint(
                     painter: ScrimPainter(hole: roi, opacity: 0.2),
@@ -714,6 +749,8 @@ class _DesktopDecoderScreenState extends ConsumerState<DesktopDecoderScreen>
               onOpenLink: link == null ? null : () => _openLink(link),
             ),
           ],
+          const Divider(height: AppSpacing.xl),
+          const InspectionRowCard(),
           const Divider(height: AppSpacing.xl),
           _sectionTitle('Scan area'),
           _roiSlider('Width', _roiWidth, (v) {

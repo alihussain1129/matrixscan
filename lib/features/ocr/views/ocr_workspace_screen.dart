@@ -1,3 +1,4 @@
+import '../../../core/router/app_router.dart';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -258,6 +259,12 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
             tooltip: 'Open Image',
             icon: const Icon(Icons.file_open_outlined),
             onPressed: _pickImage,
+          ),
+          IconButton(
+            tooltip: 'Live camera OCR',
+            icon: const Icon(Icons.videocam_outlined),
+            onPressed: () =>
+                ref.read(navIndexProvider.notifier).set(kScanTab),
           ),
           IconButton(
             tooltip: 'View OCR History',

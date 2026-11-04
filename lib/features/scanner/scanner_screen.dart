@@ -1,3 +1,9 @@
+import '../ocr/services/ocr_history_repository.dart';
+import '../ocr/models/ocr_record.dart';
+import '../../core/storage/image_storage_service.dart';
+import 'captured_frame.dart';
+import 'live_ocr_analyzer.dart';
+import 'ocr_auto_saver.dart';
 import 'dart:io';
 
 import 'package:camera/camera.dart';
@@ -51,6 +57,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   @override
   void initState() {
     super.initState();
+    _ocrSaver.start();
     _line = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2200),
@@ -67,6 +74,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _ocrSaver.stop();
     _line.dispose();
     super.dispose();
   }
@@ -97,6 +105,50 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
         lifecycle == AppLifecycleState.detached) {
       ctrl.stop();
       _stopLineAnimation();
+    }
+  }
+
+  late final OcrAutoSaver _ocrSaver = OcrAutoSaver(ref, () => mounted);
+
+  Future<void> _saveLiveOcr({bool silent = false}) async {
+    final live = ref.read(liveOcrAnalyzerProvider);
+    final txt = live.text.value.trim();
+    if (txt.isEmpty) {
+      if (!silent) _snack('No text read yet');
+      return;
+    }
+    try {
+      var path = '';
+      final frame = silent
+          ? null
+          : await ref
+              .read(scannerControllerProvider.notifier)
+              .grabFrame();
+      if (frame != null) {
+        final encoded = await encodeFrame(frame);
+        if (encoded != null) {
+          path = await ref
+              .read(imageStorageServiceProvider)
+              .saveImageBytes(encoded.png, prefix: 'ocr_live', ext: 'png');
+        }
+      }
+      await ref.read(ocrHistoryRepositoryProvider).addRecord(
+        OcrRecord(
+          id: 'ocr_${DateTime.now().microsecondsSinceEpoch}',
+          imagePath: path,
+          text: txt,
+          rawText: txt,
+          createdAt: DateTime.now(),
+          language: 'eng',
+          engine: Platform.isAndroid
+              ? 'Google ML Kit (live)'
+              : 'Tesseract (live)',
+          processingDurationMs: live.lastMs.value,
+        ),
+      );
+      if (!silent) _snack('Saved to OCR History');
+    } catch (e) {
+      if (!silent) _snack('Could not save: $e');
     }
   }
 
@@ -447,6 +499,60 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                             ),
                           ),
                         ),
+
+                      // Live OCR text (read from the camera feed).
+                      Positioned(
+                        left: 12,
+                        right: 12,
+                        top: MediaQuery.paddingOf(context).top + 64,
+                        child: IgnorePointer(
+                          child: ValueListenableBuilder<String>(
+                            valueListenable:
+                                ref.watch(liveOcrAnalyzerProvider).text,
+                            builder: (context, liveText, _) {
+                              if (liveText.isEmpty) {
+                                return const SizedBox.shrink();
+                              }
+                              return Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withAlpha(170),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  liveText,
+                                  maxLines: 6,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+
+                      // Save the live OCR read to OCR History.
+                      Positioned(
+                        left: 12,
+                        top: MediaQuery.paddingOf(context).top + 16,
+                        child: ValueListenableBuilder<String>(
+                          valueListenable:
+                              ref.watch(liveOcrAnalyzerProvider).text,
+                          builder: (context, liveText, _) {
+                            if (liveText.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
+                            return ActionChip(
+                              avatar: const Icon(Icons.save_alt, size: 16),
+                              label: const Text('Save OCR'),
+                              onPressed: _saveLiveOcr,
+                            );
+                          },
+                        ),
+                      ),
 
                       // Tap-to-focus ring.
                       if (_focusTap != null)

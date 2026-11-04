@@ -165,31 +165,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
               const SizedBox(height: AppSpacing.xl),
 
-              // Action Buttons Grid / Column
-              Row(
-                children: [
-                  Expanded(
-                    child: ExaltedButton(
-                      label: 'Decoder Workspace',
-                      icon: Icons.qr_code_scanner,
-                      expand: true,
-                      onPressed: () => _navigateTo(kScanTab),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: ExaltedButton(
-                      label: 'OCR Workspace',
-                      icon: Icons.document_scanner_outlined,
-                      outlined: true,
-                      expand: true,
-                      onPressed: _readText,
-                    ),
-                  ),
-                ],
+              // Action Buttons: stacked on narrow screens, side by side on wide
+              LayoutBuilder(
+                builder: (context, c) {
+                  final decoder = ExaltedButton(
+                    label: 'Decoder Workspace',
+                    icon: Icons.qr_code_scanner,
+                    expand: true,
+                    onPressed: () => _navigateTo(kScanTab),
+                  );
+                  final ocr = ExaltedButton(
+                    label: 'OCR Workspace',
+                    icon: Icons.document_scanner_outlined,
+                    outlined: true,
+                    expand: true,
+                    onPressed: _readText,
+                  );
+                  if (c.maxWidth < 520) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        decoder,
+                        const SizedBox(height: AppSpacing.md),
+                        ocr,
+                      ],
+                    );
+                  }
+                  return Row(
+                    children: [
+                      Expanded(child: decoder),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(child: ocr),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: AppSpacing.md),
-
               // Hardware Card for Keyence SR-751
               Card(
                 color: colors.surfaceRaised,
@@ -199,60 +210,66 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(AppSpacing.md),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color:
-                              keyence.status ==
-                                  KeyenceConnectionStatus.connected
-                              ? colors.valid.withAlpha(30)
-                              : Colors.grey.withAlpha(30),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(
-                          Icons.router_outlined,
-                          color:
-                              keyence.status ==
-                                  KeyenceConnectionStatus.connected
-                              ? colors.valid
-                              : colors.muted,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'KEYENCE SR-751 Industrial Reader',
-                              style: text.bodyLarge,
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              keyence.status ==
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: keyence.status ==
                                       KeyenceConnectionStatus.connected
-                                  ? 'Connected at ${keyence.host}:${keyence.port} (FTP receiver active)'
-                                  : 'Disconnected · Standby for automated line triggers',
-                              style: text.bodySmall!.copyWith(
-                                color: colors.muted,
-                              ),
+                                  ? colors.valid.withAlpha(30)
+                                  : Colors.grey.withAlpha(30),
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                          ],
-                        ),
+                            child: Icon(
+                              Icons.router_outlined,
+                              color: keyence.status ==
+                                      KeyenceConnectionStatus.connected
+                                  ? colors.valid
+                                  : colors.muted,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'KEYENCE SR-751 Industrial Reader',
+                                  style: text.bodyLarge,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  keyence.status ==
+                                          KeyenceConnectionStatus.connected
+                                      ? 'Connected at ${keyence.host}:${keyence.port} (FTP receiver active)'
+                                      : 'Disconnected · Standby for automated line triggers',
+                                  style: text.bodySmall!.copyWith(
+                                    color: colors.muted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      OutlinedButton(
-                        onPressed: () => _navigateTo(kDevicesTab),
-                        child: const Text('Open Hardware'),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: OutlinedButton(
+                          onPressed: () => _navigateTo(kDevicesTab),
+                          child: const Text('Open Hardware'),
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
-
               const SizedBox(height: AppSpacing.xl),
               Row(
                 children: [

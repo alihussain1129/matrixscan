@@ -88,13 +88,18 @@ class InspectionLog {
     _loaded = true;
   });
 
+  static String _norm(String s) =>
+      s.toUpperCase().replaceAll(RegExp(r'\s'), '');
+
+  /// True when [value] appears in [ocrText] (case and spaces ignored).
+  static bool ocrContains(String ocrText, String value) =>
+      _norm(ocrText).contains(_norm(value));
+
   /// Labels of decoded fields whose value is not found in [ocrText].
   static List<String> ocrMissing(Map<String, String> fields, String ocrText) {
-    String norm(String s) => s.toUpperCase().replaceAll(RegExp(r'\s'), '');
-    final text = norm(ocrText);
     return [
       for (final e in fields.entries)
-        if (e.value.isNotEmpty && !text.contains(norm(e.value)))
+        if (e.value.isNotEmpty && !ocrContains(ocrText, e.value))
           Gs1Fields.labels[e.key] ?? 'AI ${e.key}',
     ];
   }
@@ -108,6 +113,8 @@ class InspectionLog {
     double? decodeMs,
     String? ocrText,
     double? ocrMs,
+    String? ocrNote,
+    String? imagePath,
   }) {
     return _serialized<InspectionRow?>(() async {
       if (raw.isEmpty) return null;
@@ -163,7 +170,11 @@ class InspectionLog {
             reasons.add('OCR read no text');
           } else if (fields.isNotEmpty) {
             final missing = ocrMissing(fields, ocrText);
-            if (missing.isNotEmpty) {
+            if (missing.length == fields.length) {
+              // Nothing matched: the label was probably not legible.
+              review = true;
+              reasons.add('Printed text could not be matched to the code');
+            } else if (missing.isNotEmpty) {
               fail = true;
               reasons.add(
                 'Printed text does not match the code: ${missing.join(', ')}',
@@ -186,6 +197,8 @@ class InspectionLog {
           decodeMs: decodeMs,
           ocrText: ocrText,
           ocrMs: ocrMs,
+          ocrNote: ocrNote,
+          imagePath: imagePath,
           duplicateOf: duplicateOf,
         );
         _register(row);
@@ -211,7 +224,7 @@ String inspectionRowsToCsv(List<InspectionRow> rows) {
   }
 
   final b = StringBuffer(
-    'time,status,symbology,source,gtin,batch_lot,expiry,serial,raw,ocr_text,reasons,decode_ms\n',
+    'time,status,symbology,source,gtin,batch_lot,expiry,serial,raw,ocr_text,ocr_note,reasons,decode_ms,ocr_ms,image\n',
   );
   for (final r in rows) {
     b.writeln(
@@ -225,9 +238,12 @@ String inspectionRowsToCsv(List<InspectionRow> rows) {
         r.expiryDisplay,
         r.serial,
         r.raw,
-        r.ocrText,
+        r.ocrText?.replaceAll('\n', ' | '),
+        r.ocrNote,
         r.reasons.join('; '),
         r.decodeMs?.toStringAsFixed(1),
+        r.ocrMs?.toStringAsFixed(1),
+        r.imagePath,
       ].map(q).join(','),
     );
   }

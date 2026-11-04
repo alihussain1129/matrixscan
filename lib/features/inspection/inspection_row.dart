@@ -17,6 +17,8 @@ class InspectionRow {
     this.decodeMs,
     this.ocrText,
     this.ocrMs,
+    this.ocrNote,
+    this.imagePath,
     this.duplicateOf,
   });
 
@@ -37,6 +39,12 @@ class InspectionRow {
   /// Text OCR read for this event; null when OCR did not run.
   final String? ocrText;
   final double? ocrMs;
+
+  /// Why OCR did not run or could not be used.
+  final String? ocrNote;
+
+  /// Original image kept for this event, when image evidence is on.
+  final String? imagePath;
   final String? duplicateOf;
 
   String? get gtin => fields['01'];
@@ -58,6 +66,8 @@ class InspectionRow {
     'decodeMs': decodeMs,
     'ocrText': ocrText,
     'ocrMs': ocrMs,
+    'ocrNote': ocrNote,
+    'imagePath': imagePath,
     'duplicateOf': duplicateOf,
   };
 
@@ -98,6 +108,8 @@ class InspectionRow {
       decodeMs: (json['decodeMs'] as num?)?.toDouble(),
       ocrText: json['ocrText'] as String?,
       ocrMs: (json['ocrMs'] as num?)?.toDouble(),
+      ocrNote: json['ocrNote'] as String?,
+      imagePath: json['imagePath'] as String?,
       duplicateOf: json['duplicateOf'] as String?,
     );
   }

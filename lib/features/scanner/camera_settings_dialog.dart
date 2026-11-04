@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/router/app_router.dart';
+import '../inspection/combined_inspector.dart';
 import 'detection_events.dart';
 import 'scanner_controller.dart';
 
@@ -48,6 +49,8 @@ class _CameraSettingsDialog extends ConsumerWidget {
                   ? 'Not available'
                   : '${size.width.toInt()} x ${size.height.toInt()}',
             ),
+            const SizedBox(height: 16),
+            const _OcrOptionsTile(),
             const SizedBox(height: 16),
             const _RearmGapTile(),
             const SizedBox(height: 16),
@@ -114,6 +117,38 @@ class _RearmGapTile extends ConsumerWidget {
           'A code in view counts as one detection. The same code is saved again '
           'only after it has been out of view for $gap ms, or when the code changes.',
           style: theme.textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+}
+
+class _OcrOptionsTile extends ConsumerWidget {
+  const _OcrOptionsTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(combinedSettingsProvider);
+    final n = ref.read(combinedSettingsProvider.notifier);
+    return Column(
+      children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          title: const Text('Read the printed text with every code'),
+          subtitle: const Text(
+            'Runs OCR on the same camera frame and compares it with the decoded data.',
+          ),
+          value: s.ocrWithDecode,
+          onChanged: n.setOcrWithDecode,
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          title: const Text('Keep the original image of every inspection'),
+          subtitle: const Text('Uses disk space: about 0.5 MB per inspection.'),
+          value: s.keepImages,
+          onChanged: n.setKeepImages,
         ),
       ],
     );
