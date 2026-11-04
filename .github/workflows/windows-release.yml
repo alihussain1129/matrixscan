@@ -69,6 +69,8 @@ jobs:
         run: flutter test test/desktop_ocr_engine_test.dart
 
       - name: Build Windows x64 release
+        env:
+          CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
         run: flutter build windows --release
 
       - name: Build and package Tesseract 5.5.4 (Windows x64)
