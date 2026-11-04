@@ -94,9 +94,7 @@ void main() {
         pathSeparator: '\\',
         directoryExists: (path) => path == r'C:\Exalted\tesseract\tessdata',
       );
-      expect(environment, {
-        'TESSDATA_PREFIX': r'C:\Exalted\tesseract\tessdata',
-      });
+      expect(environment, {'TESSDATA_PREFIX': r'C:\Exalted\tesseract'});
     });
 
     test('does not set TESSDATA_PREFIX when sibling data is missing', () {
@@ -119,7 +117,7 @@ void main() {
         executable.path,
       );
       expect(environment, isNotNull);
-      expect(environment!['TESSDATA_PREFIX'], contains('tessdata'));
+      expect(environment!['TESSDATA_PREFIX'], root.path);
     });
   });
 }
