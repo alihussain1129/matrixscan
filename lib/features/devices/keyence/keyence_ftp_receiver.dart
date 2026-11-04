@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/storage/image_storage_service.dart';
+import '../core/message_framer.dart';
+import '../core/upload_guard.dart';
 
 /// Event fired when an industrial camera or Keyence SR-751 uploads a CMOS frame.
 class KeyenceFtpImageReceived {
@@ -29,20 +31,34 @@ class KeyenceFtpImageReceived {
       'KeyenceFtpImageReceived($fileName, $byteSize bytes, from $clientIp)';
 }
 
-/// Lightweight, embedded FTP server designed specifically to receive image transfers
-/// from Keyence SR-751 readers and industrial optical inspection cameras.
+/// Lightweight embedded FTP server that receives image uploads from Keyence
+/// SR-751 readers and industrial cameras. Pure Dart, no external dependencies.
 ///
-/// Runs entirely in pure Dart without external dependencies.
+/// Security: when [username] and [password] are set, logins are checked.
+/// When they are null, any login is accepted (legacy behaviour) and a warning
+/// is logged. Uploads are limited to [maxUploadBytes] and to image file
+/// extensions, and a data connection is only accepted from the same IP as the
+/// control connection.
 class KeyenceFtpReceiver {
   KeyenceFtpReceiver({
     this.port = 2121,
     ImageStorageService? imageStorage,
-  }) : _imageStorage = imageStorage ?? ImageStorageService();
+    this.username,
+    this.password,
+    this.maxUploadBytes = kMaxUploadBytes,
+    InternetAddress? bindAddress,
+  }) : _imageStorage = imageStorage ?? ImageStorageService(),
+       _bindAddress = bindAddress ?? InternetAddress.anyIPv4;
 
   final int port;
+  final String? username;
+  final String? password;
+  final int maxUploadBytes;
   final ImageStorageService _imageStorage;
+  final InternetAddress _bindAddress;
 
   ServerSocket? _controlServer;
+  final Set<_FtpSession> _sessions = <_FtpSession>{};
   bool _isRunning = false;
   bool get isRunning => _isRunning;
 
@@ -59,34 +75,49 @@ class KeyenceFtpReceiver {
     final bindPort = listenPort ?? port;
     if (_isRunning) return true;
 
+    if (username == null) {
+      debugPrint(
+        '[KEYENCE][FTP] WARNING: no credentials configured, any login is accepted.',
+      );
+    }
+
     try {
       _controlServer = await ServerSocket.bind(
-        InternetAddress.anyIPv4,
+        _bindAddress,
         bindPort,
         shared: true,
       );
       _isRunning = true;
-      debugPrint('[KEYENCE][FTP] Server started on port ${_controlServer!.port}');
+      debugPrint(
+        '[KEYENCE][FTP] Server started on port ${_controlServer!.port}',
+      );
 
       _controlServer!.listen(
         _handleClientConnection,
-        onError: (e) {
+        onError: (Object e) {
           debugPrint('[KEYENCE][FTP] Server socket error: $e');
         },
       );
       return true;
     } catch (e) {
-      debugPrint('[KEYENCE][FTP] Failed to bind FTP server on port $bindPort: $e');
+      debugPrint(
+        '[KEYENCE][FTP] Failed to bind FTP server on port $bindPort: $e',
+      );
       _isRunning = false;
       return false;
     }
   }
 
-  /// Stops the FTP receiver server.
+  /// Stops the server and closes every active session.
   Future<void> stop() async {
     _isRunning = false;
-    await _controlServer?.close();
+    final server = _controlServer;
     _controlServer = null;
+    await server?.close();
+    for (final session in _sessions.toList()) {
+      session.close();
+    }
+    _sessions.clear();
     debugPrint('[KEYENCE][FTP] Server stopped');
   }
 
@@ -94,19 +125,26 @@ class KeyenceFtpReceiver {
     final clientIp = clientSocket.remoteAddress.address;
     debugPrint('[KEYENCE][FTP] Connection accepted from $clientIp');
 
-    // Welcome banner
-    clientSocket.write('220 Exalted Industrial FTP Ready\r\n');
-
     final session = _FtpSession(
       controlSocket: clientSocket,
       clientIp: clientIp,
       imageStorage: _imageStorage,
-      onImageReceived: (event) => _imageStreamController.add(event),
+      username: username,
+      password: password,
+      maxUploadBytes: maxUploadBytes,
+      onImageReceived: (event) {
+        if (!_imageStreamController.isClosed) {
+          _imageStreamController.add(event);
+        }
+      },
+      onClosed: _sessions.remove,
     );
+    _sessions.add(session);
+    session.sendBanner();
 
     clientSocket.listen(
       session.handleData,
-      onError: (e) {
+      onError: (Object e) {
         debugPrint('[KEYENCE][FTP] Client error ($clientIp): $e');
         session.close();
       },
@@ -114,6 +152,7 @@ class KeyenceFtpReceiver {
         debugPrint('[KEYENCE][FTP] Client disconnected ($clientIp)');
         session.close();
       },
+      cancelOnError: true,
     );
   }
 
@@ -128,57 +167,134 @@ class _FtpSession {
     required this.controlSocket,
     required this.clientIp,
     required this.imageStorage,
+    required this.username,
+    required this.password,
+    required this.maxUploadBytes,
     required this.onImageReceived,
-  });
+    required this.onClosed,
+  }) : _authenticated = username == null {
+    _touch();
+  }
+
+  static const Duration _idleTimeout = Duration(minutes: 5);
+  static const int _maxFailedLogins = 3;
+  static const Set<String> _preAuthCommands = {
+    'USER',
+    'PASS',
+    'QUIT',
+    'NOOP',
+    'SYST',
+    'FEAT',
+  };
 
   final Socket controlSocket;
   final String clientIp;
   final ImageStorageService imageStorage;
+  final String? username;
+  final String? password;
+  final int maxUploadBytes;
   final ValueChanged<KeyenceFtpImageReceived> onImageReceived;
+  final void Function(_FtpSession) onClosed;
 
-  final StringBuffer _buffer = StringBuffer();
+  final MessageFramer _framer = MessageFramer(
+    terminator: const [0x0A],
+    maxMessageBytes: 4096,
+  );
+  Future<void> _queue = Future<void>.value();
+  Timer? _idleTimer;
+  bool _closed = false;
+  bool _authenticated;
+  String? _pendingUser;
+  int _failedLogins = 0;
+
   ServerSocket? _passiveServer;
+  Socket? _dataSocket;
   Completer<Socket>? _passiveSocketCompleter;
   String _currentTransferType = 'A'; // ASCII default, 'I' is Binary
 
+  void sendBanner() => _reply('220 Exalted Industrial FTP Ready');
+
+  void _touch() {
+    _idleTimer?.cancel();
+    _idleTimer = Timer(_idleTimeout, () {
+      debugPrint('[KEYENCE][FTP] Idle timeout ($clientIp)');
+      close();
+    });
+  }
+
+  void _reply(String line) {
+    if (_closed) return;
+    try {
+      controlSocket.write('$line\r\n');
+    } catch (_) {}
+  }
+
   void handleData(List<int> bytes) {
-    _buffer.write(utf8.decode(bytes, allowMalformed: true));
-    final raw = _buffer.toString();
+    if (_closed) return;
+    _touch();
 
-    if (raw.contains('\r\n') || raw.contains('\n')) {
-      final lines = raw.split(RegExp(r'\r?\n'));
-      _buffer.clear();
-      if (!raw.endsWith('\n')) {
-        _buffer.write(lines.last);
-        lines.removeLast();
-      }
+    final messages = _framer.add(bytes);
+    if (_framer.overflowCount > 0) {
+      _reply('500 Command line too long.');
+      close();
+      return;
+    }
 
-      for (final line in lines) {
-        final trimmed = line.trim();
-        if (trimmed.isNotEmpty) {
-          _executeCommand(trimmed);
-        }
-      }
+    for (final message in messages) {
+      final line = utf8.decode(message, allowMalformed: true).trim();
+      if (line.isEmpty) continue;
+      // Commands run strictly one after another.
+      _queue = _queue.then((_) => _executeCommand(line)).catchError((Object e) {
+        debugPrint('[KEYENCE][FTP] Command error: $e');
+      });
     }
   }
 
   Future<void> _executeCommand(String commandLine) async {
-    debugPrint('[KEYENCE][FTP-CMD] $commandLine');
+    if (_closed) return;
     final spaceIdx = commandLine.indexOf(' ');
-    final cmd = (spaceIdx == -1 ? commandLine : commandLine.substring(0, spaceIdx)).toUpperCase();
-    final args = spaceIdx == -1 ? '' : commandLine.substring(spaceIdx + 1).trim();
+    final cmd =
+        (spaceIdx == -1 ? commandLine : commandLine.substring(0, spaceIdx))
+            .toUpperCase();
+    final args = spaceIdx == -1
+        ? ''
+        : commandLine.substring(spaceIdx + 1).trim();
+
+    // Never log credentials.
+    debugPrint(
+      '[KEYENCE][FTP-CMD] ${cmd == 'PASS' ? 'PASS ****' : commandLine}',
+    );
+
+    if (!_authenticated && !_preAuthCommands.contains(cmd)) {
+      _reply('530 Please log in with USER and PASS.');
+      return;
+    }
 
     switch (cmd) {
       case 'USER':
-        controlSocket.write('331 User name okay, need password.\r\n');
+        _pendingUser = args;
+        _reply('331 User name okay, need password.');
         break;
 
       case 'PASS':
-        controlSocket.write('230 User logged in, proceed.\r\n');
+        if (username == null) {
+          _authenticated = true;
+          _reply('230 User logged in, proceed.');
+        } else if (_pendingUser == username && args == password) {
+          _authenticated = true;
+          _reply('230 User logged in, proceed.');
+        } else {
+          _authenticated = false;
+          _pendingUser = null;
+          _failedLogins++;
+          debugPrint('[KEYENCE][FTP] Failed login from $clientIp');
+          _reply('530 Login incorrect.');
+          if (_failedLogins >= _maxFailedLogins) close();
+        }
         break;
 
       case 'SYST':
-        controlSocket.write('215 UNIX Type: L8\r\n');
+        _reply('215 UNIX Type: L8');
         break;
 
       case 'FEAT':
@@ -187,12 +303,12 @@ class _FtpSession {
 
       case 'PWD':
       case 'XPWD':
-        controlSocket.write('257 "/" is current directory.\r\n');
+        _reply('257 "/" is current directory.');
         break;
 
       case 'TYPE':
         _currentTransferType = args.toUpperCase();
-        controlSocket.write('200 Type set to $_currentTransferType.\r\n');
+        _reply('200 Type set to $_currentTransferType.');
         break;
 
       case 'PASV':
@@ -204,16 +320,16 @@ class _FtpSession {
         break;
 
       case 'NOOP':
-        controlSocket.write('200 OK.\r\n');
+        _reply('200 OK.');
         break;
 
       case 'QUIT':
-        controlSocket.write('221 Goodbye.\r\n');
+        _reply('221 Goodbye.');
         close();
         break;
 
       default:
-        controlSocket.write('502 Command not implemented: $cmd\r\n');
+        _reply('502 Command not implemented: $cmd');
         break;
     }
   }
@@ -222,106 +338,150 @@ class _FtpSession {
     await _closePassive();
 
     try {
-      _passiveServer = await ServerSocket.bind(InternetAddress.anyIPv4, 0);
-      _passiveSocketCompleter = Completer<Socket>();
+      final localAddress = controlSocket.address;
+      final octets = localAddress.address.split('.');
+      if (localAddress.type != InternetAddressType.IPv4 || octets.length != 4) {
+        _reply('425 Passive mode needs an IPv4 connection.');
+        return;
+      }
 
-      _passiveServer!.listen(
+      // Listen only on the address the client already connected to.
+      final server = await ServerSocket.bind(localAddress, 0);
+      final completer = Completer<Socket>();
+      _passiveServer = server;
+      _passiveSocketCompleter = completer;
+
+      server.listen(
         (dataSocket) {
-          if (_passiveSocketCompleter != null &&
-              !_passiveSocketCompleter!.isCompleted) {
-            _passiveSocketCompleter!.complete(dataSocket);
+          // Only the control client may open the data connection, once.
+          if (dataSocket.remoteAddress.address != clientIp ||
+              completer.isCompleted) {
+            debugPrint(
+              '[KEYENCE][FTP] Rejected data connection from ${dataSocket.remoteAddress.address}',
+            );
+            dataSocket.destroy();
+            return;
           }
+          _dataSocket = dataSocket;
+          completer.complete(dataSocket);
         },
-        onError: (e) {
-          if (_passiveSocketCompleter != null &&
-              !_passiveSocketCompleter!.isCompleted) {
-            _passiveSocketCompleter!.completeError(e);
-          }
+        onError: (Object e) {
+          debugPrint('[KEYENCE][FTP] Passive socket error: $e');
         },
       );
 
-      final localIp = controlSocket.address.address;
-      final ipParts = localIp == '0.0.0.0' ? [127, 0, 0, 1] : localIp.split('.').map(int.parse).toList();
-      final port = _passiveServer!.port;
-      final p1 = port >> 8;
-      final p2 = port & 0xFF;
-
-      controlSocket.write(
-        '227 Entering Passive Mode (${ipParts.join(',')},$p1,$p2)\r\n',
+      final port = server.port;
+      _reply(
+        '227 Entering Passive Mode (${octets.join(',')},${port >> 8},${port & 0xFF})',
       );
     } catch (e) {
-      controlSocket.write('425 Cannot enter passive mode: $e\r\n');
+      debugPrint('[KEYENCE][FTP] Passive mode error: $e');
+      _reply('425 Cannot enter passive mode.');
     }
   }
 
-  Future<void> _receiveFile(String fileName) async {
-    if (_passiveSocketCompleter == null) {
-      controlSocket.write('425 Use PASV first.\r\n');
+  Future<void> _receiveFile(String rawName) async {
+    final ext = safeUploadExtension(rawName);
+    if (ext == null) {
+      _reply('553 File name not allowed.');
+      await _closePassive();
       return;
     }
 
-    controlSocket.write('150 Opening BINARY mode data connection for $fileName.\r\n');
+    final completer = _passiveSocketCompleter;
+    if (completer == null) {
+      _reply('425 Use PASV first.');
+      return;
+    }
+
+    final fileName = rawName.split(RegExp(r'[\\/]')).last;
+    _reply('150 Opening BINARY mode data connection for $fileName.');
 
     try {
-      final dataSocket = await _passiveSocketCompleter!.future.timeout(
+      final dataSocket = await completer.future.timeout(
         const Duration(seconds: 5),
       );
 
-      final chunks = <List<int>>[];
-      await for (final chunk in dataSocket) {
-        chunks.add(chunk);
+      final builder = BytesBuilder();
+      var total = 0;
+      var tooLarge = false;
+      await for (final chunk in dataSocket.timeout(
+        const Duration(seconds: 30),
+      )) {
+        total += chunk.length;
+        if (total > maxUploadBytes) {
+          tooLarge = true;
+          break;
+        }
+        builder.add(chunk);
       }
-      await dataSocket.close();
+
+      if (tooLarge) {
+        dataSocket.destroy();
+        await _closePassive();
+        _reply('552 Upload exceeds the $maxUploadBytes byte limit.');
+        return;
+      }
+
+      try {
+        await dataSocket.close();
+      } catch (_) {}
       await _closePassive();
 
-      final totalLen = chunks.fold<int>(0, (prev, c) => prev + c.length);
-      final bytes = Uint8List(totalLen);
-      var offset = 0;
-      for (final chunk in chunks) {
-        bytes.setRange(offset, offset + chunk.length, chunk);
-        offset += chunk.length;
+      if (total == 0) {
+        _reply('550 Empty upload rejected.');
+        return;
       }
 
-      // Persist permanently via ImageStorageService
-      final ext = fileName.contains('.') ? fileName.split('.').last : 'jpg';
+      final bytes = builder.takeBytes();
       final savedPath = await imageStorage.saveImageBytes(
         bytes,
         prefix: 'keyence_cmos',
         ext: ext,
       );
 
-      controlSocket.write('226 Transfer complete ($totalLen bytes received).\r\n');
+      _reply('226 Transfer complete ($total bytes received).');
 
-      final event = KeyenceFtpImageReceived(
-        file: File(savedPath),
-        fileName: fileName,
-        clientIp: clientIp,
-        timestamp: DateTime.now(),
-        byteSize: totalLen,
+      onImageReceived(
+        KeyenceFtpImageReceived(
+          file: File(savedPath),
+          fileName: fileName,
+          clientIp: clientIp,
+          timestamp: DateTime.now(),
+          byteSize: total,
+        ),
       );
-
-      onImageReceived(event);
-      debugPrint('[KEYENCE][FTP] Stored CMOS frame: $savedPath ($totalLen bytes)');
+      debugPrint('[KEYENCE][FTP] Stored CMOS frame: $savedPath ($total bytes)');
     } catch (e) {
       debugPrint('[KEYENCE][FTP] Transfer error: $e');
-      controlSocket.write('426 Connection closed; transfer aborted: $e\r\n');
+      _reply('426 Connection closed; transfer aborted.');
       await _closePassive();
     }
   }
 
   Future<void> _closePassive() async {
-    try {
-      await _passiveServer?.close();
-    } catch (_) {}
+    final server = _passiveServer;
+    final data = _dataSocket;
     _passiveServer = null;
+    _dataSocket = null;
     _passiveSocketCompleter = null;
+    try {
+      await server?.close();
+    } catch (_) {}
+    try {
+      data?.destroy();
+    } catch (_) {}
   }
 
   void close() {
+    if (_closed) return;
+    _closed = true;
+    _idleTimer?.cancel();
     _closePassive();
     try {
       controlSocket.close();
     } catch (_) {}
+    onClosed(this);
   }
 }
 
