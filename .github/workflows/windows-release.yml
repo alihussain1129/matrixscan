@@ -46,7 +46,6 @@ jobs:
           flutter --version
           flutter doctor -v
           cmake --version
-          cmake --build --help | Select-Object -First 2
 
       - name: Resolve Flutter packages
         run: flutter pub get
