@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../models/ocr_result.dart';
 import 'image_prep.dart';
 import 'ocr_engine.dart';
+import 'tesseract_locator.dart';
 
 /// Offline OCR engine for Linux and Windows desktop using Tesseract OCR.
 class DesktopOcrEngine implements OcrEngine {
@@ -28,62 +29,21 @@ class DesktopOcrEngine implements OcrEngine {
   String get script => 'Latin';
 
   String? _resolvedExecutable;
+  Map<String, String>? _resolvedEnvironment;
+  Future<String?>? _discoveryFuture;
 
-  /// Locates the tesseract executable on the system.
-  Future<String?> findExecutable() async {
-    if (_resolvedExecutable != null) return _resolvedExecutable;
-    if (customExecutablePath != null &&
-        await File(customExecutablePath!).exists()) {
-      return _resolvedExecutable = customExecutablePath;
-    }
-
-    final candidates = <String>[];
-    if (Platform.isLinux) {
-      candidates.addAll([
-        '/usr/bin/tesseract',
-        '/usr/local/bin/tesseract',
-        '/snap/bin/tesseract',
-      ]);
-    } else if (Platform.isWindows) {
-      // Tesseract bundled by the installer, next to exalted.exe.
-      final appDir = File(Platform.resolvedExecutable).parent.path;
-      candidates.addAll([
-        '$appDir\\tesseract\\tesseract.exe',
-        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
-        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
-      ]);
-    }
-
-    for (final path in candidates) {
-      if (await File(path).exists()) {
-        return _resolvedExecutable = path;
-      }
-    }
-
-    // Try finding in PATH
-    try {
-      final cmd = Platform.isWindows ? 'where' : 'which';
-      final res = await Process.run(cmd, ['tesseract']);
-      if (res.exitCode == 0 && res.stdout.toString().trim().isNotEmpty) {
-        final found = res.stdout.toString().trim().split('\n').first.trim();
-        if (found.isNotEmpty) {
-          return _resolvedExecutable = found;
-        }
-      }
-    } catch (_) {}
-
-    return null;
+  /// Locates Tesseract and verifies that it can report its installed languages.
+  Future<String?> findExecutable() {
+    return _discoveryFuture ??= _discoverExecutable();
   }
 
-  /// When a `tessdata` folder sits next to the executable (bundled Windows
-  /// install), point Tesseract at it. Returns null for system installs.
-  static Map<String, String>? _environmentFor(String exe) {
-    final dir = File(exe).parent.path;
-    final tessdata = Directory('$dir${Platform.pathSeparator}tessdata');
-    if (tessdata.existsSync()) {
-      return {'TESSDATA_PREFIX': tessdata.path};
-    }
-    return null;
+  Future<String?> _discoverExecutable() async {
+    final installation = await TesseractLocator.discover(
+      customExecutablePath: customExecutablePath,
+    );
+    _resolvedExecutable = installation?.executable;
+    _resolvedEnvironment = installation?.environment;
+    return _resolvedExecutable;
   }
 
   @override
@@ -121,15 +81,13 @@ class DesktopOcrEngine implements OcrEngine {
       }
 
       final sw = Stopwatch()..start();
-      final result = await Process.run(exe, [
-        prepared.path,
-        'stdout',
-        '--psm',
-        '3',
-        '-l',
-        language,
-        'tsv',
-      ], environment: _environmentFor(exe), stdoutEncoding: utf8, stderrEncoding: utf8);
+      final result = await Process.run(
+        exe,
+        [prepared.path, 'stdout', '--psm', '3', '-l', language, 'tsv'],
+        environment: _resolvedEnvironment,
+        stdoutEncoding: utf8,
+        stderrEncoding: utf8,
+      );
       final recognition = sw.elapsed;
 
       if (result.exitCode != 0) {
@@ -312,5 +270,7 @@ class DesktopOcrEngine implements OcrEngine {
   @override
   Future<void> dispose() async {
     _resolvedExecutable = null;
+    _resolvedEnvironment = null;
+    _discoveryFuture = null;
   }
 }

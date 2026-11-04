@@ -1,10 +1,11 @@
 import 'dart:async';
-import 'dart:io' show Platform, Process;
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/devices/keyence/keyence_sr751_client.dart';
+import '../../features/ocr/services/tesseract_locator.dart';
 import '../../features/scanner/camera_settings_dialog.dart';
 import '../../features/scanner/scanner_controller.dart';
 import '../../features/settings/settings_controller.dart';
@@ -27,40 +28,26 @@ final ocrAvailabilityProvider = FutureProvider<OcrAvailability>((ref) async {
   if (Platform.isAndroid || Platform.isIOS) {
     return const OcrAvailability(label: 'OCR: Google ML Kit', ok: false);
   }
-  try {
-    final result = await Process.run('tesseract', [
-      '--list-langs',
-    ]).timeout(const Duration(seconds: 8));
-    if (result.exitCode != 0) {
-      return const OcrAvailability(
-        label: 'OCR: Tesseract returned an error',
-        ok: false,
-      );
-    }
-    final langs = result.stdout
-        .toString()
-        .split('\n')
-        .map((l) => l.trim())
-        .where((l) => l.isNotEmpty && !l.startsWith('List of') && l != 'osd')
-        .toList();
-    if (langs.isEmpty) {
-      return const OcrAvailability(
-        label: 'OCR: Tesseract found, no language data',
-        ok: false,
-      );
-    }
+
+  final installation = await TesseractLocator.discover();
+  if (installation == null) {
+    return const OcrAvailability(label: 'OCR: Tesseract not found', ok: false);
+  }
+
+  final languages = installation.displayLanguages;
+  if (!installation.supportsLanguage('eng')) {
+    final available = languages.isEmpty ? 'none' : languages.join(', ');
     return OcrAvailability(
-      label: 'OCR: Tesseract (${langs.join(', ')}), runs locally',
-      ok: true,
-    );
-  } catch (_) {
-    return OcrAvailability(
-      label: Platform.isWindows
-          ? 'OCR: Tesseract not in PATH (bundled copy not checked)'
-          : 'OCR: Tesseract not found',
+      label: 'OCR: Tesseract found; English data missing ($available)',
       ok: false,
     );
   }
+
+  final languageLabel = languages.isEmpty ? 'eng' : languages.join(', ');
+  return OcrAvailability(
+    label: 'OCR: Tesseract ($languageLabel), runs locally',
+    ok: true,
+  );
 });
 
 /// Camera state in words, from the real scanner state.

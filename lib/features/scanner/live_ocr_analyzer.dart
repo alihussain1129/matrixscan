@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 import 'frame_pipeline.dart';
+import '../ocr/services/tesseract_locator.dart';
 
 /// Live OCR on the camera stream, on every platform.
 ///
@@ -28,7 +29,7 @@ class LiveOcrAnalyzer implements FrameAnalyzer {
 
   TextRecognizer? _recognizer;
   Directory? _tmp;
-  String? _tesseract;
+  TesseractInstallation? _tesseractInstallation;
   bool _tesseractChecked = false;
   bool _busy = false;
   bool _disposed = false;
@@ -50,9 +51,7 @@ class LiveOcrAnalyzer implements FrameAnalyzer {
       if (Platform.isAndroid) {
         unawaited(_recognizeAndroid(_toNv21(frame), frame));
       } else {
-        unawaited(
-          _recognizeDesktop(_toGray(frame), frame.width, frame.height),
-        );
+        unawaited(_recognizeDesktop(_toGray(frame), frame.width, frame.height));
       }
     } catch (e) {
       _busy = false;
@@ -65,9 +64,7 @@ class LiveOcrAnalyzer implements FrameAnalyzer {
     lastMs.value = ms;
     if (t != text.value) {
       text.value = t;
-      debugPrint(
-        '[EXALTED][LIVE_OCR] ${ms}ms "${t.replaceAll('\n', ' | ')}"',
-      );
+      debugPrint('[EXALTED][LIVE_OCR] ${ms}ms "${t.replaceAll('\n', ' | ')}"');
     }
   }
 
@@ -88,8 +85,9 @@ class LiveOcrAnalyzer implements FrameAnalyzer {
           bytesPerRow: frame.width,
         ),
       );
-      final recognizer =
-          _recognizer ??= TextRecognizer(script: TextRecognitionScript.latin);
+      final recognizer = _recognizer ??= TextRecognizer(
+        script: TextRecognitionScript.latin,
+      );
       final sw = Stopwatch()..start();
       final result = await recognizer.processImage(input);
       _publish(result.text.trim(), sw.elapsedMilliseconds);
@@ -100,35 +98,32 @@ class LiveOcrAnalyzer implements FrameAnalyzer {
     }
   }
 
-  // ---- Linux / Windows: Tesseract -----------------------------------------
-
-  Future<String?> _findTesseract() async {
-    if (_tesseractChecked) return _tesseract;
+  Future<TesseractInstallation?> _findTesseract() async {
+    if (_tesseractChecked) return _tesseractInstallation;
     _tesseractChecked = true;
-    try {
-      final r = await Process.run(Platform.isWindows ? 'where' : 'which', [
-        'tesseract',
-      ]);
-      if (r.exitCode == 0) {
-        final first = r.stdout.toString().split('\n').first.trim();
-        if (first.isNotEmpty) return _tesseract = first;
-      }
-    } catch (_) {}
-    if (Platform.isWindows) {
-      const p = r'C:\Program Files\Tesseract-OCR\tesseract.exe';
-      if (File(p).existsSync()) return _tesseract = p;
+    _tesseractInstallation = await TesseractLocator.discover();
+    if (_tesseractInstallation == null) {
+      debugPrint(
+        '[EXALTED][LIVE_OCR] Tesseract not found. '
+        'Install it or include it in the desktop application bundle.',
+      );
+    } else if (!_tesseractInstallation!.supportsLanguage('eng')) {
+      debugPrint(
+        '[EXALTED][LIVE_OCR] Tesseract was found, but English language data '
+        'is not installed.',
+      );
     }
-    debugPrint(
-      '[EXALTED][LIVE_OCR] tesseract not found. '
-      'Install it and put it on PATH for live OCR on this OS.',
-    );
-    return null;
+    return _tesseractInstallation;
   }
 
   Future<void> _recognizeDesktop(Uint8List gray, int w, int h) async {
     try {
-      final exe = await _findTesseract();
-      if (exe == null || _disposed) return;
+      final installation = await _findTesseract();
+      if (installation == null ||
+          !installation.supportsLanguage('eng') ||
+          _disposed) {
+        return;
+      }
       final dir = _tmp ??= await Directory.systemTemp.createTemp(
         'exalted_live_ocr_',
       );
@@ -139,15 +134,19 @@ class LiveOcrAnalyzer implements FrameAnalyzer {
         ..setRange(header.length, header.length + gray.length, gray);
       await file.writeAsBytes(out, flush: true);
       final sw = Stopwatch()..start();
-      final r = await Process.run(exe, [
+      final result = await Process.run(installation.executable, [
         file.path,
         'stdout',
         '--psm',
         '6',
         '-l',
         'eng',
-      ]);
-      _publish(r.stdout.toString().trim(), sw.elapsedMilliseconds);
+      ], environment: installation.environment);
+      if (result.exitCode != 0) {
+        debugPrint('[EXALTED][LIVE_OCR] Tesseract failed: ${result.stderr}');
+        return;
+      }
+      _publish(result.stdout.toString().trim(), sw.elapsedMilliseconds);
     } catch (e) {
       debugPrint('[EXALTED][LIVE_OCR] error: $e');
     } finally {
@@ -161,9 +160,7 @@ class LiveOcrAnalyzer implements FrameAnalyzer {
     final w = f.width;
     final h = f.height;
     if (f.yRowStride == w) {
-      return Uint8List.fromList(
-        Uint8List.sublistView(f.yPlane, 0, w * h),
-      );
+      return Uint8List.fromList(Uint8List.sublistView(f.yPlane, 0, w * h));
     }
     final out = Uint8List(w * h);
     for (var row = 0; row < h; row++) {
