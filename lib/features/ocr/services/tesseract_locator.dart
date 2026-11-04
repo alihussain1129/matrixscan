@@ -121,6 +121,7 @@ class TesseractLocator {
   }
 
   /// Uses a sibling tessdata directory for portable/bundled installations.
+  /// Tesseract 5 expects TESSDATA_PREFIX to be the tessdata folder itself.
   /// The separator and existence check are injectable for Windows path tests.
   static Map<String, String>? environmentForExecutable(
     String executable, {
@@ -136,7 +137,7 @@ class TesseractLocator {
         ? directoryExists(tessdata)
         : Directory(tessdata).existsSync();
     if (!exists) return null;
-    return {'TESSDATA_PREFIX': parent};
+    return {'TESSDATA_PREFIX': tessdata};
   }
 
   static Future<TesseractInstallation?> discover({

@@ -169,7 +169,7 @@ jobs:
 
           $bundleExe = Join-Path $bundleDir 'tesseract.exe'
           if (!(Test-Path $bundleExe -PathType Leaf)) { throw 'Bundled tesseract.exe is missing.' }
-          $env:TESSDATA_PREFIX = $bundleDir
+          $env:TESSDATA_PREFIX = $dataDir
           $languageOutput = (& $bundleExe --list-langs 2>&1 | Out-String)
           if ($LASTEXITCODE -ne 0 -or $languageOutput -notmatch '(?m)^\s*eng\s*$') {
             throw "Bundled Tesseract cannot load English language data:`n$languageOutput"
