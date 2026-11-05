@@ -5,13 +5,10 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/message_framer.dart';
+
 /// Connection state of the Keyence SR-751 device.
-enum KeyenceConnectionStatus {
-  disconnected,
-  connecting,
-  connected,
-  error,
-}
+enum KeyenceConnectionStatus { disconnected, connecting, connected, error }
 
 /// A barcode decoded and transmitted by the Keyence SR-751 reader.
 class KeyenceScanResult {
@@ -39,23 +36,37 @@ class KeyenceScanResult {
 /// TCP/IP client interface for communicating with the KEYENCE SR-751 series
 /// industrial code reader over Ethernet.
 ///
-/// Implements standard Keyence command protocols (LON, LOFF, T1, T2, PRG, FTPOUT, RESET, BEEP, KEYENCE).
-/// Includes automatic connection recovery, timeouts, and diagnostic polling.
+/// Incoming bytes are framed with [MessageFramer]. When [receiveTerminator] is
+/// null the client accepts CR, LF or CRLF as a line ending; pass the delimiter
+/// configured on the reader to switch to strict framing.
+///
+/// Connection recovery retries forever with exponential backoff
+/// ([reconnectBaseDelay] doubling up to [reconnectMaxDelay]) until
+/// [disconnect] or [dispose] is called.
 class KeyenceSr751Client {
   KeyenceSr751Client({
     this.defaultHost = '192.168.100.100',
     this.defaultPort = 9004,
-  })  : host = defaultHost,
-        port = defaultPort;
+    List<int>? receiveTerminator,
+    this.reconnectBaseDelay = const Duration(seconds: 1),
+    this.reconnectMaxDelay = const Duration(seconds: 16),
+  }) : host = defaultHost,
+       port = defaultPort,
+       _tolerantLineEndings = receiveTerminator == null,
+       _framer = MessageFramer(terminator: receiveTerminator ?? const [0x0D]);
 
   String host;
   int port;
   final String defaultHost;
   final int defaultPort;
+  final Duration reconnectBaseDelay;
+  final Duration reconnectMaxDelay;
+
+  final bool _tolerantLineEndings;
+  final MessageFramer _framer;
 
   Socket? _socket;
   StreamSubscription<List<int>>? _socketSub;
-  final StringBuffer _receiveBuffer = StringBuffer();
 
   final _statusController =
       StreamController<KeyenceConnectionStatus>.broadcast();
@@ -72,10 +83,17 @@ class KeyenceSr751Client {
 
   bool autoReconnect = true;
   int _reconnectAttempts = 0;
+
+  /// Consecutive failed or lost connections since the last good connection.
+  int get reconnectAttempts => _reconnectAttempts;
+
   Timer? _reconnectTimer;
   bool _explicitDisconnect = false;
+  bool _disposed = false;
+  int _connectGen = 0;
 
   void _setStatus(KeyenceConnectionStatus s, [String? error]) {
+    if (_disposed) return;
     _status = s;
     _lastError = error;
     _statusController.add(s);
@@ -87,55 +105,95 @@ class KeyenceSr751Client {
     int? targetPort,
     Duration timeout = const Duration(seconds: 4),
   }) async {
+    if (_disposed) return false;
     if (targetHost != null) host = targetHost;
     if (targetPort != null) port = targetPort;
 
     _explicitDisconnect = false;
     _cancelReconnectTimer();
+    final gen = ++_connectGen;
     await _closeSocketOnly();
+    if (gen != _connectGen) return false;
     _setStatus(KeyenceConnectionStatus.connecting);
 
+    final Socket socket;
     try {
-      _socket = await Socket.connect(host, port, timeout: timeout);
-      _reconnectAttempts = 0;
-      _setStatus(KeyenceConnectionStatus.connected);
-
-      _socketSub = _socket!.listen(
-        _onDataReceived,
-        onError: (e) {
-          debugPrint('[KEYENCE][TCP] Socket error: $e');
-          _setStatus(KeyenceConnectionStatus.error, e.toString());
-          _handleAbnormalDisconnect();
-        },
-        onDone: () {
-          debugPrint('[KEYENCE][TCP] Socket closed by remote');
-          _setStatus(KeyenceConnectionStatus.disconnected);
-          _handleAbnormalDisconnect();
-        },
-      );
-      return true;
+      socket = await Socket.connect(host, port, timeout: timeout);
     } catch (e) {
+      if (gen != _connectGen) return false;
       debugPrint('[KEYENCE][TCP] Connection failed: $e');
       _setStatus(KeyenceConnectionStatus.error, e.toString());
-      _handleAbnormalDisconnect();
+      _scheduleReconnect();
       return false;
     }
+
+    if (gen != _connectGen || _disposed || _explicitDisconnect) {
+      socket.destroy();
+      return false;
+    }
+
+    try {
+      socket.setOption(SocketOption.tcpNoDelay, true);
+    } catch (_) {}
+
+    _socket = socket;
+    _framer.reset();
+    _reconnectAttempts = 0;
+    _setStatus(KeyenceConnectionStatus.connected);
+
+    _socketSub = socket.listen(
+      _onDataReceived,
+      onError: (Object e) {
+        debugPrint('[KEYENCE][TCP] Socket error: $e');
+        _onSocketLost(socket, e.toString());
+      },
+      onDone: () {
+        debugPrint('[KEYENCE][TCP] Socket closed by remote');
+        _onSocketLost(socket, null);
+      },
+      cancelOnError: true,
+    );
+    return true;
   }
 
-  void _handleAbnormalDisconnect() {
-    _closeSocketOnly();
-    if (autoReconnect && !_explicitDisconnect && _reconnectAttempts < 10) {
-      _reconnectAttempts++;
-      final delaySeconds = (_reconnectAttempts <= 3) ? 2 : 5;
-      debugPrint(
-        '[KEYENCE][TCP] Reconnect attempt $_reconnectAttempts in $delaySeconds seconds...',
-      );
-      _reconnectTimer = Timer(Duration(seconds: delaySeconds), () {
-        if (!_explicitDisconnect && _status != KeyenceConnectionStatus.connected) {
-          connect();
-        }
-      });
-    }
+  /// Handles a lost connection once. Events from sockets that were already
+  /// replaced or closed are ignored, so one drop never starts two reconnects.
+  void _onSocketLost(Socket socket, String? error) {
+    if (!identical(socket, _socket)) return;
+    _setStatus(
+      error != null
+          ? KeyenceConnectionStatus.error
+          : KeyenceConnectionStatus.disconnected,
+      error,
+    );
+    unawaited(_closeSocketOnly());
+    _scheduleReconnect();
+  }
+
+  Duration _nextReconnectDelay() {
+    final shift = _reconnectAttempts > 21 ? 20 : _reconnectAttempts - 1;
+    final micros = reconnectBaseDelay.inMicroseconds * (1 << shift);
+    final cap = reconnectMaxDelay.inMicroseconds;
+    return Duration(microseconds: micros > cap ? cap : micros);
+  }
+
+  void _scheduleReconnect() {
+    if (_disposed || _explicitDisconnect || !autoReconnect) return;
+    if (_reconnectTimer != null) return;
+    _reconnectAttempts++;
+    final delay = _nextReconnectDelay();
+    debugPrint(
+      '[KEYENCE][TCP] Reconnect attempt $_reconnectAttempts in ${delay.inMilliseconds} ms...',
+    );
+    _reconnectTimer = Timer(delay, () {
+      _reconnectTimer = null;
+      if (_disposed ||
+          _explicitDisconnect ||
+          _status == KeyenceConnectionStatus.connected) {
+        return;
+      }
+      unawaited(connect());
+    });
   }
 
   void _cancelReconnectTimer() {
@@ -144,19 +202,25 @@ class KeyenceSr751Client {
   }
 
   Future<void> _closeSocketOnly() async {
-    await _socketSub?.cancel();
-    _socketSub = null;
-    try {
-      await _socket?.close();
-      _socket?.destroy();
-    } catch (_) {}
+    final socket = _socket;
+    final sub = _socketSub;
     _socket = null;
-    _receiveBuffer.clear();
+    _socketSub = null;
+    _framer.reset();
+    try {
+      await sub?.cancel();
+    } catch (_) {}
+    if (socket == null) return;
+    try {
+      await socket.close().timeout(const Duration(seconds: 1));
+    } catch (_) {}
+    socket.destroy();
   }
 
-  /// Disconnects from the reader.
+  /// Disconnects from the reader and stops automatic reconnection.
   Future<void> disconnect() async {
     _explicitDisconnect = true;
+    _connectGen++;
     _cancelReconnectTimer();
     await _closeSocketOnly();
     if (_status != KeyenceConnectionStatus.disconnected) {
@@ -167,20 +231,20 @@ class KeyenceSr751Client {
   /// Sends a raw command string to the Keyence reader, appending '\r' as required
   /// by the Keyence protocol.
   Future<bool> sendCommand(String command) async {
-    if (_socket == null || _status != KeyenceConnectionStatus.connected) {
+    final socket = _socket;
+    if (socket == null || _status != KeyenceConnectionStatus.connected) {
       return false;
     }
 
     try {
       final formatted = command.endsWith('\r') ? command : '$command\r';
-      _socket!.write(formatted);
-      await _socket!.flush();
+      socket.write(formatted);
+      await socket.flush();
       debugPrint('[KEYENCE][TX] $command');
       return true;
     } catch (e) {
       debugPrint('[KEYENCE][TX] Send error: $e');
-      _setStatus(KeyenceConnectionStatus.error, e.toString());
-      _handleAbnormalDisconnect();
+      _onSocketLost(socket, e.toString());
       return false;
     }
   }
@@ -216,32 +280,29 @@ class KeyenceSr751Client {
   Future<bool> queryModel() => sendCommand('KEYENCE');
 
   void _onDataReceived(List<int> bytes) {
-    final chunk = utf8.decode(bytes, allowMalformed: true);
-    _receiveBuffer.write(chunk);
+    final input = _tolerantLineEndings
+        ? <int>[for (final b in bytes) b == 0x0A ? 0x0D : b]
+        : bytes;
 
-    final raw = _receiveBuffer.toString();
-    if (raw.contains('\r') || raw.contains('\n')) {
-      final lines = raw.split(RegExp(r'[\r\n]+'));
-      if (!raw.endsWith('\r') && !raw.endsWith('\n')) {
-        _receiveBuffer.clear();
-        _receiveBuffer.write(lines.last);
-        lines.removeLast();
-      } else {
-        _receiveBuffer.clear();
-      }
+    final overflowBefore = _framer.overflowCount;
+    final messages = _framer.add(input);
+    if (_framer.overflowCount != overflowBefore) {
+      debugPrint('[KEYENCE][RX] Discarded an over-long message');
+    }
 
-      for (final line in lines) {
-        final trimmed = line.trim();
-        if (trimmed.isNotEmpty) {
-          _handleResponse(trimmed);
-        }
-      }
+    for (final message in messages) {
+      final text = utf8.decode(message, allowMalformed: true).trim();
+      if (text.isNotEmpty) _handleResponse(text);
     }
   }
 
   void _handleResponse(String response) {
     debugPrint('[KEYENCE][RX] $response');
+    if (_scanController.isClosed) return;
 
+    // NOTE: every non-error line is still treated as a scan. Command replies
+    // (OK, model string, ...) need the official reply formats before they can
+    // be separated from barcode data.
     final isErr = response.startsWith('ERROR') || response == 'NG';
     final result = KeyenceScanResult(
       data: isErr ? '' : response,
@@ -254,12 +315,19 @@ class KeyenceSr751Client {
     _scanController.add(result);
   }
 
+  /// Stops reconnecting, closes the socket, then closes the streams.
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     _explicitDisconnect = true;
+    _connectGen++;
     _cancelReconnectTimer();
-    disconnect();
-    _statusController.close();
-    _scanController.close();
+    unawaited(
+      _closeSocketOnly().whenComplete(() {
+        _statusController.close();
+        _scanController.close();
+      }),
+    );
   }
 }
 
