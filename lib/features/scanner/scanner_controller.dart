@@ -1,11 +1,15 @@
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:camera/camera.dart';
 import 'package:camera_desktop/camera_desktop.dart';
+
 import 'dart:typed_data';
+
 import 'desktop_frame.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -31,7 +35,11 @@ enum CameraStatus {
 }
 
 const String _qualityDefine = String.fromEnvironment('EXALTED_QUALITY');
-const CameraQuality _defaultQuality = _qualityDefine == 'high' ? CameraQuality.high : (_qualityDefine == 'ultra' ? CameraQuality.ultra : CameraQuality.balanced);
+const CameraQuality _defaultQuality = _qualityDefine == 'high'
+    ? CameraQuality.high
+    : (_qualityDefine == 'ultra'
+          ? CameraQuality.ultra
+          : CameraQuality.balanced);
 
 enum CameraQuality {
   balanced('Balanced', ResolutionPreset.medium),
@@ -181,12 +189,13 @@ class ScannerController extends Notifier<ScannerUiState> {
       pipeline.stop();
     });
 
-    unawaited(_loadQuality()); return const ScannerUiState();
+    unawaited(_loadQuality());
+    return const ScannerUiState();
   }
 
   // ---- simple toggles ----------------------------------------------------
 
-    static const String _qualityKey = 'exalted_camera_quality';
+  static const String _qualityKey = 'exalted_camera_quality';
 
   Future<void> _loadQuality() async {
     if (_qualityDefine.isNotEmpty) return;
@@ -214,7 +223,11 @@ class ScannerController extends Notifier<ScannerUiState> {
     // restart by itself, without Scan Again.
     if (next && state.paused && state.result != null) {
       _events.reset();
-      state = state.copyWith(continuous: true, clearResult: true, paused: false);
+      state = state.copyWith(
+        continuous: true,
+        clearResult: true,
+        paused: false,
+      );
       unawaited(_syncStream());
       return;
     }
@@ -228,7 +241,8 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   /// Applied the next time the camera starts.
   void setQuality(CameraQuality quality) {
-    state = state.copyWith(quality: quality); unawaited(_saveQuality(quality));
+    state = state.copyWith(quality: quality);
+    unawaited(_saveQuality(quality));
   }
 
   void clearNotice() {
@@ -792,4 +806,3 @@ class ScannerController extends Notifier<ScannerUiState> {
 
 final scannerControllerProvider =
     NotifierProvider<ScannerController, ScannerUiState>(ScannerController.new);
-
