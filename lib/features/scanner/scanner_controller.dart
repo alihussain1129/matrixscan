@@ -712,7 +712,7 @@ class ScannerController extends Notifier<ScannerUiState> {
     debugPrint(
       '[EXALTED][EVENT] t=${now}ms continuous=${state.continuous} '
       'gap=${ref.read(rearmGapProvider)}ms sameFramesBefore=$_suppressedHits '
-      'text=${barcode.text}',
+      'textLength=${barcode.text.length}',
     );
     _suppressedHits = 0;
 
