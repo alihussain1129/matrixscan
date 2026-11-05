@@ -7,7 +7,7 @@ environment:
   sdk: '^3.13.0'
 
 dependencies:
-  camera: ^0.12.1
+  camera: ^0.12.2
   cupertino_icons: ^2.0.0
   ffi: ^2.2.0
   flutter:
