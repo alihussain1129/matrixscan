@@ -15,6 +15,7 @@ import '../../ocv/services/ocv_engine.dart';
 import '../core/pairing_window.dart';
 import 'keyence_ftp_receiver.dart';
 import 'keyence_sr751_client.dart';
+import 'sr751_message_classifier.dart';
 
 enum InspectionStatus { idle, acquiring, processing, pass, fail, noRead }
 
@@ -99,7 +100,9 @@ class Sr751InspectionPipeline extends ChangeNotifier {
     this.pairWindow = const Duration(seconds: 5),
     this.acquireTimeout = const Duration(seconds: 10),
     this.maxInspections = 500,
-  }) : _pairing = PairingWindow(window: pairWindow) {
+    Sr751MessageClassifier? classifier,
+  }) : _pairing = PairingWindow(window: pairWindow),
+       _classifier = classifier ?? Sr751MessageClassifier() {
     _initListeners();
   }
 
@@ -121,6 +124,10 @@ class Sr751InspectionPipeline extends ChangeNotifier {
   final int maxInspections;
 
   final PairingWindow _pairing;
+
+  /// Decides which incoming lines are barcodes. Lines that are neither a
+  /// barcode nor a reader error are ignored, never stored as scans.
+  final Sr751MessageClassifier _classifier;
 
   StreamSubscription<KeyenceScanResult>? _scanSub;
   StreamSubscription<KeyenceFtpImageReceived>? _ftpSub;
@@ -222,6 +229,15 @@ class Sr751InspectionPipeline extends ChangeNotifier {
     final stopwatch = Stopwatch()..start();
     final now = DateTime.now();
     final id = 'insp_${now.microsecondsSinceEpoch}';
+    if (!result.isError) {
+      final raw = result.rawResponse.isNotEmpty
+          ? result.rawResponse
+          : result.data;
+      if (_classifier.classify(raw).kind != Sr751MessageKind.barcode) {
+        debugPrint('[INSPECTION] Ignored non-barcode line');
+        return;
+      }
+    }
     _cancelAcquireTimer();
 
     if (result.isError) {
