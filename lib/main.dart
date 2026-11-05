@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'app.dart';
+import 'features/devices/camera/controller_camera_port.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,5 +25,10 @@ Future<void> main() async {
       DeviceOrientation.portraitUp,
     ]);
   }
-  runApp(const ProviderScope(child: ExaltedApp()));
+  runApp(
+    ProviderScope(
+      overrides: [scannerCameraPortOverride],
+      child: const ExaltedApp(),
+    ),
+  );
 }
