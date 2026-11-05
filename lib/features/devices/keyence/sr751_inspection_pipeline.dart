@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,23 +8,15 @@ import '../../history/history_entry.dart';
 import '../../history/history_repository.dart';
 import '../../ocr/controllers/ocr_controller.dart';
 import '../../ocr/models/ocr_record.dart';
-import '../../ocr/models/ocr_result.dart';
 import '../../ocr/services/ocr_engine.dart';
 import '../../ocr/services/ocr_history_repository.dart';
-import '../../ocv/models/ocv_evaluation_result.dart';
 import '../../ocv/models/ocv_rule.dart';
 import '../../ocv/services/ocv_engine.dart';
+import '../core/pairing_window.dart';
 import 'keyence_ftp_receiver.dart';
 import 'keyence_sr751_client.dart';
 
-enum InspectionStatus {
-  idle,
-  acquiring,
-  processing,
-  pass,
-  fail,
-  noRead,
-}
+enum InspectionStatus { idle, acquiring, processing, pass, fail, noRead }
 
 /// A comprehensive industrial machine-vision inspection record combining optical
 /// barcode reading, CMOS image acquisition, and offline OCR/OCV verification.
@@ -83,8 +74,19 @@ class IndustrialInspectionRecord {
   }
 }
 
+class _OcrOutcome {
+  const _OcrOutcome({this.text, this.ocvPassed});
+
+  final String? text;
+  final bool? ocvPassed;
+}
+
 /// Coordinates Keyence SR-751 communication, FTP image transfer, offline OCR,
 /// and verification into an automated industrial inspection pipeline.
+///
+/// The barcode (TCP) and the image (FTP) arrive on separate channels in either
+/// order. The first to arrive creates a record that waits up to [pairWindow]
+/// for the other; a later arrival outside that window starts a new record.
 class Sr751InspectionPipeline extends ChangeNotifier {
   Sr751InspectionPipeline({
     required this.client,
@@ -94,7 +96,10 @@ class Sr751InspectionPipeline extends ChangeNotifier {
     required this.historyRepo,
     required this.imageStorage,
     this.ocvEngine = const OcvEngine(),
-  }) {
+    this.pairWindow = const Duration(seconds: 5),
+    this.acquireTimeout = const Duration(seconds: 10),
+    this.maxInspections = 500,
+  }) : _pairing = PairingWindow(window: pairWindow) {
     _initListeners();
   }
 
@@ -106,11 +111,26 @@ class Sr751InspectionPipeline extends ChangeNotifier {
   final ImageStorageService imageStorage;
   final OcvEngine ocvEngine;
 
-  StreamSubscription? _scanSub;
-  StreamSubscription? _ftpSub;
+  /// How long a record waits for its barcode or image.
+  final Duration pairWindow;
+
+  /// How long to wait for any reply after [triggerInspection].
+  final Duration acquireTimeout;
+
+  /// Most records kept in memory; the oldest are dropped.
+  final int maxInspections;
+
+  final PairingWindow _pairing;
+
+  StreamSubscription<KeyenceScanResult>? _scanSub;
+  StreamSubscription<KeyenceFtpImageReceived>? _ftpSub;
+  Timer? _acquireTimer;
+  Future<void> _queue = Future<void>.value();
+  bool _disposed = false;
 
   final List<IndustrialInspectionRecord> _inspections = [];
-  List<IndustrialInspectionRecord> get inspections => List.unmodifiable(_inspections);
+  List<IndustrialInspectionRecord> get inspections =>
+      List.unmodifiable(_inspections);
 
   InspectionStatus _currentStatus = InspectionStatus.idle;
   InspectionStatus get currentStatus => _currentStatus;
@@ -119,201 +139,268 @@ class Sr751InspectionPipeline extends ChangeNotifier {
   String? get expectedOcvPattern => _expectedOcvPattern;
   set expectedOcvPattern(String? pattern) {
     _expectedOcvPattern = pattern;
-    notifyListeners();
+    _notify();
   }
 
   bool _autoOcr = true;
   bool get autoOcr => _autoOcr;
   set autoOcr(bool val) {
     _autoOcr = val;
-    notifyListeners();
+    _notify();
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
   }
 
   void _initListeners() {
-    _scanSub = client.scanStream.listen(_onKeyenceBarcode);
-    _ftpSub = ftpReceiver.onImageReceived.listen(_onFtpImageReceived);
+    _scanSub = client.scanStream.listen(
+      (result) => _enqueue(() => _onKeyenceBarcode(result)),
+    );
+    _ftpSub = ftpReceiver.onImageReceived.listen(
+      (event) => _enqueue(() => _onFtpImageReceived(event)),
+    );
   }
 
-  /// Triggers a hardware inspection by issuing 'LON' and requesting FTP image.
+  /// Runs events strictly one after another, so a slow OCR pass can never
+  /// interleave with the next barcode or image.
+  void _enqueue(Future<void> Function() task) {
+    _queue = _queue.then((_) => task()).catchError((Object e) {
+      debugPrint('[INSPECTION] Event error: $e');
+    });
+  }
+
+  void _startAcquireTimer() {
+    _acquireTimer?.cancel();
+    _acquireTimer = Timer(acquireTimeout, () {
+      if (_disposed || _currentStatus != InspectionStatus.acquiring) return;
+      final now = DateTime.now();
+      _addRecord(
+        IndustrialInspectionRecord(
+          id: 'insp_${now.microsecondsSinceEpoch}',
+          timestamp: now,
+          status: InspectionStatus.noRead,
+          message: 'No response from reader',
+        ),
+      );
+      _currentStatus = InspectionStatus.noRead;
+      _notify();
+    });
+  }
+
+  void _cancelAcquireTimer() {
+    _acquireTimer?.cancel();
+    _acquireTimer = null;
+  }
+
+  void _addRecord(IndustrialInspectionRecord record) {
+    _inspections.insert(0, record);
+    if (_inspections.length > maxInspections) {
+      _inspections.removeRange(maxInspections, _inspections.length);
+    }
+  }
+
+  int _indexOf(String? id) =>
+      id == null ? -1 : _inspections.indexWhere((r) => r.id == id);
+
+  /// Triggers a hardware inspection by issuing 'LON'.
   Future<void> triggerInspection() async {
     _currentStatus = InspectionStatus.acquiring;
-    notifyListeners();
+    _notify();
+    _startAcquireTimer();
 
     final sent = await client.triggerRead();
     if (!sent) {
+      _cancelAcquireTimer();
       _currentStatus = InspectionStatus.fail;
-      notifyListeners();
+      _notify();
     }
   }
 
   Future<void> _onKeyenceBarcode(KeyenceScanResult result) async {
+    if (_disposed) return;
     final stopwatch = Stopwatch()..start();
     final now = DateTime.now();
     final id = 'insp_${now.microsecondsSinceEpoch}';
+    _cancelAcquireTimer();
 
     if (result.isError) {
-      final rec = IndustrialInspectionRecord(
-        id: id,
-        timestamp: now,
-        status: InspectionStatus.noRead,
-        message: result.errorMessage ?? 'No Read',
+      _addRecord(
+        IndustrialInspectionRecord(
+          id: id,
+          timestamp: now,
+          status: InspectionStatus.noRead,
+          message: result.errorMessage ?? 'No Read',
+        ),
       );
-      _inspections.insert(0, rec);
       _currentStatus = InspectionStatus.noRead;
-      notifyListeners();
+      _notify();
       return;
     }
 
-    _currentStatus = InspectionStatus.processing;
-    notifyListeners();
+    // Decide at arrival time whether an earlier image is waiting for this.
+    final waitingId = _pairing.claim(PairSide.barcode);
 
-    // Save barcode to history
+    _currentStatus = InspectionStatus.processing;
+    _notify();
+
     await historyRepo.add(
       kind: HistoryKind.barcode,
       source: HistorySource.live,
       text: result.data,
       format: 'Keyence SR-751',
     );
+    if (_disposed) return;
 
-    var inspection = IndustrialInspectionRecord(
-      id: id,
-      timestamp: now,
-      status: InspectionStatus.pass,
-      barcode: result.data,
-      barcodeFormat: 'Industrial Code',
-      processingTimeMs: stopwatch.elapsedMilliseconds,
-    );
-
-    _inspections.insert(0, inspection);
-    _currentStatus = InspectionStatus.pass;
-    notifyListeners();
+    final index = _indexOf(waitingId);
+    if (index >= 0) {
+      final merged = _inspections[index].copyWith(
+        barcode: result.data,
+        barcodeFormat: 'Industrial Code',
+      );
+      final status = merged.ocvPassed == false
+          ? InspectionStatus.fail
+          : InspectionStatus.pass;
+      _inspections[index] = merged.copyWith(status: status);
+      _currentStatus = status;
+    } else {
+      final record = IndustrialInspectionRecord(
+        id: id,
+        timestamp: now,
+        status: InspectionStatus.pass,
+        barcode: result.data,
+        barcodeFormat: 'Industrial Code',
+        processingTimeMs: stopwatch.elapsedMilliseconds,
+      );
+      _addRecord(record);
+      _pairing.open(id, missing: PairSide.image);
+      _currentStatus = InspectionStatus.pass;
+    }
+    _notify();
   }
 
   Future<void> _onFtpImageReceived(KeyenceFtpImageReceived event) async {
+    if (_disposed) return;
     final stopwatch = Stopwatch()..start();
-    debugPrint('[INSPECTION] CMOS Frame received from SR-751: ${event.file.path}');
+    debugPrint(
+      '[INSPECTION] CMOS Frame received from SR-751: ${event.file.path}',
+    );
+    _cancelAcquireTimer();
 
-    if (_inspections.isNotEmpty && _inspections.first.imagePath == null) {
-      // Correlate with recent trigger
-      var latest = _inspections.first;
-      _inspections.removeAt(0);
+    // Decide at arrival time whether an earlier barcode is waiting for this.
+    final waitingId = _pairing.claim(PairSide.image);
 
-      String? ocrText;
-      bool? ocvPassed;
+    if (_autoOcr) {
+      _currentStatus = InspectionStatus.processing;
+      _notify();
+    }
 
-      if (_autoOcr) {
-        _currentStatus = InspectionStatus.processing;
-        notifyListeners();
+    final ocr = await _runOcr(event.file.path);
+    if (_disposed) return;
 
-        try {
-          final ocrResult = await ocrEngine.recognizeFile(event.file.path);
-          if (ocrResult.error == null) {
-            ocrText = ocrResult.fullText;
+    final pattern = _expectedOcvPattern;
+    final status = ocr.ocvPassed == false
+        ? InspectionStatus.fail
+        : InspectionStatus.pass;
 
-            // Perform OCV Verification if pattern provided
-            if (_expectedOcvPattern != null &&
-                _expectedOcvPattern!.isNotEmpty &&
-                ocrText.isNotEmpty) {
-              final eval = ocvEngine.evaluate(
-                ocrText,
-                OcvRule(
-                  id: 'sr751_ocv',
-                  name: 'Keyence CMOS OCV',
-                  type: OcvRuleType.regex,
-                  pattern: _expectedOcvPattern!,
-                ),
-                confidence: ocrResult.confidence ?? 1.0,
-              );
-              ocvPassed = eval.isPass;
-            }
-
-            // Save to dedicated OCR History
-            await ocrHistory.addRecord(
-              OcrRecord(
-                id: 'ocr_${DateTime.now().microsecondsSinceEpoch}',
-                imagePath: event.file.path,
-                text: ocrText,
-                rawText: ocrText,
-                createdAt: DateTime.now(),
-                confidence: ocrResult.confidence ?? 0.0,
-                engine: 'Keyence Vision Pipeline',
-                ocvPattern: _expectedOcvPattern,
-                ocvPassed: ocvPassed,
-              ),
-            );
-          }
-        } catch (e) {
-          debugPrint('[INSPECTION] OCR error on CMOS frame: $e');
-        }
-      }
-
-      final status = (ocvPassed == false) ? InspectionStatus.fail : InspectionStatus.pass;
-      latest = latest.copyWith(
+    final index = _indexOf(waitingId);
+    if (index >= 0) {
+      _inspections[index] = _inspections[index].copyWith(
         imagePath: event.file.path,
-        ocrText: ocrText,
-        ocvPattern: _expectedOcvPattern,
-        ocvPassed: ocvPassed,
+        ocrText: ocr.text,
+        ocvPattern: pattern,
+        ocvPassed: ocr.ocvPassed,
         status: status,
         processingTimeMs: stopwatch.elapsedMilliseconds,
       );
-
-      _inspections.insert(0, latest);
-      _currentStatus = status;
-      notifyListeners();
     } else {
-      // Standalone image acquisition
       final now = DateTime.now();
-      String? ocrText;
+      final id = 'insp_${now.microsecondsSinceEpoch}';
+      _addRecord(
+        IndustrialInspectionRecord(
+          id: id,
+          timestamp: now,
+          status: status,
+          imagePath: event.file.path,
+          ocrText: ocr.text,
+          ocvPattern: pattern,
+          ocvPassed: ocr.ocvPassed,
+          processingTimeMs: stopwatch.elapsedMilliseconds,
+        ),
+      );
+      _pairing.open(id, missing: PairSide.barcode);
+    }
+    _currentStatus = status;
+    _notify();
+  }
+
+  /// OCR plus OCV check, shared by every image path so the same text always
+  /// gets the same verdict.
+  Future<_OcrOutcome> _runOcr(String imagePath) async {
+    if (!_autoOcr) return const _OcrOutcome();
+    try {
+      final ocrResult = await ocrEngine.recognizeFile(imagePath);
+      if (ocrResult.error != null) return const _OcrOutcome();
+
+      final ocrText = ocrResult.fullText;
+      final pattern = _expectedOcvPattern;
       bool? ocvPassed;
 
-      if (_autoOcr) {
-        try {
-          final ocrResult = await ocrEngine.recognizeFile(event.file.path);
-          if (ocrResult.error == null) {
-            ocrText = ocrResult.fullText;
-            if (_expectedOcvPattern != null &&
-                _expectedOcvPattern!.isNotEmpty &&
-                ocrText.isNotEmpty) {
-              final reg = RegExp(_expectedOcvPattern!, caseSensitive: false);
-              ocvPassed = reg.hasMatch(ocrText);
-            }
-          }
-        } catch (_) {}
+      if (pattern != null && pattern.isNotEmpty && ocrText.isNotEmpty) {
+        final eval = ocvEngine.evaluate(
+          ocrText,
+          OcvRule(
+            id: 'sr751_ocv',
+            name: 'Keyence CMOS OCV',
+            type: OcvRuleType.regex,
+            pattern: pattern,
+          ),
+          confidence: ocrResult.confidence ?? 1.0,
+        );
+        ocvPassed = eval.isPass;
       }
 
-      final rec = IndustrialInspectionRecord(
-        id: 'insp_${now.microsecondsSinceEpoch}',
-        timestamp: now,
-        status: (ocvPassed == false) ? InspectionStatus.fail : InspectionStatus.pass,
-        imagePath: event.file.path,
-        ocrText: ocrText,
-        ocvPattern: _expectedOcvPattern,
-        ocvPassed: ocvPassed,
-        processingTimeMs: stopwatch.elapsedMilliseconds,
+      await ocrHistory.addRecord(
+        OcrRecord(
+          id: 'ocr_${DateTime.now().microsecondsSinceEpoch}',
+          imagePath: imagePath,
+          text: ocrText,
+          rawText: ocrText,
+          createdAt: DateTime.now(),
+          confidence: ocrResult.confidence ?? 0.0,
+          engine: 'Keyence Vision Pipeline',
+          ocvPattern: pattern,
+          ocvPassed: ocvPassed,
+        ),
       );
-
-      _inspections.insert(0, rec);
-      _currentStatus = rec.status;
-      notifyListeners();
+      return _OcrOutcome(text: ocrText, ocvPassed: ocvPassed);
+    } catch (e) {
+      debugPrint('[INSPECTION] OCR error on CMOS frame: $e');
+      return const _OcrOutcome();
     }
   }
 
   void clearInspections() {
     _inspections.clear();
+    _pairing.clear();
+    _cancelAcquireTimer();
     _currentStatus = InspectionStatus.idle;
-    notifyListeners();
+    _notify();
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _cancelAcquireTimer();
     _scanSub?.cancel();
     _ftpSub?.cancel();
     super.dispose();
   }
 }
 
-final sr751InspectionPipelineProvider =
-    Provider<Sr751InspectionPipeline>((ref) {
+final sr751InspectionPipelineProvider = Provider<Sr751InspectionPipeline>((
+  ref,
+) {
   final client = ref.watch(keyenceSr751ClientProvider);
   final ftp = ref.watch(keyenceFtpReceiverProvider);
   final ocrEngine = ref.watch(ocrEngineProvider);
