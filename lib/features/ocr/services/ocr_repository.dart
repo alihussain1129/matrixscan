@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../../core/config/data_directory_provider.dart';
+import '../../../core/storage/json_decode.dart';
 
 /// A text the user saved after OCR.
 class SavedOcrText {
@@ -52,7 +53,7 @@ class OcrRepository {
     final file = await _file();
     if (!await file.exists()) return <SavedOcrText>[];
     try {
-      final raw = jsonDecode(await file.readAsString());
+      final raw = await decodeJsonOffThread(await file.readAsString());
       if (raw is! List) return <SavedOcrText>[];
       return [for (final item in raw) ?SavedOcrText.fromJson(item)];
     } catch (_) {

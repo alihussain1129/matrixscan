@@ -15,6 +15,7 @@ import 'history_detail_screen.dart';
 import 'history_entry.dart';
 import 'history_export.dart';
 import 'history_item_tile.dart';
+import '../../core/storage/file_exists_cache.dart';
 
 /// History screen providing separate, dedicated tabs for Decoder History and OCR Records.
 class HistoryScreen extends ConsumerStatefulWidget {
@@ -147,7 +148,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
       itemBuilder: (context, index) {
         final item = shown[index];
         final hasImage =
-            item.imagePath.isNotEmpty && File(item.imagePath).existsSync();
+            item.imagePath.isNotEmpty && cachedFileExists(item.imagePath);
 
         return ListTile(
           contentPadding: const EdgeInsets.symmetric(

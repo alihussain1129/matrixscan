@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../../core/storage/image_storage_service.dart';
 import '../models/ocr_record.dart';
 import '../../../core/config/data_directory_provider.dart';
+import '../../../core/storage/json_decode.dart';
 
 /// Dedicated, offline repository for managing OCR records and document inspections.
 ///
@@ -42,7 +43,7 @@ class OcrHistoryRepository {
     final file = await _file();
     if (!await file.exists()) return <OcrRecord>[];
     try {
-      final raw = jsonDecode(await file.readAsString());
+      final raw = await decodeJsonOffThread(await file.readAsString());
       if (raw is! List) return <OcrRecord>[];
       final records = <OcrRecord>[];
       for (final item in raw) {

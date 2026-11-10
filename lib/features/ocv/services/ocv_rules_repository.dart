@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/ocv_rule.dart';
 import '../../../core/config/data_directory_provider.dart';
+import '../../../core/storage/json_decode.dart';
 
 /// Manages persistent storage and retrieval of industrial OCV verification rules.
 class OcvRulesRepository {
@@ -30,7 +31,7 @@ class OcvRulesRepository {
     }
 
     try {
-      final raw = jsonDecode(await file.readAsString());
+      final raw = await decodeJsonOffThread(await file.readAsString());
       if (raw is! List) return OcvRule.presets();
 
       final list = <OcvRule>[];

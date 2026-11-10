@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_spacing.dart';
 import 'history_entry.dart';
+import '../../core/storage/file_exists_cache.dart';
 
 /// "Today, 14:05", "Yesterday, 09:30" or "8 Oct 2026, 14:05".
 String formatHistoryTime(DateTime time, DateTime now) {
@@ -74,7 +75,7 @@ class HistoryItemTile extends StatelessWidget {
     final hasImage =
         entry.imagePath != null &&
         entry.imagePath!.isNotEmpty &&
-        File(entry.imagePath!).existsSync();
+        cachedFileExists(entry.imagePath!);
 
     return ListTile(
       onTap: onTap,
@@ -87,6 +88,7 @@ class HistoryItemTile extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
               child: Image.file(
                 File(entry.imagePath!),
+                cacheWidth: 132,
                 width: 44,
                 height: 44,
                 fit: BoxFit.cover,

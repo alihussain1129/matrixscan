@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'history_entry.dart';
 import '../../core/config/data_directory_provider.dart';
+import '../../core/storage/json_decode.dart';
 
 /// Stores scan history as JSON in the app's private storage. It never leaves
 /// the device. Newest entries come first.
@@ -46,7 +47,7 @@ class HistoryRepository {
     final file = await _file();
     if (!await file.exists()) return <HistoryEntry>[];
     try {
-      final raw = jsonDecode(await file.readAsString());
+      final raw = await decodeJsonOffThread(await file.readAsString());
       if (raw is! List) return <HistoryEntry>[];
       return [for (final item in raw) ?HistoryEntry.fromJson(item)];
     } catch (_) {
