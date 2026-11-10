@@ -1,0 +1,33 @@
+name: windows
+on:
+  push:
+    branches: [exalted-unified-ui]
+  workflow_dispatch:
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter --version
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
+      - run: flutter build windows --release
+      - name: Smoke run (10 seconds)
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem build\windows\x64\runner\Release -Filter *.exe | Where-Object { $_.Name -notmatch 'crashpad' } | Select-Object -First 1
+          if (-not $exe) { throw "No exe found" }
+          $p = Start-Process $exe.FullName -PassThru
+          Start-Sleep 10
+          $p.Refresh()
+          if ($p.HasExited) { throw "App exited by itself, code $($p.ExitCode)" }
+          Write-Host "running OK, memory MB: $([math]::Round($p.WorkingSet64/1MB))"
+          Stop-Process $p
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exalted-windows
+          path: build/windows/x64/runner/Release
