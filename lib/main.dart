@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show Directory, Platform;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +12,8 @@ import 'app.dart';
 import 'core/config/config_controller.dart';
 import 'core/config/config_provider.dart';
 import 'core/config/config_store.dart';
+import 'core/crash/crash_handlers.dart';
+import 'core/crash/crash_log.dart';
 import 'features/devices/camera/controller_camera_port.dart';
 
 Future<void> main() async {
@@ -30,9 +32,15 @@ Future<void> main() async {
     ]);
   }
   ConfigStore? configStore;
+  Directory? supportDir;
   try {
-    configStore = ConfigStore(await getApplicationSupportDirectory());
+    supportDir = await getApplicationSupportDirectory();
+    configStore = ConfigStore(supportDir);
   } catch (_) {}
+  if (supportDir != null) {
+    final crashDir = supportDir;
+    installCrashHandlers(CrashLog(() async => crashDir));
+  }
   final startup = await loadStartupConfig(
     dir: configStore?.dir,
     store: configStore,

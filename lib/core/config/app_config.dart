@@ -389,6 +389,33 @@ class StorageConfig {
   List<ConfigIssue> validate() => const [];
 }
 
+class StartupConfig {
+  /// Relaunch the app after a fatal crash. Off by default.
+  final bool autoRestart;
+
+  /// Give up after this many automatic restarts within one hour, so a crash
+  /// loop cannot spin forever.
+  final int maxRestartsPerHour;
+  const StartupConfig({this.autoRestart = false, this.maxRestartsPerHour = 3});
+  factory StartupConfig.from(Map<String, dynamic> m, List<ConfigIssue> iss) {
+    const d = StartupConfig();
+    final r = _R(m, 'startup', iss);
+    return StartupConfig(
+      autoRestart: r.b('autoRestart', d.autoRestart),
+      maxRestartsPerHour: r.i('maxRestartsPerHour', d.maxRestartsPerHour),
+    );
+  }
+  Map<String, dynamic> toJson() => {
+    'autoRestart': autoRestart,
+    'maxRestartsPerHour': maxRestartsPerHour,
+  };
+  List<ConfigIssue> validate() {
+    final e = <ConfigIssue>[];
+    _range(e, 'startup.maxRestartsPerHour', maxRestartsPerHour, 1, 20);
+    return e;
+  }
+}
+
 class NetworkConfig {
   final int
   httpConnectTimeoutMs; // [APP-VALUE] 7000, verify/http_client.dart:35
@@ -479,6 +506,7 @@ class AppConfig {
   final StorageConfig storage;
   final NetworkConfig network;
   final AppearanceConfig appearance;
+  final StartupConfig startup;
   const AppConfig({
     this.version = currentVersion,
     this.scanner = const ScannerConfig(),
@@ -487,6 +515,7 @@ class AppConfig {
     this.storage = const StorageConfig(),
     this.network = const NetworkConfig(),
     this.appearance = const AppearanceConfig(),
+    this.startup = const StartupConfig(),
   });
 
   static AppConfig defaults() => const AppConfig();
@@ -502,6 +531,7 @@ class AppConfig {
     storage: StorageConfig.from(_sub(m, 'storage'), issues),
     network: NetworkConfig.from(_sub(m, 'network'), issues),
     appearance: AppearanceConfig.from(_sub(m, 'appearance'), issues),
+    startup: StartupConfig.from(_sub(m, 'startup'), issues),
   );
 
   Map<String, dynamic> toJson() => {
@@ -512,6 +542,7 @@ class AppConfig {
     'storage': storage.toJson(),
     'network': network.toJson(),
     'appearance': appearance.toJson(),
+    'startup': startup.toJson(),
   };
 
   /// Non-blocking findings the Settings screen should show.
@@ -527,6 +558,7 @@ class AppConfig {
     e.addAll(storage.validate());
     e.addAll(network.validate());
     e.addAll(appearance.validate());
+    e.addAll(startup.validate());
     return e;
   }
 }
