@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -13,6 +12,7 @@ import 'gs1_fields.dart';
 import 'inspection_log.dart';
 import 'inspection_row.dart';
 import 'inspection_row_card.dart';
+import '../../core/config/data_directory_provider.dart';
 
 /// Every inspection event as one row: decoded fields, printed text, checks.
 class InspectionDataScreen extends ConsumerStatefulWidget {
@@ -73,7 +73,7 @@ class _InspectionDataScreenState extends ConsumerState<InspectionDataScreen> {
 
   Future<void> _export() async {
     try {
-      final dir = await getApplicationDocumentsDirectory();
+      final dir = await ref.read(dataDirectoryProvider)();
       final now = DateTime.now();
       final stamp =
           '${now.year}${_two(now.month)}${_two(now.day)}_${_two(now.hour)}${_two(now.minute)}${_two(now.second)}';

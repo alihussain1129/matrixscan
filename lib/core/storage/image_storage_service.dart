@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import '../config/data_directory_provider.dart';
 
 /// Provides immutable local-first storage for scanned frames, OCR documents,
 /// and camera CMOS images.
@@ -111,5 +112,5 @@ class ImageStorageService {
 }
 
 final imageStorageServiceProvider = Provider<ImageStorageService>((ref) {
-  return ImageStorageService();
+  return ImageStorageService(directoryProvider: ref.watch(dataDirectoryProvider));
 });

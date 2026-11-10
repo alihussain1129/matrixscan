@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'verification_engine.dart';
+import '../core/config/data_directory_provider.dart';
 
 /// Online sources the user is allowed to switch on. Anything else in the
 /// saved file is ignored.
@@ -61,7 +62,9 @@ class VerificationSettingsStore {
 }
 
 final verificationStoreProvider = Provider<VerificationSettingsStore>(
-  (ref) => VerificationSettingsStore(),
+  (ref) => VerificationSettingsStore(
+    directory: ref.watch(dataDirectoryProvider),
+  ),
 );
 
 final verificationEngineProvider = Provider<VerificationEngine>(

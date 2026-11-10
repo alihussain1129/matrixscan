@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/ocv_rule.dart';
+import '../../../core/config/data_directory_provider.dart';
 
 /// Manages persistent storage and retrieval of industrial OCV verification rules.
 class OcvRulesRepository {
@@ -79,5 +80,5 @@ class OcvRulesRepository {
 }
 
 final ocvRulesRepositoryProvider = Provider<OcvRulesRepository>((ref) {
-  return OcvRulesRepository();
+  return OcvRulesRepository(directoryProvider: ref.watch(dataDirectoryProvider));
 });

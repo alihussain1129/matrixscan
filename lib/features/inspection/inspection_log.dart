@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'gs1_fields.dart';
 import 'inspection_row.dart';
+import '../../core/config/data_directory_provider.dart';
 
 /// Appends one row per inspection event to `inspection_rows.jsonl` (one JSON
 /// object per line). Appending never rewrites earlier rows, so saving stays
@@ -250,4 +251,6 @@ String inspectionRowsToCsv(List<InspectionRow> rows) {
   return b.toString();
 }
 
-final inspectionLogProvider = Provider<InspectionLog>((ref) => InspectionLog());
+final inspectionLogProvider = Provider<InspectionLog>(
+  (ref) => InspectionLog(directory: ref.watch(dataDirectoryProvider)),
+);

@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../../core/storage/image_storage_service.dart';
 import '../models/ocr_record.dart';
+import '../../../core/config/data_directory_provider.dart';
 
 /// Dedicated, offline repository for managing OCR records and document inspections.
 ///
@@ -177,5 +178,8 @@ class OcrHistoryRepository {
 
 final ocrHistoryRepositoryProvider = Provider<OcrHistoryRepository>((ref) {
   final imageStorage = ref.watch(imageStorageServiceProvider);
-  return OcrHistoryRepository(imageStorageService: imageStorage);
+  return OcrHistoryRepository(
+    imageStorageService: imageStorage,
+    directoryProvider: ref.watch(dataDirectoryProvider),
+  );
 });

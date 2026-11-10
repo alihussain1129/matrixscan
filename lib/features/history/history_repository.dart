@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'history_entry.dart';
+import '../../core/config/data_directory_provider.dart';
 
 /// Stores scan history as JSON in the app's private storage. It never leaves
 /// the device. Newest entries come first.
@@ -149,5 +150,5 @@ class HistoryRepository {
 }
 
 final historyRepositoryProvider = Provider<HistoryRepository>((ref) {
-  return HistoryRepository();
+  return HistoryRepository(directory: ref.watch(dataDirectoryProvider));
 });

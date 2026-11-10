@@ -12,6 +12,7 @@ import '../../features/ocr/services/ocr_history_repository.dart';
 import '../../features/ocv/models/ocv_rule.dart';
 import '../../features/ocv/services/ocv_rules_repository.dart';
 import '../storage/image_storage_service.dart';
+import '../config/data_directory_provider.dart';
 
 /// Summary of a backup restoration operation.
 class BackupRestoreSummary {
@@ -260,5 +261,6 @@ final backupRecoveryServiceProvider = Provider<BackupRecoveryService>((ref) {
     ocrRepo: ocrRepo,
     ocvRulesRepo: ocvRulesRepo,
     imageStorage: imageStorage,
+    directoryProvider: ref.watch(dataDirectoryProvider),
   );
 });

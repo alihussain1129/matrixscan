@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../../core/config/data_directory_provider.dart';
 
 /// A text the user saved after OCR.
 class SavedOcrText {
@@ -78,5 +79,5 @@ class OcrRepository {
 }
 
 final ocrRepositoryProvider = Provider<OcrRepository>((ref) {
-  return OcrRepository();
+  return OcrRepository(directory: ref.watch(dataDirectoryProvider));
 });
