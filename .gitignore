@@ -71,3 +71,6 @@ scanner_source_review.txt
 ui_performance_review.txt
 verification_diagnostic.txt
 verification_inspection.txt
+
+# Android build output
+android/build/
