@@ -1,4 +1,5 @@
 import 'ftp_settings_card.dart';
+import 'auto_restart_card.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -313,6 +314,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Text('KEYENCE FTP RECEIVER', style: text.labelSmall),
           const SizedBox(height: AppSpacing.md),
           const ExaltedCard(child: FtpSettingsCard()),
+
+          const SizedBox(height: AppSpacing.xl),
+
+          // ---- AUTO-RESTART AFTER CRASH -----------------------------------
+          Text('AUTO-RESTART AFTER CRASH', style: text.labelSmall),
+          const SizedBox(height: AppSpacing.md),
+          const ExaltedCard(child: AutoRestartCard()),
 
           const SizedBox(height: AppSpacing.xl),
 
