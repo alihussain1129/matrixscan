@@ -77,9 +77,19 @@ class _HistoryDetailScreenState extends ConsumerState<HistoryDetailScreen> {
     final entry = widget.entry;
     final gs1 = entry.kind == HistoryKind.barcode ? parseGs1(entry.text) : null;
     final interp = (entry.kind == HistoryKind.barcode)
-        ? defaultInterpreterRegistry().interpret(ScanPayload(raw: entry.text, symbology: 'Barcode', source: 'history'))
+        ? defaultInterpreterRegistry().interpret(
+            ScanPayload(
+              raw: entry.text,
+              symbology: 'Barcode',
+              source: 'history',
+            ),
+          )
         : null;
-    final emv = (interp != null && (interp.interpreterId == 'emv' || interp.interpreterId == 'gs1')) ? interp : null;
+    final emv =
+        (interp != null &&
+            (interp.interpreterId == 'emv' || interp.interpreterId == 'gs1'))
+        ? interp
+        : null;
 
     Widget row(String label, String value) => Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
@@ -114,8 +124,21 @@ class _HistoryDetailScreenState extends ConsumerState<HistoryDetailScreen> {
             ),
             if (emv != null) ...[
               const SizedBox(height: AppSpacing.lg),
-              VerifiedInterpretationView(interpretation: emv, verifier: _check ? ref.read(verificationEngineProvider) : null, allowedSources: ref.watch(allowedSourcesProvider)),
-              Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: _check ? null : () => setState(() => _check = true), icon: const Icon(Icons.fact_check_outlined, size: 18), label: Text(_check ? 'Sources checked' : 'Check sources'))),
+              VerifiedInterpretationView(
+                interpretation: emv,
+                verifier: _check ? ref.read(verificationEngineProvider) : null,
+                allowedSources: ref.watch(allowedSourcesProvider),
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _check
+                      ? null
+                      : () => setState(() => _check = true),
+                  icon: const Icon(Icons.fact_check_outlined, size: 18),
+                  label: Text(_check ? 'Sources checked' : 'Check sources'),
+                ),
+              ),
             ],
             if (gs1 != null && emv == null) ...[
               const SizedBox(height: AppSpacing.lg),

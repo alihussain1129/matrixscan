@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -65,8 +65,7 @@ String? gtinFrom(Interpretation i) {
   for (final f in i.allFields) {
     if (f.sensitive) continue;
     if (f.id == '01' &&
-        (f.standard == 'GS1' ||
-            f.standard == 'GS1 URL path (unconfirmed)') &&
+        (f.standard == 'GS1' || f.standard == 'GS1 URL path (unconfirmed)') &&
         f.validation == FieldValidation.valid) {
       final v = f.value;
       if (v != null && gtinCheckOk(v)) return v;
@@ -462,5 +461,3 @@ class OpenFoodFactsSource implements VerificationSource {
     );
   }
 }
-
-

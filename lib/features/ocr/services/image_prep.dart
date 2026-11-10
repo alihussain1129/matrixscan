@@ -140,10 +140,7 @@ class ImagePrep {
 
   /// Crops an image to the given normalized bounding box [normalizedRoi] (0..1),
   /// saving the cropped sub-image into a temporary PNG file.
-  static Future<String> cropRoi(
-    String path,
-    ui.Rect normalizedRoi,
-  ) async {
+  static Future<String> cropRoi(String path, ui.Rect normalizedRoi) async {
     final file = File(path);
     if (!await file.exists()) {
       throw OcrException(
@@ -162,8 +159,14 @@ class ImagePrep {
 
     final cropL = (normalizedRoi.left.clamp(0.0, 1.0) * imgW).clamp(0.0, imgW);
     final cropT = (normalizedRoi.top.clamp(0.0, 1.0) * imgH).clamp(0.0, imgH);
-    final cropR = (normalizedRoi.right.clamp(0.0, 1.0) * imgW).clamp(cropL, imgW);
-    final cropB = (normalizedRoi.bottom.clamp(0.0, 1.0) * imgH).clamp(cropT, imgH);
+    final cropR = (normalizedRoi.right.clamp(0.0, 1.0) * imgW).clamp(
+      cropL,
+      imgW,
+    );
+    final cropB = (normalizedRoi.bottom.clamp(0.0, 1.0) * imgH).clamp(
+      cropT,
+      imgH,
+    );
 
     final cropW = math.max(1.0, cropR - cropL);
     final cropH = math.max(1.0, cropB - cropT);

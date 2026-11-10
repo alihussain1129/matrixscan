@@ -2,20 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/navigation/desktop_chrome.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
-import '../../core/theme/app_tokens.dart';
-import '../../core/widgets/exalted_button.dart';
+import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/exalted_logo.dart';
-import '../devices/keyence/keyence_sr751_client.dart';
+import '../../core/widgets/metric_card.dart';
+import '../../core/widgets/section_header.dart';
+import '../../core/widgets/status_badge.dart';
+import '../devices/keyence/keyence_scanner_coordinator.dart';
 import '../gallery/gallery_import_service.dart';
 import '../history/history_entry.dart';
 import '../history/history_repository.dart';
+import '../inspection/inspection_log.dart';
 import '../ocr/ocr_entry.dart';
 
-/// Industrial Dashboard: quick actions into Decoder, OCR Workspace, Keyence Machine Vision,
-/// and recent traceability history.
+/// Operational Industrial Dashboard: Real-time telemetry, active hardware status,
+/// operational statistics, workspace access, and inspection audit trail.
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -24,18 +28,40 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  late Future<List<HistoryEntry>> _recent;
+  late Future<List<HistoryEntry>> _recentFuture;
+  late Future<int> _totalScansFuture;
+  late Future<int> _totalInspectionsFuture;
   bool _picking = false;
 
   @override
   void initState() {
     super.initState();
-    _recent = _load();
+    _refreshData();
   }
 
-  Future<List<HistoryEntry>> _load() async {
+  void _refreshData() {
+    _recentFuture = _loadRecent();
+    _totalScansFuture = _loadTotalScans();
+    _totalInspectionsFuture = _loadTotalInspections();
+  }
+
+  Future<List<HistoryEntry>> _loadRecent() async {
     final all = await ref.read(historyRepositoryProvider).loadAll();
-    return all.take(5).toList();
+    return all.take(8).toList();
+  }
+
+  Future<int> _loadTotalScans() async {
+    final all = await ref.read(historyRepositoryProvider).loadAll();
+    return all.length;
+  }
+
+  Future<int> _loadTotalInspections() async {
+    try {
+      final rows = await ref.read(inspectionLogProvider).loadAll();
+      return rows.length;
+    } catch (_) {
+      return 0;
+    }
   }
 
   void _snack(String message) {
@@ -52,10 +78,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _readText() async {
-    final isDesktop = context.layout != ExaltedLayout.compact;
-
+    final isDesktop = MediaQuery.sizeOf(context).width >= 720;
     if (isDesktop) {
-      _navigateTo(kOcrTab); // Switch to the OCR workspace
+      _navigateTo(kOcrTab);
       return;
     }
 
@@ -90,247 +115,543 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colors = theme.extension<ExaltedColors>()!;
+    final colors = context.exalted;
     final text = theme.textTheme;
+    final keyence = ref.watch(keyenceScannerCoordinatorProvider);
+    final coordNotifier = ref.read(keyenceScannerCoordinatorProvider.notifier);
+    final ocrAsync = ref.watch(ocrAvailabilityProvider);
+    final width = MediaQuery.sizeOf(context).width;
+    final isDesktop = width >= 1024;
+    final isTablet = width >= 640 && width < 1024;
 
-    final keyence = ref.watch(keyenceSr751ClientProvider);
-    final isDesktop = context.layout != ExaltedLayout.compact;
-
-    // Refresh recent list on tab switches
-    ref.listen<int>(navIndexProvider, (previous, next) {
+    // Refresh when navigating back to Home
+    ref.listen<int>(navIndexProvider, (prev, next) {
       if (next == kHomeTab && mounted) {
-        setState(() {
-          _recent = _load();
-        });
+        setState(_refreshData);
       }
     });
 
     return Scaffold(
       body: SafeArea(
-        child: TweenAnimationBuilder<double>(
-          tween: Tween<double>(begin: 0, end: 1),
-          duration: const Duration(milliseconds: 350),
-          curve: Curves.easeOutCubic,
-          builder: (context, t, child) => Opacity(
-            opacity: t,
-            child: Transform.translate(
-              offset: Offset(0, (1 - t) * 14),
-              child: child,
-            ),
-          ),
+        child: RefreshIndicator(
+          onRefresh: () async {
+            setState(_refreshData);
+            await Future.wait([
+              _recentFuture,
+              _totalScansFuture,
+              _totalInspectionsFuture,
+            ]);
+          },
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.xl,
-              AppSpacing.lg,
-              AppSpacing.xl,
-              AppSpacing.xl,
+            padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? AppSpacing.xxl : AppSpacing.lg,
+              vertical: AppSpacing.lg,
             ),
             children: [
-              Row(
-                children: [
-                  const ExaltedLogo(width: 140),
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: colors.valid.withAlpha(25),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: colors.valid),
-                    ),
-                    child: Text(
-                      'OFFLINE SYSTEM READY',
-                      style: text.labelSmall!.copyWith(
-                        color: colors.valid,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.xl),
-              Text(
-                isDesktop
-                    ? 'Industrial Machine Vision & Inspection'
-                    : 'Scan or read',
-                style: text.headlineSmall,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                'High-performance offline 2D code decoding, optical character verification (OCV), '
-                'and Keyence SR-751 hardware control.',
-                style: text.bodyMedium!.copyWith(color: colors.muted),
-              ),
+              // Top Brand and System Status Header
+              _buildHeader(colors, text, keyence),
               const SizedBox(height: AppSpacing.xl),
 
-              // Action Buttons: stacked on narrow screens, side by side on wide
-              LayoutBuilder(
-                builder: (context, c) {
-                  final decoder = ExaltedButton(
-                    label: 'Decoder Workspace',
-                    icon: Icons.qr_code_scanner,
-                    expand: true,
-                    onPressed: () => _navigateTo(kScanTab),
-                  );
-                  final ocr = ExaltedButton(
-                    label: 'OCR Workspace',
-                    icon: Icons.document_scanner_outlined,
-                    outlined: true,
-                    expand: true,
-                    onPressed: _readText,
-                  );
-                  if (c.maxWidth < 520) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        decoder,
-                        const SizedBox(height: AppSpacing.md),
-                        ocr,
-                      ],
-                    );
-                  }
+              // KPI Metric Cards (Real Database Data)
+              _buildMetricCardsGrid(keyence, ocrAsync, isDesktop, isTablet),
+              const SizedBox(height: AppSpacing.xl),
+
+              // Main operational body: 2 columns on wide screens, 1 on mobile
+              if (isDesktop)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Left Column: Active Hardware & Workspaces
+                    Expanded(
+                      flex: 6,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildHardwareCard(
+                            keyence,
+                            coordNotifier,
+                            colors,
+                            text,
+                          ),
+                          const SizedBox(height: AppSpacing.xl),
+                          _buildWorkspacesSection(colors, text),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.xl),
+                    // Right Column: Recent Traceability Audit Feed
+                    Expanded(
+                      flex: 4,
+                      child: _buildRecentActivityFeed(colors, text),
+                    ),
+                  ],
+                )
+              else
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildHardwareCard(keyence, coordNotifier, colors, text),
+                    const SizedBox(height: AppSpacing.xl),
+                    _buildWorkspacesSection(colors, text),
+                    const SizedBox(height: AppSpacing.xl),
+                    _buildRecentActivityFeed(colors, text),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(
+    ExaltedColors colors,
+    TextTheme text,
+    KeyenceCoordinatorState keyence,
+  ) {
+    return Row(
+      children: [
+        const ExaltedLogo(width: 140),
+        const Spacer(),
+        StatusBadge(
+          label: 'OFFLINE ENGINE',
+          sublabel: 'AIR-GAPPED',
+          variant: StatusBadgeVariant.success,
+          icon: Icons.shield_outlined,
+          compact: true,
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        StatusBadge(
+          label: keyence.isConnected
+              ? 'KEYENCE ${keyence.model}'
+              : 'SCANNER READY',
+          variant: keyence.isConnected
+              ? StatusBadgeVariant.success
+              : (keyence.isDiscovering
+                    ? StatusBadgeVariant.processing
+                    : StatusBadgeVariant.neutral),
+          icon: Icons.router_outlined,
+          compact: true,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMetricCardsGrid(
+    KeyenceCoordinatorState keyence,
+    AsyncValue<OcrAvailability> ocrAsync,
+    bool isDesktop,
+    bool isTablet,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cols = isDesktop ? 4 : (isTablet ? 2 : 1);
+        final gap = AppSpacing.md;
+
+        return Column(
+          children: [
+            FutureBuilder<List<int>>(
+              future: Future.wait([_totalScansFuture, _totalInspectionsFuture]),
+              builder: (context, snap) {
+                final totalScans = snap.data?[0] ?? 0;
+                final totalInspections = snap.data?[1] ?? 0;
+
+                final ocrLabel = ocrAsync.maybeWhen(
+                  data: (o) => o.ok ? 'Tesseract Ready' : 'Install Needed',
+                  orElse: () => 'Detecting...',
+                );
+
+                final cards = [
+                  MetricCard(
+                    title: 'Total Scans',
+                    value: '$totalScans',
+                    subtitle: 'Local audit journal',
+                    icon: Icons.qr_code_2_rounded,
+                    iconColor: Theme.of(context).colorScheme.primary,
+                    onTap: () => _navigateTo(kHistoryTab),
+                  ),
+                  MetricCard(
+                    title: 'Inspection Records',
+                    value: '$totalInspections',
+                    subtitle: 'GS1 & OCV validation',
+                    icon: Icons.fact_check_outlined,
+                    iconColor: AppColors.aqua,
+                    onTap: () => _navigateTo(kHomeTab),
+                  ),
+                  MetricCard(
+                    title: 'Industrial Scanner',
+                    value: keyence.isConnected ? keyence.model : 'Offline',
+                    subtitle: keyence.isConnected
+                        ? '${keyence.host} (${keyence.totalConnectionTimeMs}ms)'
+                        : 'Standby for ethernet',
+                    icon: Icons.router_outlined,
+                    iconColor: keyence.isConnected
+                        ? AppColors.successGreen
+                        : AppColors.slate400,
+                    onTap: () => _navigateTo(kDevicesTab),
+                  ),
+                  MetricCard(
+                    title: 'OCR / OCV Engine',
+                    value: ocrAsync.maybeWhen(
+                      data: (o) => o.ok ? 'Active' : 'Standby',
+                      orElse: () => 'Checking',
+                    ),
+                    subtitle: ocrLabel,
+                    icon: Icons.text_snippet_outlined,
+                    iconColor: AppColors.infoBlue,
+                    onTap: () => _navigateTo(kOcrTab),
+                  ),
+                ];
+
+                if (cols == 4) {
                   return Row(
                     children: [
-                      Expanded(child: decoder),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(child: ocr),
+                      for (var i = 0; i < cards.length; i++) ...[
+                        if (i > 0) SizedBox(width: gap),
+                        Expanded(child: cards[i]),
+                      ],
                     ],
                   );
-                },
-              ),
-              const SizedBox(height: AppSpacing.md),
-              // Hardware Card for Keyence SR-751
-              Card(
-                color: colors.surfaceRaised,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  side: BorderSide(color: colors.outline),
+                } else if (cols == 2) {
+                  return Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(child: cards[0]),
+                          SizedBox(width: gap),
+                          Expanded(child: cards[1]),
+                        ],
+                      ),
+                      SizedBox(height: gap),
+                      Row(
+                        children: [
+                          Expanded(child: cards[2]),
+                          SizedBox(width: gap),
+                          Expanded(child: cards[3]),
+                        ],
+                      ),
+                    ],
+                  );
+                }
+
+                return Column(
+                  children: [
+                    for (var i = 0; i < cards.length; i++) ...[
+                      if (i > 0) SizedBox(height: gap),
+                      cards[i],
+                    ],
+                  ],
+                );
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHardwareCard(
+    KeyenceCoordinatorState keyence,
+    KeyenceScannerCoordinator coordNotifier,
+    ExaltedColors colors,
+    TextTheme text,
+  ) {
+    final isConnected = keyence.isConnected;
+
+    return Card(
+      color: colors.surfaceRaised,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        side: BorderSide(
+          color: isConnected ? colors.valid.withAlpha(120) : colors.outline,
+          width: isConnected ? 1.5 : 1,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: isConnected
+                        ? colors.valid.withAlpha(25)
+                        : colors.muted.withAlpha(25),
+                    borderRadius: BorderRadius.circular(AppRadius.button),
+                  ),
+                  child: Icon(
+                    Icons.router_outlined,
+                    size: 24,
+                    color: isConnected ? colors.valid : colors.muted,
+                  ),
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.md),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: keyence.status ==
-                                      KeyenceConnectionStatus.connected
-                                  ? colors.valid.withAlpha(30)
-                                  : Colors.grey.withAlpha(30),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Icon(
-                              Icons.router_outlined,
-                              color: keyence.status ==
-                                      KeyenceConnectionStatus.connected
-                                  ? colors.valid
-                                  : colors.muted,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'KEYENCE SR-751 Industrial Reader',
-                                  style: text.bodyLarge,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  keyence.status ==
-                                          KeyenceConnectionStatus.connected
-                                      ? 'Connected at ${keyence.host}:${keyence.port} (FTP receiver active)'
-                                      : 'Disconnected · Standby for automated line triggers',
-                                  style: text.bodySmall!.copyWith(
-                                    color: colors.muted,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: OutlinedButton(
-                          onPressed: () => _navigateTo(kDevicesTab),
-                          child: const Text('Open Hardware'),
+                      Text(
+                        'KEYENCE ${keyence.model} Industrial 2D Reader',
+                        style: text.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
                         ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        isConnected
+                            ? 'Connected to ${keyence.host}:${keyence.port} · Verified in ${keyence.totalConnectionTimeMs}ms'
+                            : (keyence.isDiscovering
+                                  ? 'Auto-discovering active scanners on network...'
+                                  : 'Not connected · Plug ethernet to auto-discover or tap Connect'),
+                        style: text.bodySmall?.copyWith(color: colors.muted),
                       ),
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: AppSpacing.xl),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Recent Inspections & Scans',
-                      style: text.titleMedium,
-                    ),
+                StatusBadge(
+                  label: isConnected
+                      ? 'CONNECTED'
+                      : (keyence.isDiscovering ? 'SCANNING' : 'OFFLINE'),
+                  variant: isConnected
+                      ? StatusBadgeVariant.success
+                      : (keyence.isDiscovering
+                            ? StatusBadgeVariant.processing
+                            : StatusBadgeVariant.neutral),
+                  compact: true,
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            const Divider(),
+            const SizedBox(height: AppSpacing.sm),
+            Row(
+              children: [
+                if (isConnected) ...[
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.flash_on_outlined, size: 16),
+                    label: const Text('Trigger Read'),
+                    onPressed: () => coordNotifier.triggerRead(),
                   ),
-                  TextButton(
-                    onPressed: () => _navigateTo(kHistoryTab),
-                    child: const Text('View all history'),
+                  const SizedBox(width: AppSpacing.sm),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.volume_up_outlined, size: 16),
+                    label: const Text('Beep'),
+                    onPressed: () => coordNotifier.beep(),
+                  ),
+                ] else ...[
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.search_rounded, size: 16),
+                    label: const Text('Auto-Discover'),
+                    onPressed: keyence.isDiscovering
+                        ? null
+                        : () => coordNotifier.discoverScanners(),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.bolt, size: 16),
+                    label: const Text('Fast Connect'),
+                    onPressed: () => coordNotifier.connect(),
                   ),
                 ],
+                const Spacer(),
+                TextButton.icon(
+                  icon: const Icon(Icons.settings_outlined, size: 16),
+                  label: const Text('Device Manager'),
+                  onPressed: () => _navigateTo(kDevicesTab),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWorkspacesSection(ExaltedColors colors, TextTheme text) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader(
+          title: 'Primary Workspaces',
+          subtitle: 'Launch high-speed scanning, text recognition, or hardware tuning',
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: _WorkspaceCard(
+                title: 'Decoder Workspace',
+                subtitle: 'High-speed 2D/1D code engine with live camera & GS1 breakdown',
+                icon: Icons.qr_code_scanner_rounded,
+                primary: true,
+                onTap: () => _navigateTo(kScanTab),
               ),
-              const SizedBox(height: AppSpacing.sm),
-              FutureBuilder<List<HistoryEntry>>(
-                future: _recent,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done) {
-                    return const Padding(
-                      padding: EdgeInsets.all(AppSpacing.lg),
-                      child: Center(
-                        child: SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      ),
-                    );
-                  }
-                  final items = snapshot.data ?? const <HistoryEntry>[];
-                  if (items.isEmpty) {
-                    return Container(
-                      padding: const EdgeInsets.all(AppSpacing.lg),
-                      decoration: BoxDecoration(
-                        color: colors.surfaceRaised,
-                        borderRadius: BorderRadius.circular(AppRadius.card),
-                        border: Border.all(color: colors.outline),
-                      ),
-                      child: Text(
-                        'No scans yet. Scan a code and it will appear here.',
-                        style: text.bodyMedium!.copyWith(color: colors.muted),
-                      ),
-                    );
-                  }
-                  return Column(
-                    children: [
-                      for (final e in items)
-                        _RecentTile(
-                          entry: e,
-                          subtitle: [
-                            e.format ?? e.kind.name,
-                            _when(e.createdAt),
-                          ].join(' · '),
-                        ),
-                    ],
-                  );
-                },
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: _WorkspaceCard(
+                title: 'OCR & OCV Workspace',
+                subtitle: 'Optical character verification for expiration dates & lot stamps',
+                icon: Icons.document_scanner_outlined,
+                primary: false,
+                onTap: _readText,
               ),
-            ],
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRecentActivityFeed(ExaltedColors colors, TextTheme text) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionHeader(
+          title: 'Recent Activity',
+          subtitle: 'Live decoded barcodes & inspections',
+          trailing: TextButton(
+            onPressed: () => _navigateTo(kHistoryTab),
+            child: const Text('View All'),
+          ),
+        ),
+        FutureBuilder<List<HistoryEntry>>(
+          future: _recentFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Padding(
+                padding: EdgeInsets.all(AppSpacing.xl),
+                child: Center(
+                  child: SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              );
+            }
+
+            final items = snapshot.data ?? const <HistoryEntry>[];
+            if (items.isEmpty) {
+              return EmptyState(
+                icon: Icons.history_outlined,
+                title: 'No Scans Recorded',
+                message: 'Barcodes scanned via KEYENCE or camera will appear in this real-time audit feed.',
+                actionLabel: 'Open Decoder',
+                onAction: () => _navigateTo(kScanTab),
+              );
+            }
+
+            return Column(
+              children: [
+                for (final e in items)
+                  _RecentScanTile(
+                    entry: e,
+                    formattedTime: _when(e.createdAt),
+                    onCopy: () {
+                      Clipboard.setData(ClipboardData(text: e.text));
+                      _snack('Copied barcode to clipboard');
+                    },
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _WorkspaceCard extends StatefulWidget {
+  const _WorkspaceCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.primary,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final bool primary;
+  final VoidCallback onTap;
+
+  @override
+  State<_WorkspaceCard> createState() => _WorkspaceCardState();
+}
+
+class _WorkspaceCardState extends State<_WorkspaceCard> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.exalted;
+    final theme = Theme.of(context);
+
+    final borderColor = widget.primary
+        ? (_hovered ? theme.colorScheme.primary : colors.teal.withAlpha(120))
+        : (_hovered ? colors.outline.withAlpha(200) : colors.outline);
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Card(
+        color: widget.primary
+            ? (theme.brightness == Brightness.dark
+                  ? colors.surfaceRaised
+                  : AppColors.neutralWhite)
+            : colors.surfaceRaised,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          side: BorderSide(color: borderColor, width: widget.primary ? 1.5 : 1),
+        ),
+        child: InkWell(
+          onTap: widget.onTap,
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: widget.primary
+                        ? theme.colorScheme.primary.withAlpha(30)
+                        : colors.muted.withAlpha(25),
+                    borderRadius: BorderRadius.circular(AppRadius.button),
+                  ),
+                  child: Icon(
+                    widget.icon,
+                    size: 22,
+                    color: widget.primary
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  widget.title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  widget.subtitle,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.muted,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -338,16 +659,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-class _RecentTile extends StatelessWidget {
-  const _RecentTile({required this.entry, required this.subtitle});
+class _RecentScanTile extends StatelessWidget {
+  const _RecentScanTile({
+    required this.entry,
+    required this.formattedTime,
+    required this.onCopy,
+  });
 
   final HistoryEntry entry;
-  final String subtitle;
+  final String formattedTime;
+  final VoidCallback onCopy;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<ExaltedColors>()!;
-    final text = Theme.of(context).textTheme;
+    final colors = context.exalted;
+    final theme = Theme.of(context);
+    final text = theme.textTheme;
+
+    final isBarcode = entry.kind == HistoryKind.barcode;
+    final formatLabel =
+        entry.format ?? (isBarcode ? 'Data Matrix' : 'OCR Text');
 
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
@@ -363,12 +694,19 @@ class _RecentTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(
-              entry.kind == HistoryKind.ocr
-                  ? Icons.text_snippet_outlined
-                  : Icons.qr_code_2,
-              color: colors.muted,
-              size: 20,
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.xs),
+              decoration: BoxDecoration(
+                color: colors.muted.withAlpha(25),
+                borderRadius: BorderRadius.circular(AppRadius.chip),
+              ),
+              child: Icon(
+                isBarcode ? Icons.qr_code_2 : Icons.text_snippet_outlined,
+                color: isBarcode
+                    ? theme.colorScheme.primary
+                    : AppColors.infoBlue,
+                size: 18,
+              ),
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
@@ -379,15 +717,39 @@ class _RecentTile extends StatelessWidget {
                     entry.text,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: text.bodyMedium,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: text.bodySmall!.copyWith(color: colors.muted),
+                  Row(
+                    children: [
+                      Text(
+                        formatLabel,
+                        style: text.labelSmall?.copyWith(
+                          color: colors.muted,
+                          fontSize: 11,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Text(
+                        '· $formattedTime',
+                        style: text.bodySmall?.copyWith(
+                          color: colors.muted,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
+            ),
+            IconButton(
+              tooltip: 'Copy data',
+              icon: const Icon(Icons.copy_rounded, size: 16),
+              onPressed: onCopy,
             ),
           ],
         ),

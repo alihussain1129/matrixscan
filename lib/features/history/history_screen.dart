@@ -1,4 +1,5 @@
 import 'ocr_history_detail_screen.dart';
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -145,10 +146,14 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
       separatorBuilder: (context, index) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final item = shown[index];
-        final hasImage = item.imagePath.isNotEmpty && File(item.imagePath).existsSync();
+        final hasImage =
+            item.imagePath.isNotEmpty && File(item.imagePath).existsSync();
 
         return ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: AppSpacing.xs),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 0,
+            vertical: AppSpacing.xs,
+          ),
           onTap: () async {
             await Navigator.of(context).push(
               MaterialPageRoute<void>(
@@ -171,7 +176,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+                    color: Theme.of(context).colorScheme.primary
+                        .withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
@@ -225,11 +231,18 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
             const SizedBox(height: AppSpacing.lg),
             Row(
               children: [
-                Expanded(child: Text('History & Traceability', style: text.displaySmall)),
+                Expanded(
+                  child: Text(
+                    'History & Traceability',
+                    style: text.displaySmall,
+                  ),
+                ),
                 IconButton(
                   tooltip: 'Export CSV',
                   icon: const Icon(Icons.ios_share),
-                  onPressed: shownDecoder.isEmpty ? null : () => _export(shownDecoder),
+                  onPressed: shownDecoder.isEmpty
+                      ? null
+                      : () => _export(shownDecoder),
                 ),
                 IconButton(
                   tooltip: 'Delete all history',
@@ -249,7 +262,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
             TabBar(
               controller: _tabController,
               labelColor: theme.colorScheme.primary,
-              unselectedLabelColor: theme.textTheme.bodyMedium?.color?.withAlpha(160),
+              unselectedLabelColor: theme.textTheme.bodyMedium?.color
+                  ?.withAlpha(160),
               indicatorColor: theme.colorScheme.primary,
               tabs: const [
                 Tab(text: 'DECODER LOGS'),
@@ -296,7 +310,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
                               'Everything stays on your device.',
                           actionLabel: 'Scan your first code',
                           onAction: () =>
-                              ref.read(navIndexProvider.notifier).set(0),
+                              ref.read(navIndexProvider.notifier).set(kScanTab),
                         );
                       }
                       return _decoderList(entries);

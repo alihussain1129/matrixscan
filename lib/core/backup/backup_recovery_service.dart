@@ -47,7 +47,7 @@ class BackupRecoveryService {
     required this.imageStorage,
     Future<Directory> Function()? directoryProvider,
   }) : _directoryProvider =
-            directoryProvider ?? getApplicationDocumentsDirectory;
+           directoryProvider ?? getApplicationDocumentsDirectory;
 
   final HistoryRepository historyRepo;
   final OcrHistoryRepository ocrRepo;
@@ -89,7 +89,8 @@ class BackupRecoveryService {
       final timestamp =
           '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_'
           '${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
-      filePath = '${dir.path}${Platform.pathSeparator}exalted_backup_$timestamp.json';
+      filePath =
+          '${dir.path}${Platform.pathSeparator}exalted_backup_$timestamp.json';
     }
 
     final file = File(filePath);
@@ -134,13 +135,16 @@ class BackupRecoveryService {
 
       // 1. Restore Decoder History
       if (raw['decoder_history'] is List) {
-        final existingEntries = merge ? await historyRepo.loadAll() : <HistoryEntry>[];
+        final existingEntries = merge
+            ? await historyRepo.loadAll()
+            : <HistoryEntry>[];
         final existingIds = existingEntries.map((e) => e.id).toSet();
 
         for (final item in raw['decoder_history'] as List) {
           final entry = HistoryEntry.fromJson(item);
           if (entry != null && !existingIds.contains(entry.id)) {
-            if (entry.imagePath != null && !File(entry.imagePath!).existsSync()) {
+            if (entry.imagePath != null &&
+                !File(entry.imagePath!).existsSync()) {
               missingImages++;
             }
             await historyRepo.add(

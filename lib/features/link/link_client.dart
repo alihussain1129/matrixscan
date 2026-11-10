@@ -18,8 +18,11 @@ class _Resp {
 /// The phone side. Trusts only the desktop whose certificate fingerprint it
 /// got from the QR code.
 class LinkClient {
-  LinkClient({required this.store, required this.journal, DateTime Function()? clock})
-    : _clock = clock ?? DateTime.now;
+  LinkClient({
+    required this.store,
+    required this.journal,
+    DateTime Function()? clock,
+  }) : _clock = clock ?? DateTime.now;
 
   final LinkStore store;
   final FileSyncStore journal;
@@ -78,7 +81,9 @@ class LinkClient {
           ..set('x-exalted-sig', sig);
       }
       if (body.isNotEmpty) {
-        req.headers.contentType = binary ? ContentType.binary : ContentType.json;
+        req.headers.contentType = binary
+            ? ContentType.binary
+            : ContentType.json;
         req.contentLength = body.length;
         req.add(body);
       }
@@ -94,7 +99,11 @@ class LinkClient {
       }
       return _Resp(res.statusCode, bb.takeBytes());
     } on TimeoutException {
-      throw LinkException('timeout', 'The desktop did not answer in time.', retryable: true);
+      throw LinkException(
+        'timeout',
+        'The desktop did not answer in time.',
+        retryable: true,
+      );
     } on TlsException {
       throw LinkException(
         'untrusted_desktop',
@@ -107,7 +116,11 @@ class LinkClient {
         retryable: true,
       );
     } on HttpException catch (e) {
-      throw LinkException('network', 'Connection problem: ${e.message}', retryable: true);
+      throw LinkException(
+        'network',
+        'Connection problem: ${e.message}',
+        retryable: true,
+      );
     }
   }
 
@@ -143,7 +156,7 @@ class LinkClient {
 
   Future<T> _retry<T>(Future<T> Function() f) async {
     var delay = const Duration(milliseconds: 400);
-    for (var i = 0;; i++) {
+    for (var i = 0; ; i++) {
       try {
         return await f();
       } on LinkException catch (e) {
@@ -190,8 +203,13 @@ class LinkClient {
           final j = _decode(res);
           final secret = j['secret'];
           final id = j['deviceId'];
-          if (secret is! String || id is! String || base64.decode(secret).length != 32) {
-            throw LinkException('bad_reply', 'The desktop sent an invalid reply.');
+          if (secret is! String ||
+              id is! String ||
+              base64.decode(secret).length != 32) {
+            throw LinkException(
+              'bad_reply',
+              'The desktop sent an invalid reply.',
+            );
           }
           final peer = PeerDesktop(
             id: id,
@@ -248,21 +266,31 @@ class LinkClient {
         onlyOrigin: store.deviceId,
       );
       if (page.entries.isNotEmpty) {
-        final hashes = <String>{
-          for (final e in page.entries) ...e.rec.blobs,
-        }.toList();
+        final hashes = <String>{for (final e in page.entries) ...e.rec.blobs}
+            .toList();
         if (hashes.isNotEmpty) {
           final res = await _retry(
-            () => _json(http, peer, 'POST', '/v1/blobs/missing', body: {'hashes': hashes}),
+            () => _json(
+              http,
+              peer,
+              'POST',
+              '/v1/blobs/missing',
+              body: {'hashes': hashes},
+            ),
           );
           final missing = (res['missing'] as List? ?? const []).cast<String>();
           var done = 0;
           for (final h in missing) {
             final bytes = await journal.getBlob(h);
             if (bytes == null) {
-              throw LinkException('local_image_missing', 'A local original image is missing: $h');
+              throw LinkException(
+                'local_image_missing',
+                'A local original image is missing: $h',
+              );
             }
-            final uri = Uri.parse('https://${peer.host}:${peer.port}/v1/blob/$h');
+            final uri = Uri.parse(
+              'https://${peer.host}:${peer.port}/v1/blob/$h',
+            );
             await _retry(() async {
               final r = await _send(
                 http,
@@ -276,7 +304,9 @@ class LinkClient {
               _decode(r);
             });
             s.blobsUp++;
-            onProgress?.call(SyncProgress('Uploading images', ++done, missing.length));
+            onProgress?.call(
+              SyncProgress('Uploading images', ++done, missing.length),
+            );
           }
         }
         final res = await _retry(
@@ -292,7 +322,10 @@ class LinkClient {
         );
         final rejected = (res['rejected'] as List? ?? const []);
         if (rejected.isNotEmpty) {
-          throw LinkException('push_rejected', 'The desktop rejected ${rejected.length} record(s).');
+          throw LinkException(
+            'push_rejected',
+            'The desktop rejected ${rejected.length} record(s).',
+          );
         }
         s.pushed += (res['added'] as int? ?? 0);
         s.duplicates += (res['duplicate'] as int? ?? 0);
@@ -313,26 +346,43 @@ class LinkClient {
   ) async {
     while (true) {
       final res = await _retry(
-        () => _json(http, peer, 'GET', '/v1/sync/pull?after=${peer.pullCursor}&limit=100'),
+        () => _json(
+          http,
+          peer,
+          'GET',
+          '/v1/sync/pull?after=${peer.pullCursor}&limit=100',
+        ),
       );
       final list = res['records'] as List? ?? const [];
       for (final item in list) {
         final rec = SyncRecord.fromJson(item);
         if (rec == null) {
-          throw LinkException('bad_record', 'The desktop sent a damaged record.');
+          throw LinkException(
+            'bad_record',
+            'The desktop sent a damaged record.',
+          );
         }
         for (final b in rec.blobs) {
           if (await journal.hasBlob(b)) continue;
           final uri = Uri.parse('https://${peer.host}:${peer.port}/v1/blob/$b');
           final bytes = await _retry(() async {
-            final r = await _send(http, 'GET', uri, sign: peer, timeout: const Duration(seconds: 120));
+            final r = await _send(
+              http,
+              'GET',
+              uri,
+              sign: peer,
+              timeout: const Duration(seconds: 120),
+            );
             if (r.status != 200) _decode(r);
             return r.body;
           });
           try {
             await journal.putBlob(b, bytes);
           } on FormatException {
-            throw LinkException('integrity', 'An image failed its hash check and was discarded.');
+            throw LinkException(
+              'integrity',
+              'An image failed its hash check and was discarded.',
+            );
           }
           s.blobsDown++;
         }
@@ -347,7 +397,8 @@ class LinkClient {
       }
       onProgress?.call(SyncProgress('Downloading records', s.pulled, s.pulled));
       final next = res['next'];
-      if (next is! int) throw LinkException('bad_reply', 'Invalid reply from desktop.');
+      if (next is! int)
+        throw LinkException('bad_reply', 'Invalid reply from desktop.');
       peer.pullCursor = next;
       await store.save();
       if (res['more'] != true) break;

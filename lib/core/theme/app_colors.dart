@@ -1,9 +1,7 @@
-import 'dart:io' show Platform;
-
 import 'package:flutter/material.dart';
 
 /// Extra Exalted color tokens that Material's ColorScheme does not cover.
-/// New fields have defaults so older call sites keep compiling.
+/// Centralized design system matching the Deep Professional Teal industrial vision.
 @immutable
 class ExaltedColors extends ThemeExtension<ExaltedColors> {
   const ExaltedColors({
@@ -13,11 +11,14 @@ class ExaltedColors extends ThemeExtension<ExaltedColors> {
     required this.outline,
     required this.muted,
     required this.valid,
-    this.sidebar = const Color(0xFF0C1322),
+    this.sidebar = const Color(0xFF0E1622),
     this.canvas = const Color(0xFF070B14),
-    this.warning = const Color(0xFFFFB020),
-    this.info = const Color(0xFF2BD4F5),
-    this.hover = const Color(0x142BD4F5),
+    this.warning = const Color(0xFFF59E0B),
+    this.info = const Color(0xFF3B82F6),
+    this.hover = const Color(0x14125352),
+    this.aqua = const Color(0xFF2DD4BF),
+    this.mint = const Color(0xFFD1FAE5),
+    this.teal = const Color(0xFF125352),
   });
 
   final Color primaryPressed;
@@ -26,7 +27,7 @@ class ExaltedColors extends ThemeExtension<ExaltedColors> {
   final Color outline;
   final Color muted;
 
-  /// Success: decoded, verified, passed.
+  /// Success: decoded, verified, passed (Green).
   final Color valid;
 
   /// Navigation sidebar background.
@@ -35,14 +36,23 @@ class ExaltedColors extends ThemeExtension<ExaltedColors> {
   /// Image inspection canvas. Dark in both themes so images read true.
   final Color canvas;
 
-  /// Warning / review.
+  /// Warning / review (Amber).
   final Color warning;
 
-  /// Processing / informational (same family as the primary accent).
+  /// Informational (Blue).
   final Color info;
 
   /// Desktop hover wash.
   final Color hover;
+
+  /// Supporting luminous aqua.
+  final Color aqua;
+
+  /// Supporting soft mint.
+  final Color mint;
+
+  /// Deep professional teal.
+  final Color teal;
 
   @override
   ExaltedColors copyWith({
@@ -57,6 +67,9 @@ class ExaltedColors extends ThemeExtension<ExaltedColors> {
     Color? warning,
     Color? info,
     Color? hover,
+    Color? aqua,
+    Color? mint,
+    Color? teal,
   }) {
     return ExaltedColors(
       primaryPressed: primaryPressed ?? this.primaryPressed,
@@ -70,6 +83,9 @@ class ExaltedColors extends ThemeExtension<ExaltedColors> {
       warning: warning ?? this.warning,
       info: info ?? this.info,
       hover: hover ?? this.hover,
+      aqua: aqua ?? this.aqua,
+      mint: mint ?? this.mint,
+      teal: teal ?? this.teal,
     );
   }
 
@@ -88,141 +104,126 @@ class ExaltedColors extends ThemeExtension<ExaltedColors> {
       warning: Color.lerp(warning, other.warning, t)!,
       info: Color.lerp(info, other.info, t)!,
       hover: Color.lerp(hover, other.hover, t)!,
+      aqua: Color.lerp(aqua, other.aqua, t)!,
+      mint: Color.lerp(mint, other.mint, t)!,
+      teal: Color.lerp(teal, other.teal, t)!,
     );
   }
 }
 
-/// `context.exalted.valid` instead of Theme.of(context).extension<...>()!.
+/// Convenience extension: `context.exalted.valid` instead of Theme.of(context).extension<...>()!.
 extension ExaltedColorsContext on BuildContext {
-  ExaltedColors get exalted => Theme.of(this).extension<ExaltedColors>()!;
+  ExaltedColors get exalted =>
+      Theme.of(this).extension<ExaltedColors>() ?? AppColors.darkExtra;
 }
 
-/// All Exalted colors.
-///
-/// [red] and [gray] are the official logo colors and are used for branding
-/// only. The interactive accent is cyan.
+/// Central design system color palette for Exalted Industrial Machine Vision.
 class AppColors {
   AppColors._();
 
-  // Brand (logo only).
-  static const Color red = Color(0xFFEB1C24);
-  static const Color gray = Color(0xFF6D6E70);
+  // Primary: Deep professional teal
+  static const Color tealPrimary = Color(0xFF125352);
+  static const Color tealDark = Color(0xFF0D3E3D);
+  static const Color tealLight = Color(0xFF1B7A78);
 
-  // Interactive accent.
-  static const Color cyan = Color(0xFF2BD4F5);
-  static const Color cyanDeep = Color(0xFF0A7EA4);
+  // Supporting palette
+  static const Color aqua = Color(0xFF2DD4BF);
+  static const Color mint = Color(0xFFD1FAE5);
+  static const Color mintDark = Color(0xFFA7F3D0);
 
-  static const Color _deskLightBg = Color(0xFFF3F6FA);
-  static const Color _deskDarkBg = Color(0xFF0A0F1A);
+  // Status tokens
+  static const Color successGreen = Color(0xFF10B981);
+  static const Color successGreenLight = Color(0xFF059669);
+  static const Color warningAmber = Color(0xFFF59E0B);
+  static const Color warningAmberLight = Color(0xFFD97706);
+  static const Color errorRed = Color(0xFFEF4444);
+  static const Color errorRedLight = Color(0xFFDC2626);
+  static const Color infoBlue = Color(0xFF3B82F6);
+  static const Color infoBlueLight = Color(0xFF2563EB);
 
-  static const ColorScheme _deskLightScheme = ColorScheme(
+  // Neutral Greys
+  static const Color neutralWhite = Color(0xFFFFFFFF);
+  static const Color slate50 = Color(0xFFF8FAFC);
+  static const Color slate100 = Color(0xFFF1F5F9);
+  static const Color slate200 = Color(0xFFE2E8F0);
+  static const Color slate300 = Color(0xFFCBD5E1);
+  static const Color slate400 = Color(0xFF94A3B8);
+  static const Color slate500 = Color(0xFF64748B);
+  static const Color slate600 = Color(0xFF475569);
+  static const Color slate700 = Color(0xFF334155);
+  static const Color slate800 = Color(0xFF1E293B);
+  static const Color slate900 = Color(0xFF0F172A);
+  static const Color slate950 = Color(0xFF0B111A);
+
+  // Surface tokens
+  static const Color lightBg = slate50;
+  static const Color darkBg = slate950;
+
+  // Backward compatibility alias for legacy references
+  static const Color red = errorRed;
+  static const Color gray = slate500;
+  static const Color cyan = aqua;
+  static const Color cyanDeep = tealPrimary;
+
+  static const ColorScheme lightScheme = ColorScheme(
     brightness: Brightness.light,
-    primary: cyanDeep,
-    onPrimary: Colors.white,
-    secondary: Color(0xFF5B6880),
-    onSecondary: Colors.white,
-    error: Color(0xFFC42B3A),
-    onError: Colors.white,
-    surface: Color(0xFFFFFFFF),
-    onSurface: Color(0xFF0F1A2E),
+    primary: tealPrimary,
+    onPrimary: neutralWhite,
+    primaryContainer: Color(0xFFE0F2F1),
+    onPrimaryContainer: tealDark,
+    secondary: Color(0xFF334155),
+    onSecondary: neutralWhite,
+    error: errorRedLight,
+    onError: neutralWhite,
+    surface: neutralWhite,
+    onSurface: slate900,
   );
 
-  static const ColorScheme _deskDarkScheme = ColorScheme(
+  static const ColorScheme darkScheme = ColorScheme(
     brightness: Brightness.dark,
-    primary: cyan,
-    onPrimary: Color(0xFF031219),
-    secondary: Color(0xFF9AA7BF),
-    onSecondary: Color(0xFF0A0F1A),
-    error: Color(0xFFFF6B77),
-    onError: Color(0xFF1A0508),
-    surface: Color(0xFF0F1626),
-    onSurface: Color(0xFFE8EDF6),
+    primary: aqua,
+    onPrimary: Color(0xFF04201F),
+    primaryContainer: Color(0xFF0E3E3D),
+    onPrimaryContainer: mint,
+    secondary: slate400,
+    onSecondary: slate950,
+    error: Color(0xFFF87171),
+    onError: Color(0xFF450A0A),
+    surface: Color(0xFF111A27),
+    onSurface: Color(0xFFF8FAFC),
   );
 
-  static const ExaltedColors _deskLightExtra = ExaltedColors(
-    primaryPressed: Color(0xFF086A8A),
-    primaryText: Color(0xFF086A8A),
-    surfaceRaised: Color(0xFFEBF0F7),
-    outline: Color(0xFFD3DBE8),
-    muted: Color(0xFF5B6880),
-    valid: Color(0xFF15803D),
-    sidebar: Color(0xFFE9EEF6),
+  static const ExaltedColors lightExtra = ExaltedColors(
+    primaryPressed: tealDark,
+    primaryText: tealPrimary,
+    surfaceRaised: slate100,
+    outline: slate200,
+    muted: slate500,
+    valid: successGreenLight,
+    sidebar: Color(0xFFF1F5F9),
     canvas: Color(0xFF0B101C),
-    warning: Color(0xFFB45309),
-    info: Color(0xFF0A7EA4),
-    hover: Color(0x140A7EA4),
+    warning: warningAmberLight,
+    info: infoBlueLight,
+    hover: Color(0x14125352),
+    aqua: Color(0xFF0D9488),
+    mint: mint,
+    teal: tealPrimary,
   );
 
-  static const ExaltedColors _deskDarkExtra = ExaltedColors(
-    primaryPressed: Color(0xFF1FB3D1),
-    primaryText: Color(0xFF5BDDF7),
-    surfaceRaised: Color(0xFF151E32),
-    outline: Color(0xFF243049),
-    muted: Color(0xFF8A97B0),
-    valid: Color(0xFF3DDC97),
-    sidebar: Color(0xFF0C1322),
+  static const ExaltedColors darkExtra = ExaltedColors(
+    primaryPressed: Color(0xFF14B8A6),
+    primaryText: aqua,
+    surfaceRaised: Color(0xFF182436),
+    outline: Color(0xFF1F2E45),
+    muted: slate400,
+    valid: Color(0xFF34D399),
+    sidebar: Color(0xFF0E1622),
     canvas: Color(0xFF070B14),
-    warning: Color(0xFFFFB020),
-    info: Color(0xFF2BD4F5),
-    hover: Color(0x142BD4F5),
+    warning: Color(0xFFFBBF24),
+    info: Color(0xFF60A5FA),
+    hover: Color(0x1A2DD4BF),
+    aqua: aqua,
+    mint: mintDark,
+    teal: tealPrimary,
   );
-
-  // ---- Platform look ------------------------------------------------------
-  // Phones (Android, iOS) keep the original Exalted look: brand red on neutral
-  // surfaces. Windows and Linux use the navy and cyan workstation look.
-  static final bool _phone = Platform.isAndroid || Platform.isIOS;
-
-  static final Color lightBg = _phone ? const Color(0xFFFFFFFF) : _deskLightBg;
-  static final Color darkBg = _phone ? const Color(0xFF0E0E10) : _deskDarkBg;
-
-  static const ColorScheme _phoneLightScheme = ColorScheme(
-    brightness: Brightness.light,
-    primary: red,
-    onPrimary: Colors.white,
-    secondary: gray,
-    onSecondary: Colors.white,
-    error: Color(0xFFB5121B),
-    onError: Colors.white,
-    surface: Color(0xFFF5F5F6),
-    onSurface: Color(0xFF1A1A1C),
-  );
-
-  static const ColorScheme _phoneDarkScheme = ColorScheme(
-    brightness: Brightness.dark,
-    primary: red,
-    onPrimary: Colors.white,
-    secondary: Color(0xFFA0A2A8),
-    onSecondary: Colors.black,
-    error: Color(0xFFFF6B6B),
-    onError: Colors.black,
-    surface: Color(0xFF18181B),
-    onSurface: Color(0xFFF2F2F3),
-  );
-
-  static const ExaltedColors _phoneLightExtra = ExaltedColors(
-    primaryPressed: Color(0xFFB8141B),
-    primaryText: Color(0xFFC8161D),
-    surfaceRaised: Color(0xFFEDEDEF),
-    outline: Color(0xFFDADADD),
-    muted: Color(0xFF6D6E70),
-    valid: Color(0xFF1E7B3C),
-  );
-
-  static const ExaltedColors _phoneDarkExtra = ExaltedColors(
-    primaryPressed: Color(0xFFC8161D),
-    primaryText: Color(0xFFFF5A60),
-    surfaceRaised: Color(0xFF222226),
-    outline: Color(0xFF34343A),
-    muted: Color(0xFFA0A2A8),
-    valid: Color(0xFF4CC07A),
-  );
-
-  static final ColorScheme lightScheme =
-      _phone ? _phoneLightScheme : _deskLightScheme;
-  static final ColorScheme darkScheme =
-      _phone ? _phoneDarkScheme : _deskDarkScheme;
-  static final ExaltedColors lightExtra =
-      _phone ? _phoneLightExtra : _deskLightExtra;
-  static final ExaltedColors darkExtra =
-      _phone ? _phoneDarkExtra : _deskDarkExtra;
 }

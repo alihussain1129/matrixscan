@@ -1,6 +1,9 @@
-﻿import '../interpret/interpreter.dart';
+import '../interpret/interpreter.dart';
 
-final RegExp _labelHint = RegExp(r'gtin|ean|upc|isbn|barcode', caseSensitive: false);
+final RegExp _labelHint = RegExp(
+  r'gtin|ean|upc|isbn|barcode',
+  caseSensitive: false,
+);
 final RegExp _formatHint = RegExp(r'ean|upc|isbn|gtin', caseSensitive: false);
 
 bool _gs1CheckOk(String d) {

@@ -1,4 +1,3 @@
-
 /// An immutable inspection and recognition record created by the OCR Workspace.
 ///
 /// Holds the recognized text, verification state, engine metadata, and a permanent
@@ -68,23 +67,23 @@ class OcrRecord {
   }
 
   Map<String, Object?> toJson() => {
-        'id': id,
-        'imagePath': imagePath,
-        'text': text,
-        'rawText': rawText,
-        'createdAt': createdAt.toIso8601String(),
-        'language': language,
-        'engine': engine,
-        'confidence': confidence,
-        'processingDurationMs': processingDurationMs,
-        'blockCount': blockCount,
-        'lineCount': lineCount,
-        'wordCount': wordCount,
-        'ocvPattern': ocvPattern,
-        'ocvPassed': ocvPassed,
-        'pinned': pinned,
-        'metadata': metadata,
-      };
+    'id': id,
+    'imagePath': imagePath,
+    'text': text,
+    'rawText': rawText,
+    'createdAt': createdAt.toIso8601String(),
+    'language': language,
+    'engine': engine,
+    'confidence': confidence,
+    'processingDurationMs': processingDurationMs,
+    'blockCount': blockCount,
+    'lineCount': lineCount,
+    'wordCount': wordCount,
+    'ocvPattern': ocvPattern,
+    'ocvPassed': ocvPassed,
+    'pinned': pinned,
+    'metadata': metadata,
+  };
 
   static OcrRecord? fromJson(Object? json) {
     if (json is! Map) return null;
@@ -103,9 +102,15 @@ class OcrRecord {
     final date = DateTime.tryParse(created);
     if (date == null) return null;
 
-    final rawText = json['rawText'] is String ? json['rawText'] as String : text;
-    final language = json['language'] is String ? json['language'] as String : 'eng';
-    final engine = json['engine'] is String ? json['engine'] as String : 'Tesseract';
+    final rawText = json['rawText'] is String
+        ? json['rawText'] as String
+        : text;
+    final language = json['language'] is String
+        ? json['language'] as String
+        : 'eng';
+    final engine = json['engine'] is String
+        ? json['engine'] as String
+        : 'Tesseract';
     final confidence = (json['confidence'] as num?)?.toDouble() ?? 0.0;
     final duration = (json['processingDurationMs'] as num?)?.toInt() ?? 0;
     final blockCount = (json['blockCount'] as num?)?.toInt() ?? 0;

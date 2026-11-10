@@ -26,7 +26,9 @@ class VerificationSettingsStore {
 
   Future<File> _file() async {
     final dir = await _directory();
-    return File('${dir.path}${Platform.pathSeparator}verification_settings.json');
+    return File(
+      '${dir.path}${Platform.pathSeparator}verification_settings.json',
+    );
   }
 
   /// Never throws. Anything unreadable means "nothing allowed".
@@ -143,6 +145,3 @@ const List<OnlineSourceChoice> onlineSourceChoices = [
     'US drug and health-product listings. Sends the scanned UPC/GTIN only. Off by default. Official FDA listing, not proof a pack is genuine.',
   ),
 ];
-
-
-

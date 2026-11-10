@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/storage/image_storage_service.dart';
 import '../ocr/controllers/ocr_controller.dart';
@@ -12,6 +11,7 @@ import '../scanner/captured_frame.dart';
 import '../scanner/scanner_controller.dart';
 import 'inspection_log.dart';
 import 'inspection_row.dart';
+import '../../core/config/config_controller.dart';
 
 @immutable
 class CombinedSettings {
@@ -28,45 +28,31 @@ class CombinedSettings {
 }
 
 class CombinedSettingsNotifier extends Notifier<CombinedSettings> {
-  static const String _ocrKey = 'exalted_ocr_with_decode';
-  static const String _imgKey = 'exalted_keep_images';
-
-  bool _changed = false;
-
   @override
   CombinedSettings build() {
-    unawaited(_restore());
-    return const CombinedSettings();
-  }
-
-  Future<void> _restore() async {
-    try {
-      final p = await SharedPreferences.getInstance();
-      if (_changed) return;
-      state = CombinedSettings(
-        ocrWithDecode: p.getBool(_ocrKey) ?? true,
-        keepImages: p.getBool(_imgKey) ?? false,
-      );
-    } catch (_) {}
+    final c = ref.read(configControllerProvider);
+    return CombinedSettings(
+      ocrWithDecode: c.decoder.ocrWithDecode,
+      keepImages: c.storage.keepImages,
+    );
   }
 
   void setOcrWithDecode(bool v) {
-    _changed = true;
     state = state.copyWith(ocrWithDecode: v);
     unawaited(_save());
   }
 
   void setKeepImages(bool v) {
-    _changed = true;
     state = state.copyWith(keepImages: v);
     unawaited(_save());
   }
 
   Future<void> _save() async {
     try {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool(_ocrKey, state.ocrWithDecode);
-      await p.setBool(_imgKey, state.keepImages);
+      await ref.read(configControllerProvider.notifier).patch({
+        'decoder': {'ocrWithDecode': state.ocrWithDecode},
+        'storage': {'keepImages': state.keepImages},
+      });
     } catch (_) {}
   }
 }

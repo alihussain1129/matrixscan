@@ -19,8 +19,7 @@ class LinkStore {
 
   Future<void> _queue = Future<void>.value();
 
-  File get _file =>
-      File('${dir.path}${Platform.pathSeparator}link_state.json');
+  File get _file => File('${dir.path}${Platform.pathSeparator}link_state.json');
 
   Future<void> load() async {
     await dir.create(recursive: true);

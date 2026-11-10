@@ -17,13 +17,15 @@ String _withCrc(String body) {
 
 final _registry = defaultInterpreterRegistry();
 
-Interpretation _run(String raw) =>
-    _registry.interpret(ScanPayload(raw: raw, symbology: 'QR Code', source: 'live'));
+Interpretation _run(String raw) => _registry.interpret(
+  ScanPayload(raw: raw, symbology: 'QR Code', source: 'live'),
+);
 
 ScanField _f(Interpretation i, String id) =>
     i.allFields.firstWhere((f) => f.id == id);
 
-final _body = _t('00', '01') +
+final _body =
+    _t('00', '01') +
     _t('01', '12') +
     _t('26', _t('00', 'com.example.pay') + _t('01', 'ACC-0001234567')) +
     _t('52', '5411') +
@@ -62,12 +64,16 @@ void main() {
     expect(_f(i, '63').validation, FieldValidation.valid);
     expect(_f(i, 'raw').value, raw);
     expect(i.warnings.any((w) => w.contains('not verified who owns')), isTrue);
-    expect(i.allFields.every((f) => f.verification == FieldVerification.notVerified), isTrue);
+    expect(
+      i.allFields.every((f) => f.verification == FieldVerification.notVerified),
+      isTrue,
+    );
   });
 
   test('a changed CRC is reported as invalid', () {
     final good = _withCrc(_body);
-    final bad = good.substring(0, good.length - 1) + (good.endsWith('0') ? '1' : '0');
+    final bad =
+        good.substring(0, good.length - 1) + (good.endsWith('0') ? '1' : '0');
     final i = _run(bad);
     expect(_f(i, '63').validation, FieldValidation.invalid);
     expect(i.warnings.any((w) => w.contains('CRC does not match')), isTrue);
@@ -103,11 +109,16 @@ void main() {
     final hidden = i.toJson().toString();
     expect(hidden, isNot(contains('ACC-0001234567')));
     expect(hidden, contains('Test Shop'));
-    expect(i.toJson(includeSensitive: true).toString(), contains('ACC-0001234567'));
+    expect(
+      i.toJson(includeSensitive: true).toString(),
+      contains('ACC-0001234567'),
+    );
   });
 
   test('lengths count UTF-8 bytes, so non-ASCII names parse', () {
-    final raw = _withCrc(_t('00', '01') + _t('59', 'Caf\u00e9') + _t('58', 'PK'));
+    final raw = _withCrc(
+      _t('00', '01') + _t('59', 'Caf\u00e9') + _t('58', 'PK'),
+    );
     expect(_f(_run(raw), '59').value, 'Caf\u00e9');
     expect(_f(_run(raw), '63').validation, FieldValidation.valid);
   });

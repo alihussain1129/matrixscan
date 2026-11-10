@@ -52,20 +52,22 @@ class OcrAutoSaver {
     if (similar(txt, _last)) return;
     _last = txt;
     try {
-      await _ref.read(ocrHistoryRepositoryProvider).addRecord(
-        OcrRecord(
-          id: 'ocr_${DateTime.now().microsecondsSinceEpoch}',
-          imagePath: '',
-          text: txt,
-          rawText: txt,
-          createdAt: DateTime.now(),
-          language: 'eng',
-          engine: Platform.isAndroid
-              ? 'Google ML Kit (live)'
-              : 'Tesseract (live)',
-          processingDurationMs: live.lastMs.value,
-        ),
-      );
+      await _ref
+          .read(ocrHistoryRepositoryProvider)
+          .addRecord(
+            OcrRecord(
+              id: 'ocr_${DateTime.now().microsecondsSinceEpoch}',
+              imagePath: '',
+              text: txt,
+              rawText: txt,
+              createdAt: DateTime.now(),
+              language: 'eng',
+              engine: Platform.isAndroid
+                  ? 'Google ML Kit (live)'
+                  : 'Tesseract (live)',
+              processingDurationMs: live.lastMs.value,
+            ),
+          );
     } catch (e) {
       debugPrint('[EXALTED][OCR_AUTOSAVE] save failed: $e');
     }

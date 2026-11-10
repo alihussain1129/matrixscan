@@ -1,11 +1,8 @@
-import 'dart:io' show Platform;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/devices/keyence/keyence_device_screen.dart';
-import '../../features/devices/keyence/keyence_sr751_client.dart';
 import '../../features/gallery/gallery_import_service.dart';
 import '../../features/history/history_screen.dart';
 import '../../features/home/home_screen.dart';
@@ -396,101 +393,6 @@ class _SidebarItem extends StatelessWidget {
       label: destination.label,
       excludeSemantics: true,
       child: item,
-    );
-  }
-}
-
-// ---------------------------------------------------------------- top bar
-
-class _TopBar extends StatelessWidget {
-  const _TopBar({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.exalted;
-    return Container(
-      height: AppSizes.toolbarHeight,
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-      alignment: Alignment.centerLeft,
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: colors.outline)),
-      ),
-      child: AnimatedSwitcher(
-        duration: AppMotion.fast,
-        child: Text(
-          title,
-          key: ValueKey<String>(title),
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-      ),
-    );
-  }
-}
-
-// ------------------------------------------------------------- status bar
-
-/// Shows only state the app can report: the KEYENCE client connection and
-/// which OCR engine this platform uses. It makes no readiness claims.
-class _StatusBar extends ConsumerWidget {
-  const _StatusBar();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final colors = context.exalted;
-    final text = theme.textTheme.labelSmall!;
-    final keyence = ref.watch(keyenceSr751ClientProvider);
-    final connected = keyence.status == KeyenceConnectionStatus.connected;
-    final ocrEngine = Platform.isAndroid ? 'Google ML Kit' : 'Tesseract';
-    final platform = Platform.isLinux
-        ? 'Linux'
-        : Platform.isWindows
-        ? 'Windows'
-        : Platform.isAndroid
-        ? 'Android'
-        : Platform.operatingSystem;
-
-    return Container(
-      height: 32,
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: colors.sidebar,
-        border: Border(top: BorderSide(color: colors.outline)),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.router_outlined,
-            size: AppSizes.iconXs,
-            color: connected ? colors.valid : colors.muted,
-          ),
-          const SizedBox(width: AppSpacing.xs),
-          Flexible(
-            child: Text(
-              connected
-                  ? 'KEYENCE SR-751 connected · ${keyence.host}:${keyence.port}'
-                  : 'KEYENCE SR-751 not connected',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: text.copyWith(
-                color: connected ? colors.valid : colors.muted,
-              ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.lg),
-          Icon(
-            Icons.text_fields_outlined,
-            size: AppSizes.iconXs,
-            color: colors.muted,
-          ),
-          const SizedBox(width: AppSpacing.xs),
-          Text('OCR engine: $ocrEngine', style: text),
-          const Spacer(),
-          Text(platform, style: text),
-        ],
-      ),
     );
   }
 }

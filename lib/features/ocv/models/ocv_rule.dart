@@ -51,19 +51,19 @@ class OcvRule {
   final String description;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'type': type.name,
-        'pattern': pattern,
-        'minConfidence': minConfidence,
-        'caseSensitive': caseSensitive,
-        'expectedPrefix': expectedPrefix,
-        'expectedSuffix': expectedSuffix,
-        'minNumber': minNumber,
-        'maxNumber': maxNumber,
-        'dateWithinDays': dateWithinDays,
-        'description': description,
-      };
+    'id': id,
+    'name': name,
+    'type': type.name,
+    'pattern': pattern,
+    'minConfidence': minConfidence,
+    'caseSensitive': caseSensitive,
+    'expectedPrefix': expectedPrefix,
+    'expectedSuffix': expectedSuffix,
+    'minNumber': minNumber,
+    'maxNumber': maxNumber,
+    'dateWithinDays': dateWithinDays,
+    'description': description,
+  };
 
   static OcvRule? fromJson(Object? json) {
     if (json is! Map) return null;
@@ -72,7 +72,10 @@ class OcvRule {
     final typeName = json['type'];
     final pattern = json['pattern'];
 
-    if (id is! String || name is! String || typeName is! String || pattern is! String) {
+    if (id is! String ||
+        name is! String ||
+        typeName is! String ||
+        pattern is! String) {
       return null;
     }
 
@@ -84,7 +87,9 @@ class OcvRule {
     final minNum = json['minNumber'] as num?;
     final maxNum = json['maxNumber'] as num?;
     final dateDays = (json['dateWithinDays'] as num?)?.toInt();
-    final desc = json['description'] is String ? json['description'] as String : '';
+    final desc = json['description'] is String
+        ? json['description'] as String
+        : '';
 
     return OcvRule(
       id: id,
@@ -104,34 +109,35 @@ class OcvRule {
 
   /// Preset standard industrial inspection rules.
   static List<OcvRule> presets() => [
-        const OcvRule(
-          id: 'rule_pharma_lot',
-          name: 'Pharmaceutical Lot Number',
-          type: OcvRuleType.lotCode,
-          pattern: r'LOT[:\s-]*[A-Z0-9]{6,12}',
-          description: 'Validates standard 6-12 character alphanumeric batch/lot identifiers.',
-        ),
-        const OcvRule(
-          id: 'rule_expiry_mmyyyy',
-          name: 'Expiration Date (MM/YYYY)',
-          type: OcvRuleType.expiryDate,
-          pattern: r'(0[1-9]|1[0-2])[\/\.-]20\d{2}',
-          description: 'Validates that date is valid MM/YYYY format and has not expired.',
-        ),
-        const OcvRule(
-          id: 'rule_automotive_vin',
-          name: 'Automotive Serial (17-char VIN/DIN)',
-          type: OcvRuleType.serialNumber,
-          pattern: r'[A-HJ-NPR-Z0-9]{17}',
-          caseSensitive: false,
-          description: 'Validates 17-character ISO standard automotive vehicle or chassis serials.',
-        ),
-        const OcvRule(
-          id: 'rule_industrial_batch',
-          name: 'Industrial Batch Code',
-          type: OcvRuleType.regex,
-          pattern: r'B[0-9]{4}-[A-Z]{2}',
-          description: 'Standard factory batch format B####-XX.',
-        ),
-      ];
+    const OcvRule(
+      id: 'rule_pharma_lot',
+      name: 'Pharmaceutical Lot Number',
+      type: OcvRuleType.lotCode,
+      pattern: r'LOT[:\s-]*[A-Z0-9]{6,12}',
+      description: 'Validates standard 6-12 character alphanumeric batch/lot identifiers.',
+    ),
+    const OcvRule(
+      id: 'rule_expiry_mmyyyy',
+      name: 'Expiration Date (MM/YYYY)',
+      type: OcvRuleType.expiryDate,
+      pattern: r'(0[1-9]|1[0-2])[\/\.-]20\d{2}',
+      description:
+          'Validates that date is valid MM/YYYY format and has not expired.',
+    ),
+    const OcvRule(
+      id: 'rule_automotive_vin',
+      name: 'Automotive Serial (17-char VIN/DIN)',
+      type: OcvRuleType.serialNumber,
+      pattern: r'[A-HJ-NPR-Z0-9]{17}',
+      caseSensitive: false,
+      description: 'Validates 17-character ISO standard automotive vehicle or chassis serials.',
+    ),
+    const OcvRule(
+      id: 'rule_industrial_batch',
+      name: 'Industrial Batch Code',
+      type: OcvRuleType.regex,
+      pattern: r'B[0-9]{4}-[A-Z]{2}',
+      description: 'Standard factory batch format B####-XX.',
+    ),
+  ];
 }

@@ -71,7 +71,8 @@ class HistoryItemTile extends StatelessWidget {
     final scheme = theme.colorScheme;
     final text = theme.textTheme;
 
-    final hasImage = entry.imagePath != null &&
+    final hasImage =
+        entry.imagePath != null &&
         entry.imagePath!.isNotEmpty &&
         File(entry.imagePath!).existsSync();
 
@@ -89,7 +90,7 @@ class HistoryItemTile extends StatelessWidget {
                 width: 44,
                 height: 44,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
+                errorBuilder: (context, error, stackTrace) => Container(
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(

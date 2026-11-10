@@ -9,8 +9,8 @@ import '../models/ocv_rule.dart';
 /// Manages persistent storage and retrieval of industrial OCV verification rules.
 class OcvRulesRepository {
   OcvRulesRepository({Future<Directory> Function()? directoryProvider})
-      : _directoryProvider =
-            directoryProvider ?? getApplicationDocumentsDirectory;
+    : _directoryProvider =
+          directoryProvider ?? getApplicationDocumentsDirectory;
 
   final Future<Directory> Function() _directoryProvider;
 

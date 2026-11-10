@@ -10,6 +10,74 @@ import '../core/message_framer.dart';
 /// Connection state of the Keyence SR-751 device.
 enum KeyenceConnectionStatus { disconnected, connecting, connected, error }
 
+/// Result of an explicit KEYENCE communication handshake.
+class KeyenceHandshakeResult {
+  const KeyenceHandshakeResult({
+    required this.success,
+    this.model = '',
+    this.firmwareVersion,
+    this.serialNumber,
+    this.rawResponse = '',
+    this.connectTimeMs = 0,
+    this.handshakeTimeMs = 0,
+    this.totalTimeMs = 0,
+    this.errorMessage,
+  });
+
+  final bool success;
+  final String model;
+  final String? firmwareVersion;
+  final String? serialNumber;
+  final String rawResponse;
+  final int connectTimeMs;
+  final int handshakeTimeMs;
+  final int totalTimeMs;
+  final String? errorMessage;
+
+  factory KeyenceHandshakeResult.failure({
+    required String errorMessage,
+    int connectTimeMs = 0,
+    int handshakeTimeMs = 0,
+    int totalTimeMs = 0,
+  }) {
+    return KeyenceHandshakeResult(
+      success: false,
+      errorMessage: errorMessage,
+      connectTimeMs: connectTimeMs,
+      handshakeTimeMs: handshakeTimeMs,
+      totalTimeMs: totalTimeMs,
+    );
+  }
+
+  KeyenceHandshakeResult copyWith({
+    bool? success,
+    String? model,
+    String? firmwareVersion,
+    String? serialNumber,
+    String? rawResponse,
+    int? connectTimeMs,
+    int? handshakeTimeMs,
+    int? totalTimeMs,
+    String? errorMessage,
+  }) {
+    return KeyenceHandshakeResult(
+      success: success ?? this.success,
+      model: model ?? this.model,
+      firmwareVersion: firmwareVersion ?? this.firmwareVersion,
+      serialNumber: serialNumber ?? this.serialNumber,
+      rawResponse: rawResponse ?? this.rawResponse,
+      connectTimeMs: connectTimeMs ?? this.connectTimeMs,
+      handshakeTimeMs: handshakeTimeMs ?? this.handshakeTimeMs,
+      totalTimeMs: totalTimeMs ?? this.totalTimeMs,
+      errorMessage: errorMessage ?? this.errorMessage,
+    );
+  }
+
+  @override
+  String toString() =>
+      'KeyenceHandshakeResult(success: $success, model: $model, total: ${totalTimeMs}ms)';
+}
+
 /// A barcode decoded and transmitted by the Keyence SR-751 reader.
 class KeyenceScanResult {
   const KeyenceScanResult({
@@ -86,6 +154,26 @@ class KeyenceSr751Client {
 
   /// Consecutive failed or lost connections since the last good connection.
   int get reconnectAttempts => _reconnectAttempts;
+
+  Completer<String>? _pendingQueryCompleter;
+
+  int _lastConnectTimeMs = 0;
+  int get lastConnectTimeMs => _lastConnectTimeMs;
+
+  int _lastHandshakeTimeMs = 0;
+  int get lastHandshakeTimeMs => _lastHandshakeTimeMs;
+
+  int _lastTotalConnectionTimeMs = 0;
+  int get lastTotalConnectionTimeMs => _lastTotalConnectionTimeMs;
+
+  String? _detectedModel;
+  String? get detectedModel => _detectedModel;
+
+  String? _detectedFirmware;
+  String? get detectedFirmware => _detectedFirmware;
+
+  String? _detectedSerial;
+  String? get detectedSerial => _detectedSerial;
 
   Timer? _reconnectTimer;
   bool _explicitDisconnect = false;
@@ -202,6 +290,11 @@ class KeyenceSr751Client {
   }
 
   Future<void> _closeSocketOnly() async {
+    final pending = _pendingQueryCompleter;
+    _pendingQueryCompleter = null;
+    if (pending != null && !pending.isCompleted) {
+      pending.completeError(Exception('Socket closed'));
+    }
     final socket = _socket;
     final sub = _socketSub;
     _socket = null;
@@ -279,6 +372,130 @@ class KeyenceSr751Client {
   /// Queries the reader model and firmware information.
   Future<bool> queryModel() => sendCommand('KEYENCE');
 
+  /// Connects to the Keyence reader and verifies communication with a KEYENCE handshake query.
+  /// Measures elapsed time for TCP connection, handshake, and total readiness.
+  Future<KeyenceHandshakeResult> connectAndVerify({
+    String? targetHost,
+    int? targetPort,
+    Duration timeout = const Duration(seconds: 4),
+  }) async {
+    final sw = Stopwatch()..start();
+    final connected = await connect(
+      targetHost: targetHost,
+      targetPort: targetPort,
+      timeout: timeout,
+    );
+    final connectTime = sw.elapsedMilliseconds;
+    _lastConnectTimeMs = connectTime;
+
+    if (!connected) {
+      _lastTotalConnectionTimeMs = sw.elapsedMilliseconds;
+      return KeyenceHandshakeResult.failure(
+        errorMessage: _lastError ?? 'TCP connection failed to $host:$port',
+        connectTimeMs: connectTime,
+        totalTimeMs: _lastTotalConnectionTimeMs,
+      );
+    }
+
+    final handshakeSw = Stopwatch()..start();
+    final info = await queryDeviceInfo(
+      timeout: const Duration(milliseconds: 1500),
+    );
+    final handshakeTime = handshakeSw.elapsedMilliseconds;
+    _lastHandshakeTimeMs = handshakeTime;
+    _lastTotalConnectionTimeMs = sw.elapsedMilliseconds;
+
+    if (!info.success) {
+      debugPrint('[KEYENCE][HANDSHAKE] Handshake failed: ${info.errorMessage}');
+      await disconnect();
+      _setStatus(KeyenceConnectionStatus.error, info.errorMessage);
+      return info.copyWith(
+        connectTimeMs: connectTime,
+        handshakeTimeMs: handshakeTime,
+        totalTimeMs: _lastTotalConnectionTimeMs,
+      );
+    }
+
+    return info.copyWith(
+      connectTimeMs: connectTime,
+      handshakeTimeMs: handshakeTime,
+      totalTimeMs: _lastTotalConnectionTimeMs,
+    );
+  }
+
+  /// Queries the reader model and firmware using the KEYENCE command and awaits response.
+  Future<KeyenceHandshakeResult> queryDeviceInfo({
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    final socket = _socket;
+    if (socket == null || _status != KeyenceConnectionStatus.connected) {
+      return KeyenceHandshakeResult.failure(
+        errorMessage: 'Scanner is not connected',
+      );
+    }
+
+    final completer = Completer<String>();
+    _pendingQueryCompleter = completer;
+
+    final sent = await sendCommand('KEYENCE');
+    if (!sent) {
+      _pendingQueryCompleter = null;
+      return KeyenceHandshakeResult.failure(
+        errorMessage: 'Failed to transmit KEYENCE query',
+      );
+    }
+
+    final String raw;
+    try {
+      raw = await completer.future.timeout(timeout);
+    } catch (e) {
+      _pendingQueryCompleter = null;
+      return KeyenceHandshakeResult.failure(
+        errorMessage: 'Handshake timeout awaiting KEYENCE response: $e',
+      );
+    }
+
+    final trimmed = raw.trim();
+    if (!trimmed.startsWith('SR-') &&
+        !trimmed.toUpperCase().contains('KEYENCE') &&
+        !trimmed.toUpperCase().contains('SR-7')) {
+      return KeyenceHandshakeResult.failure(
+        errorMessage: 'Unexpected device signature: "$trimmed"',
+      );
+    }
+
+    var model = 'SR-751';
+    String? fw;
+    String? sn;
+
+    if (trimmed.contains(',')) {
+      final parts = trimmed.split(',');
+      if (parts.isNotEmpty && parts[0].trim().isNotEmpty) {
+        model = parts[0].trim();
+      }
+      if (parts.length > 1 && parts[1].trim().isNotEmpty) {
+        fw = parts[1].trim();
+      }
+      if (parts.length > 2 && parts[2].trim().isNotEmpty) {
+        sn = parts[2].trim();
+      }
+    } else {
+      model = trimmed;
+    }
+
+    _detectedModel = model;
+    _detectedFirmware = fw;
+    _detectedSerial = sn;
+
+    return KeyenceHandshakeResult(
+      success: true,
+      model: model,
+      firmwareVersion: fw,
+      serialNumber: sn,
+      rawResponse: trimmed,
+    );
+  }
+
   void _onDataReceived(List<int> bytes) {
     final input = _tolerantLineEndings
         ? <int>[for (final b in bytes) b == 0x0A ? 0x0D : b]
@@ -298,6 +515,14 @@ class KeyenceSr751Client {
 
   void _handleResponse(String response) {
     debugPrint('[KEYENCE][RX] $response');
+
+    if (_pendingQueryCompleter != null &&
+        !_pendingQueryCompleter!.isCompleted) {
+      _pendingQueryCompleter!.complete(response);
+      _pendingQueryCompleter = null;
+      return;
+    }
+
     if (_scanController.isClosed) return;
 
     // NOTE: every non-error line is still treated as a scan. Command replies

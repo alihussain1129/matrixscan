@@ -5,8 +5,9 @@ import 'package:flutter/services.dart';
 class ScanFeedback {
   ScanFeedback._();
 
-  static const MethodChannel _channel =
-      MethodChannel('com.exaltedcoding.exalted/scan_feedback');
+  static const MethodChannel _channel = MethodChannel(
+    'com.exaltedcoding.exalted/scan_feedback',
+  );
 
   static Future<void> beep() async {
     try {

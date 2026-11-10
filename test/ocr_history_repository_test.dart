@@ -25,39 +25,42 @@ void main() {
     }
   });
 
-  test('addRecord and loadAll correctly stores and retrieves OCR records', () async {
-    final record1 = OcrRecord(
-      id: 'ocr-1',
-      imagePath: '/tmp/test1.png',
-      text: 'BATCH 2026-X',
-      rawText: 'BATCH 2026-X',
-      createdAt: DateTime(2026, 11, 2, 10, 0),
-      confidence: 0.95,
-      language: 'eng',
-      engine: 'Tesseract 5.3',
-    );
+  test(
+    'addRecord and loadAll correctly stores and retrieves OCR records',
+    () async {
+      final record1 = OcrRecord(
+        id: 'ocr-1',
+        imagePath: '/tmp/test1.png',
+        text: 'BATCH 2026-X',
+        rawText: 'BATCH 2026-X',
+        createdAt: DateTime(2026, 11, 2, 10, 0),
+        confidence: 0.95,
+        language: 'eng',
+        engine: 'Tesseract 5.3',
+      );
 
-    final record2 = OcrRecord(
-      id: 'ocr-2',
-      imagePath: '/tmp/test2.png',
-      text: 'SERIAL 98765',
-      rawText: 'SERIAL 98765',
-      createdAt: DateTime(2026, 11, 2, 10, 5),
-      confidence: 0.88,
-      language: 'eng',
-      engine: 'Tesseract 5.3',
-    );
+      final record2 = OcrRecord(
+        id: 'ocr-2',
+        imagePath: '/tmp/test2.png',
+        text: 'SERIAL 98765',
+        rawText: 'SERIAL 98765',
+        createdAt: DateTime(2026, 11, 2, 10, 5),
+        confidence: 0.88,
+        language: 'eng',
+        engine: 'Tesseract 5.3',
+      );
 
-    await repository.addRecord(record1);
-    await repository.addRecord(record2);
+      await repository.addRecord(record1);
+      await repository.addRecord(record2);
 
-    final loaded = await repository.loadAll();
-    expect(loaded.length, equals(2));
-    expect(loaded[0].id, equals('ocr-2')); // Newest first
-    expect(loaded[1].id, equals('ocr-1'));
-    expect(loaded[0].text, equals('SERIAL 98765'));
-    expect(loaded[0].confidence, equals(0.88));
-  });
+      final loaded = await repository.loadAll();
+      expect(loaded.length, equals(2));
+      expect(loaded[0].id, equals('ocr-2')); // Newest first
+      expect(loaded[1].id, equals('ocr-1'));
+      expect(loaded[0].text, equals('SERIAL 98765'));
+      expect(loaded[0].confidence, equals(0.88));
+    },
+  );
 
   test('filter correctly searches by query and ocv status', () async {
     final list = [

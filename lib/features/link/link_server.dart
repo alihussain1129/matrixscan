@@ -222,10 +222,8 @@ class LinkServer {
       platform: cap(j['platform'], 30),
       appVersion: cap(j['appVersion'], 30),
     );
-    final ok = await approve(req).timeout(
-      const Duration(seconds: 90),
-      onTimeout: () => false,
-    );
+    final ok = await approve(req)
+        .timeout(const Duration(seconds: 90), onTimeout: () => false);
     if (!ok) throw _HttpError(403, 'rejected');
     final secret = randomBytes(32);
     await store.addDevice(

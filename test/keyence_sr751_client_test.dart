@@ -52,10 +52,14 @@ void main() {
     final sent = await client.triggerRead();
     expect(sent, isTrue);
 
-    final receivedCmd = await serverReceived.future.timeout(const Duration(seconds: 2));
+    final receivedCmd = await serverReceived.future.timeout(
+      const Duration(seconds: 2),
+    );
     expect(receivedCmd, equals('LON\r'));
 
-    final scanResult = await scanEventFuture.timeout(const Duration(seconds: 2));
+    final scanResult = await scanEventFuture.timeout(
+      const Duration(seconds: 2),
+    );
     expect(scanResult.data, equals('EXALTED-DM-99420'));
     expect(scanResult.isError, isFalse);
   });

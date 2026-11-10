@@ -1,12 +1,8 @@
-import 'package:shared_preferences/shared_preferences.dart';
-
 import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:camera/camera.dart';
 import 'package:camera_desktop/camera_desktop.dart';
-
-import 'dart:typed_data';
 
 import 'desktop_frame.dart';
 
@@ -24,6 +20,7 @@ import 'scan_feedback.dart';
 import 'detection_events.dart';
 import '../inspection/combined_inspector.dart';
 import 'captured_frame.dart';
+import '../../core/config/config_controller.dart';
 
 enum CameraStatus {
   idle,
@@ -195,13 +192,13 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   // ---- simple toggles ----------------------------------------------------
 
-  static const String _qualityKey = 'exalted_camera_quality';
-
   Future<void> _loadQuality() async {
     if (_qualityDefine.isNotEmpty) return;
+    // Yield first: build() has not returned yet, and its return value would
+    // overwrite any state set before it does.
+    await Future<void>.value();
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final saved = prefs.getString(_qualityKey);
+      final saved = ref.read(configControllerProvider).camera.quality;
       for (final q in CameraQuality.values) {
         if (q.name == saved && q != state.quality) {
           state = state.copyWith(quality: q);
@@ -212,8 +209,9 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   Future<void> _saveQuality(CameraQuality quality) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_qualityKey, quality.name);
+      await ref.read(configControllerProvider.notifier).patch({
+        'camera': {'quality': quality.name},
+      });
     } catch (_) {}
   }
 
@@ -801,6 +799,78 @@ class ScannerController extends Notifier<ScannerUiState> {
     state = state.copyWith(result: barcode, paused: true);
 
     unawaited(_syncStream());
+  }
+
+  /// Shows a barcode decoded by an external industrial scanner (e.g. KEYENCE SR-751).
+  ///
+  /// Integrates directly into Exalted's primary pipeline:
+  /// - Triggers sound & haptic feedback
+  /// - Saves to history
+  /// - Records in combined inspection
+  /// - Sets the result in the UI state so [ConnectedScanResultCard] renders
+  ///   the full GS1 breakdown, GTIN, AI extraction, and verification.
+  void presentIndustrialScan({
+    required String text,
+    String format = 'Keyence SR-751',
+    int? decodeMicros,
+  }) {
+    _events.reset();
+    _scanStartMs = _resultClock.elapsedMilliseconds;
+
+    HapticFeedback.mediumImpact();
+    unawaited(ScanFeedback.beep());
+
+    debugPrint('[EXALTED][SCANNER] industrial scan received: $text ($format)');
+
+    final kind = _inferSymbology(text);
+
+    final barcode = DecodedBarcode(
+      text: text,
+      kind: kind,
+      corners: const [],
+      decodeMicros: decodeMicros ?? 25000,
+      frameWidth: 1280,
+      frameHeight: 1024,
+    );
+
+    _saveToHistory(barcode, HistorySource.live);
+
+    state = state.copyWith(result: barcode, paused: !state.continuous);
+
+    unawaited(_syncStream());
+  }
+
+  static BarcodeKind _inferSymbology(String text) {
+    final trimmed = text.trim();
+    if (trimmed.startsWith(']d') || trimmed.startsWith(']D')) {
+      return BarcodeKind.dataMatrix;
+    }
+    if (trimmed.startsWith(']Q') || trimmed.startsWith(']q')) {
+      return BarcodeKind.qrCode;
+    }
+    if (trimmed.startsWith(']C') || trimmed.startsWith(']c')) {
+      return BarcodeKind.code128;
+    }
+    if (trimmed.startsWith('WIFI:') ||
+        trimmed.startsWith('http://') ||
+        trimmed.startsWith('https://')) {
+      return BarcodeKind.qrCode;
+    }
+    // Pure numeric formats
+    if (RegExp(r'^\d{13}$').hasMatch(trimmed)) {
+      return BarcodeKind.ean13;
+    }
+    if (RegExp(r'^\d{12}$').hasMatch(trimmed)) {
+      return BarcodeKind.upcA;
+    }
+    if (RegExp(r'^\d{8}$').hasMatch(trimmed)) {
+      return BarcodeKind.ean8;
+    }
+    if (trimmed.startsWith('(01)') || trimmed.startsWith('01')) {
+      return BarcodeKind.dataMatrix;
+    }
+    // Default for industrial optical 2D readers
+    return BarcodeKind.dataMatrix;
   }
 }
 

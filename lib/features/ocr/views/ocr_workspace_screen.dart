@@ -1,4 +1,5 @@
 import '../../../core/router/app_router.dart';
+
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -32,21 +33,21 @@ class OcrWorkspaceScreen extends ConsumerStatefulWidget {
   final String? initialImagePath;
 
   @override
-  ConsumerState<OcrWorkspaceScreen> createState() =>
-      _OcrWorkspaceScreenState();
+  ConsumerState<OcrWorkspaceScreen> createState() => _OcrWorkspaceScreenState();
 }
 
 class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
   String? _currentImagePath;
   String? _roiImagePath;
   final TextEditingController _textController = TextEditingController();
-  final TextEditingController _ocvPatternController =
-      TextEditingController(text: r'LOT-[A-Z0-9]+');
+  final TextEditingController _ocvPatternController = TextEditingController(
+    text: r'LOT-[A-Z0-9]+',
+  );
 
   bool _isProcessing = false;
   OcrResult? _lastResult;
   int _processingTimeMs = 0;
-  String _selectedLanguage = 'eng';
+  final String _selectedLanguage = 'eng';
 
   // OCV Rule Management
   List<OcvRule> _rules = OcvRule.presets();
@@ -93,7 +94,9 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message), duration: const Duration(seconds: 2)));
+      ..showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+      );
   }
 
   Future<void> _pickImage() async {
@@ -124,7 +127,10 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
       String imagePathToScan = _currentImagePath!;
 
       if (useRoi && _normalizedRoi != null) {
-        _roiImagePath = await ImagePrep.cropRoi(_currentImagePath!, _normalizedRoi!);
+        _roiImagePath = await ImagePrep.cropRoi(
+          _currentImagePath!,
+          _normalizedRoi!,
+        );
         imagePathToScan = _roiImagePath!;
       }
 
@@ -251,7 +257,9 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
             const SizedBox(width: 8),
             Text('OCR & OCV Workspace', style: text.titleMedium),
             const SizedBox(width: 12),
-            FormatChip(Platform.isAndroid ? 'ML Kit OCR' : 'Tesseract TSV Engine'),
+            FormatChip(
+              Platform.isAndroid ? 'ML Kit OCR' : 'Tesseract TSV Engine',
+            ),
           ],
         ),
         actions: [
@@ -263,8 +271,7 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
           IconButton(
             tooltip: 'Live camera OCR',
             icon: const Icon(Icons.videocam_outlined),
-            onPressed: () =>
-                ref.read(navIndexProvider.notifier).set(kScanTab),
+            onPressed: () => ref.read(navIndexProvider.notifier).set(kScanTab),
           ),
           IconButton(
             tooltip: 'View OCR History',
@@ -286,25 +293,28 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
               ),
             )
           : (isWide
-              ? Row(
-                  children: [
-                    Expanded(flex: 5, child: _buildImagePane(colors, text)),
-                    VerticalDivider(width: 1, color: colors.outline),
-                    Expanded(flex: 5, child: _buildTextPane(theme, colors, text)),
-                  ],
-                )
-              : SingleChildScrollView(
-                  child: Column(
+                ? Row(
                     children: [
-                      SizedBox(
-                        height: 340,
-                        child: _buildImagePane(colors, text),
+                      Expanded(flex: 5, child: _buildImagePane(colors, text)),
+                      VerticalDivider(width: 1, color: colors.outline),
+                      Expanded(
+                        flex: 5,
+                        child: _buildTextPane(theme, colors, text),
                       ),
-                      const Divider(height: 1),
-                      _buildTextPane(theme, colors, text),
                     ],
-                  ),
-                )),
+                  )
+                : SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        SizedBox(
+                          height: 340,
+                          child: _buildImagePane(colors, text),
+                        ),
+                        const Divider(height: 1),
+                        _buildTextPane(theme, colors, text),
+                      ],
+                    ),
+                  )),
     );
   }
 
@@ -315,13 +325,19 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
         children: [
           // Toolbar above image
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 8),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: 8,
+            ),
             decoration: BoxDecoration(
               border: Border(bottom: BorderSide(color: colors.outline)),
             ),
             child: Row(
               children: [
-                Text('SOURCE IMAGE', style: text.labelSmall!.copyWith(color: colors.muted)),
+                Text(
+                  'SOURCE IMAGE',
+                  style: text.labelSmall!.copyWith(color: colors.muted),
+                ),
                 const SizedBox(width: 12),
                 FilterChip(
                   label: const Text('Draw ROI'),
@@ -360,7 +376,10 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
                   icon: const Icon(Icons.refresh, size: 16),
                   label: const Text('Change Image'),
                   style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -405,10 +424,14 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
                             final w = constraints.maxWidth;
                             final h = constraints.maxHeight;
 
-                            final l = math.min(_dragStart!.dx, _dragCurrent!.dx) / w;
-                            final t = math.min(_dragStart!.dy, _dragCurrent!.dy) / h;
-                            final r = math.max(_dragStart!.dx, _dragCurrent!.dx) / w;
-                            final b = math.max(_dragStart!.dy, _dragCurrent!.dy) / h;
+                            final l =
+                                math.min(_dragStart!.dx, _dragCurrent!.dx) / w;
+                            final t =
+                                math.min(_dragStart!.dy, _dragCurrent!.dy) / h;
+                            final r =
+                                math.max(_dragStart!.dx, _dragCurrent!.dx) / w;
+                            final b =
+                                math.max(_dragStart!.dy, _dragCurrent!.dy) / h;
 
                             setState(() {
                               _normalizedRoi = Rect.fromLTRB(
@@ -448,7 +471,10 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
                           ),
                           child: Container(
                             decoration: BoxDecoration(
-                              border: Border.all(color: Colors.amberAccent, width: 2),
+                              border: Border.all(
+                                color: Colors.amberAccent,
+                                width: 2,
+                              ),
                               color: Colors.amberAccent.withAlpha(30),
                             ),
                           ),
@@ -463,7 +489,10 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
                           height: (_dragCurrent!.dy - _dragStart!.dy).abs(),
                           child: Container(
                             decoration: BoxDecoration(
-                              border: Border.all(color: Colors.cyanAccent, width: 2),
+                              border: Border.all(
+                                color: Colors.cyanAccent,
+                                width: 2,
+                              ),
                               color: Colors.cyanAccent.withAlpha(40),
                             ),
                           ),
@@ -539,7 +568,10 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
           const SizedBox(height: AppSpacing.md),
 
           // Extracted Text Field
-          Text('EXTRACTED TEXT (EDITABLE)', style: text.labelSmall!.copyWith(color: colors.muted)),
+          Text(
+            'EXTRACTED TEXT (EDITABLE)',
+            style: text.labelSmall!.copyWith(color: colors.muted),
+          ),
           const SizedBox(height: 4),
           Expanded(
             child: TextField(
@@ -582,7 +614,9 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
                   label: 'Share',
                   outlined: true,
                   expand: true,
-                  onPressed: _textController.text.isNotEmpty ? _shareText : null,
+                  onPressed: _textController.text.isNotEmpty
+                      ? _shareText
+                      : null,
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
@@ -591,7 +625,9 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
                   label: 'Save Record',
                   outlined: true,
                   expand: true,
-                  onPressed: _textController.text.isNotEmpty ? _saveRecord : null,
+                  onPressed: _textController.text.isNotEmpty
+                      ? _saveRecord
+                      : null,
                 ),
               ),
             ],
@@ -678,11 +714,14 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
               Expanded(
                 flex: 4,
                 child: DropdownButtonFormField<OcvRule>(
-                  value: _selectedRule,
+                  initialValue: _selectedRule,
                   isDense: true,
                   decoration: const InputDecoration(
                     labelText: 'Inspection Rule Recipe',
-                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
                   ),
                   items: _rules.map((rule) {
                     return DropdownMenuItem<OcvRule>(
@@ -709,7 +748,10 @@ class _OcrWorkspaceScreenState extends ConsumerState<OcrWorkspaceScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Pattern / Criteria',
                     isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
                   ),
                   onChanged: (_) => _evaluateOcv(),
                 ),
@@ -803,7 +845,6 @@ class _OcrHistoryModalState extends ConsumerState<_OcrHistoryModal> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final repo = ref.watch(ocrHistoryRepositoryProvider);
 
     return Scaffold(
@@ -858,11 +899,13 @@ class _OcrHistoryModalState extends ConsumerState<_OcrHistoryModal> {
                     ? const Center(child: Text('No OCR records found.'))
                     : ListView.separated(
                         itemCount: filtered.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        separatorBuilder: (context, index) =>
+                            const Divider(height: 1),
                         itemBuilder: (context, index) {
                           final item = filtered[index];
                           return ListTile(
-                            leading: item.imagePath.isNotEmpty &&
+                            leading:
+                                item.imagePath.isNotEmpty &&
                                     File(item.imagePath).existsSync()
                                 ? ClipRRect(
                                     borderRadius: BorderRadius.circular(4),

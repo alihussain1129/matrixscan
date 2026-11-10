@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../constants/brand.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import 'exalted_logo.dart';
@@ -44,7 +43,9 @@ class DesktopAppShell extends ConsumerWidget {
 
     final platformName = Platform.isLinux
         ? 'Linux Desktop (x86_64)'
-        : (Platform.isWindows ? 'Windows Desktop (x64)' : Platform.operatingSystem);
+        : (Platform.isWindows
+              ? 'Windows Desktop (x64)'
+              : Platform.operatingSystem);
 
     return Scaffold(
       body: Column(
@@ -83,7 +84,9 @@ class DesktopAppShell extends ConsumerWidget {
                                 color: theme.colorScheme.primary.withAlpha(25),
                                 borderRadius: BorderRadius.circular(4),
                                 border: Border.all(
-                                  color: theme.colorScheme.primary.withAlpha(60),
+                                  color: theme.colorScheme.primary.withAlpha(
+                                    60,
+                                  ),
                                 ),
                               ),
                               child: Text(
@@ -160,7 +163,9 @@ class DesktopAppShell extends ConsumerWidget {
                           style: OutlinedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(AppRadius.button),
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.button,
+                              ),
                             ),
                           ),
                         ),
@@ -216,7 +221,10 @@ class DesktopAppShell extends ConsumerWidget {
                 const _StatusDivider(),
                 const Icon(Icons.memory_outlined, size: 14),
                 const SizedBox(width: 4),
-                Text('Native C++20 Core (ZXing + DotPeen)', style: text.labelSmall),
+                Text(
+                  'Native C++20 Core (ZXing + DotPeen)',
+                  style: text.labelSmall,
+                ),
                 const _StatusDivider(),
                 const Icon(Icons.text_fields_outlined, size: 14),
                 const SizedBox(width: 4),
@@ -225,17 +233,26 @@ class DesktopAppShell extends ConsumerWidget {
                 Icon(
                   Icons.router_outlined,
                   size: 14,
-                  color: isKeyenceConnected ? const Color(0xFF22C55E) : colors.muted,
+                  color: isKeyenceConnected
+                      ? const Color(0xFF22C55E)
+                      : colors.muted,
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  isKeyenceConnected ? 'Keyence SR-751 Online' : 'Keyence Standby',
+                  isKeyenceConnected
+                      ? 'Keyence SR-751 Online'
+                      : 'Keyence Standby',
                   style: text.labelSmall!.copyWith(
-                    color: isKeyenceConnected ? const Color(0xFF22C55E) : colors.muted,
+                    color: isKeyenceConnected
+                        ? const Color(0xFF22C55E)
+                        : colors.muted,
                   ),
                 ),
                 const Spacer(),
-                Text(platformName, style: text.labelSmall!.copyWith(color: colors.muted)),
+                Text(
+                  platformName,
+                  style: text.labelSmall!.copyWith(color: colors.muted),
+                ),
               ],
             ),
           ),
@@ -283,7 +300,10 @@ class _NavItem extends StatelessWidget {
     final colors = theme.extension<ExaltedColors>()!;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 2),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: 2,
+      ),
       child: Material(
         color: selected ? scheme.primary.withAlpha(30) : Colors.transparent,
         borderRadius: BorderRadius.circular(AppRadius.card),
@@ -304,8 +324,12 @@ class _NavItem extends StatelessWidget {
                   child: Text(
                     label,
                     style: theme.textTheme.bodyMedium!.copyWith(
-                      fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                      color: selected ? scheme.primary : theme.textTheme.bodyMedium!.color,
+                      fontWeight: selected
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                      color: selected
+                          ? scheme.primary
+                          : theme.textTheme.bodyMedium!.color,
                     ),
                   ),
                 ),

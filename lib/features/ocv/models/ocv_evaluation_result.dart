@@ -29,13 +29,14 @@ class CharacterDiff {
   final String actualChar;
 
   Map<String, dynamic> toJson() => {
-        'position': position,
-        'expectedChar': expectedChar,
-        'actualChar': actualChar,
-      };
+    'position': position,
+    'expectedChar': expectedChar,
+    'actualChar': actualChar,
+  };
 
   @override
-  String toString() => 'Pos $position: expected "$expectedChar", found "$actualChar"';
+  String toString() =>
+      'Pos $position: expected "$expectedChar", found "$actualChar"';
 }
 
 /// Detailed, explainable result of an OCV verification inspection.
@@ -65,13 +66,13 @@ class OcvEvaluationResult {
   bool get isInconclusive => status == OcvStatus.inconclusive;
 
   Map<String, dynamic> toJson() => {
-        'status': status.name,
-        'rule': rule.toJson(),
-        'extractedText': extractedText,
-        'explanation': explanation,
-        'timestamp': timestamp.toIso8601String(),
-        'matchedSubstring': matchedSubstring,
-        'confidence': confidence,
-        'diffs': diffs.map((d) => d.toJson()).toList(),
-      };
+    'status': status.name,
+    'rule': rule.toJson(),
+    'extractedText': extractedText,
+    'explanation': explanation,
+    'timestamp': timestamp.toIso8601String(),
+    'matchedSubstring': matchedSubstring,
+    'confidence': confidence,
+    'diffs': diffs.map((d) => d.toJson()).toList(),
+  };
 }

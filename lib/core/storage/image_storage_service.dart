@@ -11,8 +11,8 @@ import 'package:path_provider/path_provider.dart';
 /// until explicitly removed by the user.
 class ImageStorageService {
   ImageStorageService({Future<Directory> Function()? directoryProvider})
-      : _directoryProvider =
-            directoryProvider ?? getApplicationDocumentsDirectory;
+    : _directoryProvider =
+          directoryProvider ?? getApplicationDocumentsDirectory;
 
   final Future<Directory> Function() _directoryProvider;
 

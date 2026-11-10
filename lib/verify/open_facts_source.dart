@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import '../interpret/interpreter.dart';
 import '../interpret/scan_field.dart';
@@ -12,12 +12,8 @@ String? _s(Object? v) {
   return t.isEmpty ? null : t;
 }
 
-ScanField _f(String id, String label, String? value) => ScanField(
-  id: id,
-  label: label,
-  value: value,
-  origin: FieldOrigin.external,
-);
+ScanField _f(String id, String label, String? value) =>
+    ScanField(id: id, label: label, value: value, origin: FieldOrigin.external);
 
 /// Open Food Facts family (Beauty Facts, Products Facts). Same API.
 class OpenFactsSource implements VerificationSource {

@@ -4,6 +4,7 @@ import '../../core/storage/image_storage_service.dart';
 import 'captured_frame.dart';
 import 'live_ocr_analyzer.dart';
 import 'ocr_auto_saver.dart';
+
 import 'dart:io';
 
 import 'package:camera/camera.dart';
@@ -121,9 +122,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       var path = '';
       final frame = silent
           ? null
-          : await ref
-              .read(scannerControllerProvider.notifier)
-              .grabFrame();
+          : await ref.read(scannerControllerProvider.notifier).grabFrame();
       if (frame != null) {
         final encoded = await encodeFrame(frame);
         if (encoded != null) {
@@ -132,20 +131,22 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
               .saveImageBytes(encoded.png, prefix: 'ocr_live', ext: 'png');
         }
       }
-      await ref.read(ocrHistoryRepositoryProvider).addRecord(
-        OcrRecord(
-          id: 'ocr_${DateTime.now().microsecondsSinceEpoch}',
-          imagePath: path,
-          text: txt,
-          rawText: txt,
-          createdAt: DateTime.now(),
-          language: 'eng',
-          engine: Platform.isAndroid
-              ? 'Google ML Kit (live)'
-              : 'Tesseract (live)',
-          processingDurationMs: live.lastMs.value,
-        ),
-      );
+      await ref
+          .read(ocrHistoryRepositoryProvider)
+          .addRecord(
+            OcrRecord(
+              id: 'ocr_${DateTime.now().microsecondsSinceEpoch}',
+              imagePath: path,
+              text: txt,
+              rawText: txt,
+              createdAt: DateTime.now(),
+              language: 'eng',
+              engine: Platform.isAndroid
+                  ? 'Google ML Kit (live)'
+                  : 'Tesseract (live)',
+              processingDurationMs: live.lastMs.value,
+            ),
+          );
       if (!silent) _snack('Saved to OCR History');
     } catch (e) {
       if (!silent) _snack('Could not save: $e');
@@ -349,16 +350,16 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     });
 
     // The scan line is hidden under a result card, so stop animating it.
-    ref.listen<bool>(scannerControllerProvider.select((s) => s.result != null), (
-      previous,
-      hasResult,
-    ) {
-      if (hasResult) {
-        _stopLineAnimation();
-      } else if (ref.read(navIndexProvider) == kScanTab) {
-        _startLineAnimation();
-      }
-    });
+    ref.listen<bool>(
+      scannerControllerProvider.select((s) => s.result != null),
+      (previous, hasResult) {
+        if (hasResult) {
+          _stopLineAnimation();
+        } else if (ref.read(navIndexProvider) == kScanTab) {
+          _startLineAnimation();
+        }
+      },
+    );
     ref.listen<String?>(scannerControllerProvider.select((s) => s.notice), (
       previous,
       next,
@@ -507,8 +508,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                         top: MediaQuery.paddingOf(context).top + 64,
                         child: IgnorePointer(
                           child: ValueListenableBuilder<String>(
-                            valueListenable:
-                                ref.watch(liveOcrAnalyzerProvider).text,
+                            valueListenable: ref
+                                .watch(liveOcrAnalyzerProvider)
+                                .text,
                             builder: (context, liveText, _) {
                               if (liveText.isEmpty) {
                                 return const SizedBox.shrink();
@@ -539,8 +541,9 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                         left: 12,
                         top: MediaQuery.paddingOf(context).top + 16,
                         child: ValueListenableBuilder<String>(
-                          valueListenable:
-                              ref.watch(liveOcrAnalyzerProvider).text,
+                          valueListenable: ref
+                              .watch(liveOcrAnalyzerProvider)
+                              .text,
                           builder: (context, liveText, _) {
                             if (liveText.isEmpty) {
                               return const SizedBox.shrink();

@@ -16,9 +16,9 @@ class OcrHistoryRepository {
     Future<Directory> Function()? directoryProvider,
     ImageStorageService? imageStorageService,
     this.maxEntries = 5000,
-  })  : _directoryProvider =
-            directoryProvider ?? getApplicationDocumentsDirectory,
-        _imageStorageService = imageStorageService ?? ImageStorageService();
+  }) : _directoryProvider =
+           directoryProvider ?? getApplicationDocumentsDirectory,
+       _imageStorageService = imageStorageService ?? ImageStorageService();
 
   final Future<Directory> Function() _directoryProvider;
   final ImageStorageService _imageStorageService;

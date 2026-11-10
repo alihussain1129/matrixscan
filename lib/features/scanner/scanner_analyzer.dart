@@ -115,7 +115,8 @@ class ScannerAnalyzer implements FrameAnalyzer {
   static const int _dotAfterMisses = 12;
   static const int _dotEvery = 3;
   int _dotCursor = 0;
-  int _missStreak = 0;  int _lightCursor = 0;
+  int _missStreak = 0;
+  int _lightCursor = 0;
 
   final Map<String, int> _passN = {};
   final Map<String, int> _passUs = {};

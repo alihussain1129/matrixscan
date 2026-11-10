@@ -81,7 +81,9 @@ class HistoryEntry {
     final sourceValue = HistorySource.values.asNameMap()[source];
     if (date == null || kindValue == null || sourceValue == null) return null;
     final format = json['format'];
-    final imagePath = json['imagePath'] is String ? json['imagePath'] as String : null;
+    final imagePath = json['imagePath'] is String
+        ? json['imagePath'] as String
+        : null;
     final duration = (json['processingDurationMs'] as num?)?.toDouble();
     return HistoryEntry(
       id: id,

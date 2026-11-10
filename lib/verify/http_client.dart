@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -57,5 +57,3 @@ Future<HttpReply> _once(Uri uri) async {
     client.close(force: true);
   }
 }
-
-

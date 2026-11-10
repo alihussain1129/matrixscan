@@ -4,14 +4,17 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../features/devices/keyence/keyence_scanner_coordinator.dart';
 import '../../features/devices/keyence/keyence_sr751_client.dart';
 import '../../features/ocr/services/tesseract_locator.dart';
 import '../../features/scanner/camera_settings_dialog.dart';
 import '../../features/scanner/scanner_controller.dart';
 import '../../features/settings/settings_controller.dart';
+import '../router/app_router.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_tokens.dart';
+import '../widgets/status_badge.dart';
 
 /// What was actually found about the OCR engine on this machine.
 @immutable
@@ -77,8 +80,10 @@ class DesktopTopBar extends ConsumerWidget {
     final colors = context.exalted;
     final theme = Theme.of(context);
     final ui = ref.watch(scannerControllerProvider);
+    final keyence = ref.watch(keyenceScannerCoordinatorProvider);
     final mode = ref.watch(themeModeProvider);
-    final narrow = MediaQuery.sizeOf(context).width < 900;
+    final width = MediaQuery.sizeOf(context).width;
+    final isCompact = width < 950;
     final live = ui.status == CameraStatus.ready && ui.camera != null;
     final processing = !live ? 'Idle' : (ui.paused ? 'Paused' : 'Scanning');
     final stateColor = live
@@ -89,8 +94,9 @@ class DesktopTopBar extends ConsumerWidget {
 
     return Container(
       height: AppSizes.toolbarHeight,
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
       decoration: BoxDecoration(
+        color: theme.scaffoldBackgroundColor,
         border: Border(bottom: BorderSide(color: colors.outline)),
       ),
       child: Row(
@@ -100,11 +106,41 @@ class DesktopTopBar extends ConsumerWidget {
             child: Text(
               title,
               key: ValueKey<String>(title),
-              style: theme.textTheme.titleLarge,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
-          if (!narrow) ...[
-            const SizedBox(width: AppSpacing.xl),
+          const SizedBox(width: AppSpacing.lg),
+          // KEYENCE SR-751 Quick Status Badge (Interactive)
+          InkWell(
+            onTap: () => ref.read(navIndexProvider.notifier).set(kDevicesTab),
+            borderRadius: BorderRadius.circular(AppRadius.chip),
+            child: Tooltip(
+              message: keyence.isConnected
+                  ? 'KEYENCE ${keyence.model} Connected (${keyence.host}:${keyence.port}) — Click to Manage'
+                  : 'KEYENCE Industrial Scanner: ${keyence.isDiscovering ? 'Discovering...' : 'Offline'} — Click to Connect',
+              child: StatusBadge(
+                label: keyence.isConnected
+                    ? 'KEYENCE ${keyence.model}'
+                    : (keyence.isDiscovering
+                          ? 'Discovering...'
+                          : 'Scanner Offline'),
+                sublabel: keyence.isConnected
+                    ? '${keyence.totalConnectionTimeMs}ms'
+                    : null,
+                variant: keyence.isConnected
+                    ? StatusBadgeVariant.success
+                    : (keyence.isDiscovering
+                          ? StatusBadgeVariant.processing
+                          : StatusBadgeVariant.neutral),
+                icon: Icons.router_outlined,
+                compact: true,
+              ),
+            ),
+          ),
+          if (!isCompact) ...[
+            const SizedBox(width: AppSpacing.md),
             Flexible(
               child: Tooltip(
                 message: ui.camera?.description.name ?? 'No camera open',
@@ -129,17 +165,17 @@ class DesktopTopBar extends ConsumerWidget {
             segments: const [
               ButtonSegment<ThemeMode>(
                 value: ThemeMode.system,
-                icon: Icon(Icons.brightness_auto_outlined),
-                tooltip: 'Follow the system theme',
+                icon: Icon(Icons.brightness_auto_outlined, size: 16),
+                tooltip: 'System theme',
               ),
               ButtonSegment<ThemeMode>(
                 value: ThemeMode.light,
-                icon: Icon(Icons.light_mode_outlined),
+                icon: Icon(Icons.light_mode_outlined, size: 16),
                 tooltip: 'Light theme',
               ),
               ButtonSegment<ThemeMode>(
                 value: ThemeMode.dark,
-                icon: Icon(Icons.dark_mode_outlined),
+                icon: Icon(Icons.dark_mode_outlined, size: 16),
                 tooltip: 'Dark theme',
               ),
             ],
@@ -152,7 +188,7 @@ class DesktopTopBar extends ConsumerWidget {
           const SizedBox(width: AppSpacing.sm),
           IconButton(
             tooltip: 'Camera settings',
-            icon: const Icon(Icons.tune),
+            icon: const Icon(Icons.tune, size: 18),
             onPressed: () => showCameraSettingsDialog(context),
           ),
         ],
@@ -241,9 +277,9 @@ class _DesktopStatusBarState extends ConsumerState<DesktopStatusBar> {
   Widget build(BuildContext context) {
     final colors = context.exalted;
     final ui = ref.watch(scannerControllerProvider);
-    final keyence = ref.watch(keyenceSr751ClientProvider);
+    final keyence = ref.watch(keyenceScannerCoordinatorProvider);
     final ocr = ref.watch(ocrAvailabilityProvider);
-    final connected = keyence.status == KeyenceConnectionStatus.connected;
+    final connected = keyence.isConnected;
     final cam = ui.camera;
     final live = ui.status == CameraStatus.ready && cam != null;
 
@@ -271,10 +307,22 @@ class _DesktopStatusBarState extends ConsumerState<DesktopStatusBar> {
     final ocrOk = ocr.maybeWhen(data: (o) => o.ok, orElse: () => false);
 
     final platform = Platform.isLinux
-        ? 'Linux'
+        ? 'Linux x64'
         : Platform.isWindows
-        ? 'Windows'
+        ? 'Windows x64'
         : Platform.operatingSystem;
+
+    String keyenceText;
+    if (connected) {
+      keyenceText =
+          'KEYENCE ${keyence.model} connected · ${keyence.host}:${keyence.port} (${keyence.totalConnectionTimeMs}ms)';
+    } else if (keyence.isDiscovering) {
+      keyenceText = 'KEYENCE: Discovering scanners...';
+    } else if (keyence.status == KeyenceConnectionStatus.connecting) {
+      keyenceText = 'KEYENCE: Connecting to ${keyence.host}...';
+    } else {
+      keyenceText = 'KEYENCE: Offline';
+    }
 
     return Container(
       height: 32,
@@ -305,10 +353,10 @@ class _DesktopStatusBarState extends ConsumerState<DesktopStatusBar> {
           const SizedBox(width: AppSpacing.lg),
           _StatusItem(
             icon: Icons.router_outlined,
-            text: connected
-                ? 'KEYENCE SR-751 connected · ${keyence.host}:${keyence.port}'
-                : 'KEYENCE SR-751 not connected',
-            color: connected ? colors.valid : colors.muted,
+            text: keyenceText,
+            color: connected
+                ? colors.valid
+                : (keyence.isDiscovering ? colors.aqua : colors.muted),
           ),
           if (MediaQuery.sizeOf(context).width > 1200) ...[
             const SizedBox(width: AppSpacing.lg),

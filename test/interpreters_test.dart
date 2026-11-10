@@ -29,7 +29,10 @@ void main() {
       expect(_id(i, 'password').value, 's3cret-pass');
       expect(_id(i, 'raw').value, raw);
       expect(i.toJson().toString(), isNot(contains('s3cret-pass')));
-      expect(i.toJson(includeSensitive: true).toString(), contains('s3cret-pass'));
+      expect(
+        i.toJson(includeSensitive: true).toString(),
+        contains('s3cret-pass'),
+      );
     });
 
     test('open network has no password', () {
@@ -46,7 +49,9 @@ void main() {
 
   group('URL', () {
     test('parts and warnings', () {
-      final i = _run('https://user@evil.example.com:8443/path/a?x=1&y=two#frag');
+      final i = _run(
+        'https://user@evil.example.com:8443/path/a?x=1&y=two#frag',
+      );
       expect(i.formatName, 'Web link');
       expect(_id(i, 'scheme').value, 'https');
       expect(_id(i, 'host').value, 'evil.example.com');
@@ -54,10 +59,18 @@ void main() {
       expect(_id(i, 'path').value, '/path/a');
       expect(_id(i, 'fragment').value, 'frag');
       expect(
-        i.section('url')!.sections.single.fields.map((f) => '${f.label}=${f.value}'),
+        i
+            .section('url')!
+            .sections
+            .single
+            .fields
+            .map((f) => '${f.label}=${f.value}'),
         ['x=1', 'y=two'],
       );
-      expect(i.warnings.any((w) => w.contains('real host is evil.example.com')), isTrue);
+      expect(
+        i.warnings.any((w) => w.contains('real host is evil.example.com')),
+        isTrue,
+      );
       expect(i.warnings.any((w) => w.contains('non-standard port')), isTrue);
       expect(_id(i, 'redirects').presence, FieldPresence.unavailable);
       expect(_id(i, 'reputation').presence, FieldPresence.unavailable);
@@ -84,7 +97,10 @@ void main() {
 
     test('HTTPS alone gives no trust claim', () {
       final i = _run('https://example.com/');
-      expect(_id(i, 'https').note, contains('does not show that the site is trustworthy'));
+      expect(
+        _id(i, 'https').note,
+        contains('does not show that the site is trustworthy'),
+      );
     });
 
     test('text and other schemes are not links', () {
@@ -116,7 +132,10 @@ void main() {
       expect(_label(i, 'Organization').single.value, 'Example, Inc., Sales');
       expect(_label(i, 'Phone').single.value, '+1-555-0100');
       expect(_label(i, 'Email').single.value, 'jane@example.com');
-      expect(_label(i, 'Address').single.value, '1 Main St, Springfield, IL, 62701, USA');
+      expect(
+        _label(i, 'Address').single.value,
+        '1 Main St, Springfield, IL, 62701, USA',
+      );
       expect(_label(i, 'Other: X-CUSTOM').single.value, 'hello');
       expect(_id(i, 'raw').value, vcard);
     });
@@ -137,7 +156,9 @@ void main() {
     // Name order (family,given) is from memory of the MECARD format and is
     // not yet checked against its specification.
     test('MECARD fields', () {
-      final i = _run(r'MECARD:N:Owen,Sean;TEL:+15550100;EMAIL:sean@example.com;NOTE:a\;b;;');
+      final i = _run(
+        r'MECARD:N:Owen,Sean;TEL:+15550100;EMAIL:sean@example.com;NOTE:a\;b;;',
+      );
       expect(i.formatName, 'MECARD contact');
       expect(_label(i, 'Name').single.value, 'Sean Owen');
       expect(_label(i, 'Phone').single.value, '+15550100');
@@ -161,7 +182,12 @@ void main() {
       expect(_id(i, '21').value, 'XYZ789');
       expect(_id(i, 'raw').value, full);
       expect(i.warnings.any((w) => w.contains('not confirmed as GS1')), isTrue);
-      expect(i.allFields.every((f) => f.verification == FieldVerification.notVerified), isTrue);
+      expect(
+        i.allFields.every(
+          (f) => f.verification == FieldVerification.notVerified,
+        ),
+        isTrue,
+      );
     });
 
     test('absent fields are not present, and no expiry status is invented', () {

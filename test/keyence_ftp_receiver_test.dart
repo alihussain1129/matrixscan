@@ -15,7 +15,12 @@ void main() {
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('ftp_test_');
     imageStorage = ImageStorageService(directoryProvider: () async => tempDir);
-    ftpReceiver = KeyenceFtpReceiver(port: 0, imageStorage: imageStorage);
+    ftpReceiver = KeyenceFtpReceiver(
+      port: 0,
+      imageStorage: imageStorage,
+      username: 'keyence',
+      password: 'keyence@exalted.local',
+    );
     await ftpReceiver.start();
   });
 
@@ -28,7 +33,10 @@ void main() {
 
   test('FTP receiver handles full passive upload session and saves image', () async {
     final serverPort = ftpReceiver.boundPort;
-    final socket = await Socket.connect(InternetAddress.loopbackIPv4, serverPort);
+    final socket = await Socket.connect(
+      InternetAddress.loopbackIPv4,
+      serverPort,
+    );
 
     final lineController = StreamController<String>.broadcast();
     final buffer = StringBuffer();
@@ -59,7 +67,7 @@ void main() {
     await waitForLineStartingWith('220');
 
     // USER
-    socket.write('USER anonymous\r\n');
+    socket.write('USER keyence\r\n');
     await waitForLineStartingWith('331');
 
     // PASS
@@ -75,9 +83,11 @@ void main() {
     final pasvResp = await waitForLineStartingWith('227');
 
     // Extract passive IP & Port from '227 Entering Passive Mode (127,0,0,1,p1,p2)'
-    final match = RegExp(r'\((\d+),(\d+),(\d+),(\d+),(\d+),(\d+)\)').firstMatch(pasvResp);
+    final match = RegExp(r'\((\d+),(\d+),(\d+),(\d+),(\d+),(\d+)\)')
+        .firstMatch(pasvResp);
     expect(match, isNotNull);
-    final ip = '${match!.group(1)}.${match.group(2)}.${match.group(3)}.${match.group(4)}';
+    final ip =
+        '${match!.group(1)}.${match.group(2)}.${match.group(3)}.${match.group(4)}';
     final p1 = int.parse(match.group(5)!);
     final p2 = int.parse(match.group(6)!);
     final dataPort = (p1 << 8) | p2;
@@ -90,7 +100,18 @@ void main() {
     await waitForLineStartingWith('150');
 
     // Send dummy image bytes over data socket
-    final dummyImageBytes = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4, 0xFF, 0xD9]);
+    final dummyImageBytes = Uint8List.fromList([
+      0xFF,
+      0xD8,
+      0xFF,
+      0xE0,
+      1,
+      2,
+      3,
+      4,
+      0xFF,
+      0xD9,
+    ]);
     dataSocket.add(dummyImageBytes);
     await dataSocket.flush();
     await dataSocket.close();
@@ -99,7 +120,9 @@ void main() {
     await waitForLineStartingWith('226');
 
     // Check emitted event
-    final receivedFiles = await Directory('${tempDir.path}/exalted_media').list().toList();
+    final receivedFiles = await Directory('${tempDir.path}/exalted_media')
+        .list()
+        .toList();
     expect(receivedFiles.isNotEmpty, isTrue);
 
     // QUIT

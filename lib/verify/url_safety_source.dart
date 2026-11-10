@@ -1,4 +1,4 @@
-﻿import '../interpret/interpreter.dart';
+import '../interpret/interpreter.dart';
 import 'code_utils.dart';
 import 'verification.dart';
 
@@ -11,15 +11,25 @@ class UrlSafetySource implements VerificationSource {
   );
 
   static const _shorteners = {
-    'bit.ly', 'tinyurl.com', 't.co', 'goo.gl', 'is.gd', 'ow.ly', 'buff.ly',
-    'cutt.ly', 'rebrand.ly', 'shorturl.at', 'tiny.cc',
+    'bit.ly',
+    'tinyurl.com',
+    't.co',
+    'goo.gl',
+    'is.gd',
+    'ow.ly',
+    'buff.ly',
+    'cutt.ly',
+    'rebrand.ly',
+    'shorturl.at',
+    'tiny.cc',
   };
 
   @override
   SourceInfo get info => sourceInfo;
 
   @override
-  bool appliesTo(Interpretation interpretation) => urlOf(interpretation) != null;
+  bool appliesTo(Interpretation interpretation) =>
+      urlOf(interpretation) != null;
 
   @override
   Future<SourceResult> check(Interpretation interpretation) async {
@@ -44,7 +54,8 @@ class UrlSafetySource implements VerificationSource {
     if (uri.userInfo.isNotEmpty) {
       flags.add('contains a user name part that can hide the real site');
     }
-    if (RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(host) || host.contains(':')) {
+    if (RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(host) ||
+        host.contains(':')) {
       flags.add('points to a raw IP address');
     }
     if (host.split('.').any((p) => p.startsWith('xn--'))) {

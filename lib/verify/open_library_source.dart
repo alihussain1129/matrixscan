@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import '../interpret/interpreter.dart';
 import '../interpret/scan_field.dart';
@@ -12,12 +12,8 @@ String? _s(Object? v) {
   return t.isEmpty ? null : t;
 }
 
-ScanField _f(String id, String label, String? value) => ScanField(
-  id: id,
-  label: label,
-  value: value,
-  origin: FieldOrigin.external,
-);
+ScanField _f(String id, String label, String? value) =>
+    ScanField(id: id, label: label, value: value, origin: FieldOrigin.external);
 
 /// Books by ISBN-13 (EAN barcodes starting 978/979) via Open Library.
 class OpenLibrarySource implements VerificationSource {

@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import '../interpret/interpreter.dart';
 import '../interpret/scan_field.dart';
@@ -34,7 +34,8 @@ class NhtsaVinSource implements VerificationSource {
   SourceInfo get info => sourceInfo;
 
   @override
-  bool appliesTo(Interpretation interpretation) => vinOf(interpretation) != null;
+  bool appliesTo(Interpretation interpretation) =>
+      vinOf(interpretation) != null;
 
   @override
   Future<SourceResult> check(Interpretation interpretation) async {

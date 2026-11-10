@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/features/ocr/services/tesseract_locator.dart';
+import 'package:exalted/features/ocr/services/tesseract_locator.dart';
 
 void main() {
   group('TesseractLocator', () {

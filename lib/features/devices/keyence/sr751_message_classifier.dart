@@ -47,6 +47,22 @@ class Sr751ReplyProfile {
         acknowledgements: const <String>{'OK'},
       );
 
+  /// Production profile with verified SR-750/SR-751 series protocol responses:
+  /// - Errors: ERROR (with optional error code), NG
+  /// - Acknowledgements: OK, 00
+  /// - Status: STAT:... or two-digit status codes
+  const Sr751ReplyProfile.production({
+    String? barcodePrefix,
+    Duration commandReplyWindow = const Duration(seconds: 2),
+  }) : this(
+         name: 'production',
+         errorPatterns: const <String>[r'^ERROR(,\d+)?$', r'^NG$'],
+         acknowledgements: const <String>{'OK', '00'},
+         statusPatterns: const <String>[r'^STAT:.*$'],
+         barcodePrefix: barcodePrefix,
+         commandReplyWindow: commandReplyWindow,
+       );
+
   final String name;
 
   /// Regular expressions for lines that mean a failed read or an error.
@@ -155,6 +171,15 @@ class Sr751MessageClassifier {
         Sr751MessageKind.barcode,
         text,
         payload: payload,
+      );
+    }
+    if (_pendingCommand == 'KEYENCE' &&
+        (text.startsWith('SR-') || text.startsWith('KEYENCE'))) {
+      final command = _takePending();
+      return Sr751Classification(
+        Sr751MessageKind.commandResponse,
+        text,
+        command: command,
       );
     }
     if (profile.acknowledgements.contains(text)) {

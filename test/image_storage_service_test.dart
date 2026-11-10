@@ -19,24 +19,34 @@ void main() {
     }
   });
 
-  test('saveImageBytes writes file permanently to exalted_media directory', () async {
-    final bytes = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]);
-    final path = await service.saveImageBytes(bytes, prefix: 'test_capture', ext: 'jpg');
+  test(
+    'saveImageBytes writes file permanently to exalted_media directory',
+    () async {
+      final bytes = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]);
+      final path = await service.saveImageBytes(
+        bytes,
+        prefix: 'test_capture',
+        ext: 'jpg',
+      );
 
-    expect(File(path).existsSync(), isTrue);
-    expect(path, contains('exalted_media'));
-    expect(path, contains('test_capture_'));
-    expect(path.endsWith('.jpg'), isTrue);
+      expect(File(path).existsSync(), isTrue);
+      expect(path, contains('exalted_media'));
+      expect(path, contains('test_capture_'));
+      expect(path.endsWith('.jpg'), isTrue);
 
-    final readBytes = await File(path).readAsBytes();
-    expect(readBytes, equals(bytes));
-  });
+      final readBytes = await File(path).readAsBytes();
+      expect(readBytes, equals(bytes));
+    },
+  );
 
   test('persistSourceImage copies external file to media repository', () async {
     final srcFile = File('${tempDir.path}/external_source.png');
     await srcFile.writeAsString('sample-image-data-payload');
 
-    final copiedPath = await service.persistSourceImage(srcFile.path, prefix: 'ocr_doc');
+    final copiedPath = await service.persistSourceImage(
+      srcFile.path,
+      prefix: 'ocr_doc',
+    );
     expect(File(copiedPath).existsSync(), isTrue);
     expect(copiedPath, contains('exalted_media'));
     expect(copiedPath, contains('ocr_doc_'));

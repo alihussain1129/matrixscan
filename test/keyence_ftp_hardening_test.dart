@@ -89,8 +89,8 @@ void main() {
     receiver = KeyenceFtpReceiver(
       port: 0,
       imageStorage: ImageStorageService(directoryProvider: () async => tempDir),
-      username: username,
-      password: password,
+      username: username ?? 'tester',
+      password: password ?? 'secret',
       maxUploadBytes: maxUploadBytes ?? 20 * 1024 * 1024,
     );
     await receiver!.start();
@@ -100,8 +100,8 @@ void main() {
   }
 
   Future<void> anonymousLogin(_FtpClient c) async {
-    expect(await c.send('USER anonymous'), startsWith('331'));
-    expect(await c.send('PASS x'), startsWith('230'));
+    expect(await c.send('USER tester'), startsWith('331'));
+    expect(await c.send('PASS secret'), startsWith('230'));
     expect(await c.send('TYPE I'), startsWith('200'));
   }
 

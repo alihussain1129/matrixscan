@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/storage/image_storage_service.dart';
 import '../core/message_framer.dart';
 import '../core/upload_guard.dart';
+import '../../../core/config/config_controller.dart';
 
 /// Event fired when an industrial camera or Keyence SR-751 uploads a CMOS frame.
 class KeyenceFtpImageReceived {
@@ -34,9 +35,8 @@ class KeyenceFtpImageReceived {
 /// Lightweight embedded FTP server that receives image uploads from Keyence
 /// SR-751 readers and industrial cameras. Pure Dart, no external dependencies.
 ///
-/// Security: when [username] and [password] are set, logins are checked.
-/// When they are null, any login is accepted (legacy behaviour) and a warning
-/// is logged. Uploads are limited to [maxUploadBytes] and to image file
+/// Security: both [username] and [password] are required. The receiver refuses
+/// to start without them; anonymous login is never accepted. Uploads are limited to [maxUploadBytes] and to image file
 /// extensions, and a data connection is only accepted from the same IP as the
 /// control connection.
 class KeyenceFtpReceiver {
@@ -51,8 +51,8 @@ class KeyenceFtpReceiver {
        _bindAddress = bindAddress ?? InternetAddress.anyIPv4;
 
   final int port;
-  final String? username;
-  final String? password;
+  String? username;
+  String? password;
   final int maxUploadBytes;
   final ImageStorageService _imageStorage;
   final InternetAddress _bindAddress;
@@ -70,15 +70,34 @@ class KeyenceFtpReceiver {
   Stream<KeyenceFtpImageReceived> get onImageReceived =>
       _imageStreamController.stream;
 
+  /// Installs the credentials (the password comes from the OS credential
+  /// vault). They cannot change while the listener is running.
+  void configureCredentials({
+    required String? username,
+    required String? password,
+  }) {
+    if (_isRunning) {
+      throw StateError('Stop the FTP receiver before changing credentials.');
+    }
+    this.username = username;
+    this.password = password;
+  }
+
   /// Starts the embedded FTP receiver server.
   Future<bool> start({int? listenPort}) async {
     final bindPort = listenPort ?? port;
     if (_isRunning) return true;
 
-    if (username == null) {
+    // Fail closed: FTP has no transport encryption, so anonymous access must
+    // never be an implicit fallback when credentials are missing.
+    if (username == null ||
+        username!.trim().isEmpty ||
+        password == null ||
+        password!.isEmpty) {
       debugPrint(
-        '[KEYENCE][FTP] WARNING: no credentials configured, any login is accepted.',
+        '[KEYENCE][FTP] Startup refused: a non-empty username and password are required.',
       );
+      return false;
     }
 
     try {
@@ -172,7 +191,7 @@ class _FtpSession {
     required this.maxUploadBytes,
     required this.onImageReceived,
     required this.onClosed,
-  }) : _authenticated = username == null {
+  }) : _authenticated = false {
     _touch();
   }
 
@@ -277,10 +296,10 @@ class _FtpSession {
         break;
 
       case 'PASS':
-        if (username == null) {
-          _authenticated = true;
-          _reply('230 User logged in, proceed.');
-        } else if (_pendingUser == username && args == password) {
+        if (username != null &&
+            password != null &&
+            _pendingUser == username &&
+            args == password) {
           _authenticated = true;
           _reply('230 User logged in, proceed.');
         } else {
@@ -487,7 +506,15 @@ class _FtpSession {
 
 final keyenceFtpReceiverProvider = Provider<KeyenceFtpReceiver>((ref) {
   final imageStorage = ref.watch(imageStorageServiceProvider);
-  final server = KeyenceFtpReceiver(imageStorage: imageStorage);
+  // Read once. Credentials are installed by the caller through
+  // configureCredentials(); the password never passes through config.
+  final sc = ref.read(configControllerProvider).scanner;
+  final server = KeyenceFtpReceiver(
+    port: sc.ftpReceiverPort,
+    imageStorage: imageStorage,
+    maxUploadBytes: sc.ftpMaxUploadBytes ?? kMaxUploadBytes,
+    bindAddress: InternetAddress.tryParse(sc.ftpBindAddress),
+  );
   ref.onDispose(server.dispose);
   return server;
 });

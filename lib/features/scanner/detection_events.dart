@@ -1,7 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../core/config/config_controller.dart';
 
 /// Turns the decoder's per-frame hits into detection events.
 ///
@@ -27,39 +28,28 @@ class DetectionEventTracker {
 /// How long a code must be out of view before the same payload counts as a new
 /// event. Saved between runs.
 class RearmGapNotifier extends Notifier<int> {
-  static const String _key = 'exalted_rearm_gap_ms';
   static const int defaultMs = 1000;
   static const int minMs = 200;
   static const int maxMs = 5000;
 
-  bool _changedByUser = false;
-
   @override
-  int build() {
-    unawaited(_restore());
-    return defaultMs;
-  }
-
-  Future<void> _restore() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final saved = prefs.getInt(_key);
-      if (saved != null && !_changedByUser) {
-        state = saved.clamp(minMs, maxMs).toInt();
-      }
-    } catch (_) {}
-  }
+  int build() => ref
+      .read(configControllerProvider)
+      .decoder
+      .rearmGapMs
+      .clamp(minMs, maxMs)
+      .toInt();
 
   void set(int ms) {
-    _changedByUser = true;
     state = ms.clamp(minMs, maxMs).toInt();
     unawaited(_save(state));
   }
 
   Future<void> _save(int ms) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_key, ms);
+      await ref.read(configControllerProvider.notifier).patch({
+        'decoder': {'rearmGapMs': ms},
+      });
     } catch (_) {}
   }
 }

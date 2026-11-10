@@ -54,7 +54,10 @@ void main() {
       final result = engine.evaluate('LOT-9942', rule, confidence: 0.70);
       expect(result.status, equals(OcvStatus.inconclusive));
       expect(result.isInconclusive, isTrue);
-      expect(result.explanation, contains('below the required industrial threshold'));
+      expect(
+        result.explanation,
+        contains('below the required industrial threshold'),
+      );
     });
 
     test('Empty text returns noText', () {
@@ -106,9 +109,15 @@ void main() {
         maxNumber: 500,
       );
 
-      expect(engine.evaluate('SERIAL 250', rule).status, equals(OcvStatus.pass));
+      expect(
+        engine.evaluate('SERIAL 250', rule).status,
+        equals(OcvStatus.pass),
+      );
       expect(engine.evaluate('SERIAL 50', rule).status, equals(OcvStatus.fail));
-      expect(engine.evaluate('SERIAL 750', rule).status, equals(OcvStatus.fail));
+      expect(
+        engine.evaluate('SERIAL 750', rule).status,
+        equals(OcvStatus.fail),
+      );
     });
   });
 

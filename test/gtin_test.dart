@@ -42,7 +42,10 @@ void main() {
     });
 
     test('non-digit characters', () {
-      expect(validateGtin('40063813339A1').status, GtinStatus.invalidCharacters);
+      expect(
+        validateGtin('40063813339A1').status,
+        GtinStatus.invalidCharacters,
+      );
     });
 
     test('GTIN seen on the A12 fails its check digit (expected 9)', () {

@@ -1,3 +1,4 @@
+import 'ftp_settings_card.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -8,7 +9,6 @@ import '../../core/backup/backup_recovery_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/widgets/exalted_button.dart';
 import '../../core/widgets/exalted_card.dart';
 import '../devices/keyence/keyence_sr751_client.dart';
 import '../scanner/scanner_controller.dart';
@@ -56,9 +56,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Backup failed: $e')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Backup failed: $e')));
     }
   }
 
@@ -78,8 +77,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final platformDesc = Platform.isLinux
         ? 'Linux Desktop (Pop!_OS / Ubuntu x86_64)'
         : (Platform.isWindows
-            ? 'Windows Desktop (x64)'
-            : (Platform.isAndroid ? 'Android Mobile' : Platform.operatingSystem));
+              ? 'Windows Desktop (x64)'
+              : (Platform.isAndroid
+                    ? 'Android Mobile'
+                    : Platform.operatingSystem));
 
     return SafeArea(
       child: ListView(
@@ -189,7 +190,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 Divider(color: colors.outline, height: AppSpacing.xl),
                 _InfoRow(
                   label: 'OCR Engine Core',
-                  value: Platform.isAndroid ? 'Google ML Kit' : 'Tesseract 5.3 TSV',
+                  value: Platform.isAndroid
+                      ? 'Google ML Kit'
+                      : 'Tesseract 5.3 TSV',
                 ),
               ],
             ),
@@ -221,7 +224,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       child: OutlinedButton.icon(
                         icon: const Icon(Icons.verified_outlined, size: 16),
                         label: const Text('Check Integrity'),
-                        onPressed: _isCheckingHealth ? null : _checkStorageHealth,
+                        onPressed: _isCheckingHealth
+                            ? null
+                            : _checkStorageHealth,
                       ),
                     ),
                     const SizedBox(width: AppSpacing.sm),
@@ -304,6 +309,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
           const SizedBox(height: AppSpacing.xl),
 
+          // ---- KEYENCE FTP RECEIVER ---------------------------------------
+          Text('KEYENCE FTP RECEIVER', style: text.labelSmall),
+          const SizedBox(height: AppSpacing.md),
+          const ExaltedCard(child: FtpSettingsCard()),
+
+          const SizedBox(height: AppSpacing.xl),
+
           // ---- ONLINE LOOKUPS ---------------------------------------------
           Text('OPTIONAL ONLINE LOOKUPS', style: text.labelSmall),
           const SizedBox(height: AppSpacing.md),
@@ -329,13 +341,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ExaltedCard(
             child: Column(
               children: [
-                const _InfoRow(label: 'Platform Architecture', value: 'Unified Core (Dart + C++20)'),
+                const _InfoRow(
+                  label: 'Platform Architecture',
+                  value: 'Unified Core (Dart + C++20)',
+                ),
                 Divider(color: colors.outline, height: AppSpacing.xl),
                 _InfoRow(label: 'Operating System', value: platformDesc),
                 Divider(color: colors.outline, height: AppSpacing.xl),
-                const _InfoRow(label: 'Native Decoder', value: 'C++20 (ZXing + DotPeen ECC200)'),
+                const _InfoRow(
+                  label: 'Native Decoder',
+                  value: 'C++20 (ZXing + DotPeen ECC200)',
+                ),
                 Divider(color: colors.outline, height: AppSpacing.xl),
-                _InfoRow(label: 'Offline Privacy', value: allowed.isEmpty ? 'Strict Offline (Zero Leaks)' : 'Lookups Enabled'),
+                _InfoRow(
+                  label: 'Offline Privacy',
+                  value: allowed.isEmpty
+                      ? 'Strict Offline (Zero Leaks)'
+                      : 'Lookups Enabled',
+                ),
               ],
             ),
           ),

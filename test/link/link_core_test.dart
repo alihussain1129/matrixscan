@@ -17,7 +17,11 @@ class _Node {
   final FileSyncStore journal;
 }
 
-Future<_Node> _makeNode(Directory root, String name, {bool identity = false}) async {
+Future<_Node> _makeNode(
+  Directory root,
+  String name, {
+  bool identity = false,
+}) async {
   final dir = Directory('${root.path}${Platform.pathSeparator}$name');
   final store = LinkStore(dir)..deviceName = name;
   await store.load();
@@ -55,7 +59,10 @@ void main() {
     });
     test('an expired token is rejected', () {
       var now = DateTime(2026, 11, 4);
-      final m = PairingManager(ttl: const Duration(seconds: 30), clock: () => now);
+      final m = PairingManager(
+        ttl: const Duration(seconds: 30),
+        clock: () => now,
+      );
       final o = m.create();
       now = now.add(const Duration(seconds: 31));
       expect(m.consume(o.token), isFalse);
@@ -84,7 +91,10 @@ void main() {
       expect(back.hosts, ['192.168.1.20']);
       expect(back.token, p.token);
       expect(() => PairingPayload.parse('nonsense'), _code('bad_qr'));
-      expect(() => PairingPayload.parse('{"app":"other","v":1}'), _code('bad_qr'));
+      expect(
+        () => PairingPayload.parse('{"app":"other","v":1}'),
+        _code('bad_qr'),
+      );
     });
     test('private address check', () {
       expect(isPrivateAddress(InternetAddress('192.168.0.5')), isTrue);
@@ -135,7 +145,10 @@ void main() {
       final bytes = Uint8List.fromList(List.generate(500, (i) => i % 200));
       final sha = await n.journal.storeBlob(bytes);
       expect(await n.journal.getBlob(sha), bytes);
-      await expectLater(n.journal.putBlob('0' * 64, [1, 2, 3]), throwsFormatException);
+      await expectLater(
+        n.journal.putBlob('0' * 64, [1, 2, 3]),
+        throwsFormatException,
+      );
     });
     test('paging uses a cursor', () async {
       final n = await _makeNode(root, 'n');
@@ -202,14 +215,22 @@ void main() {
 
     test('pairing needs approval', () async {
       approveNext = false;
-      await expectLater(c1.pair(offer(), platform: 'android', appVersion: '1'), _code('rejected'));
+      await expectLater(
+        c1.pair(offer(), platform: 'android', appVersion: '1'),
+        _code('rejected'),
+      );
       expect(desk.store.devices, isEmpty);
       approveNext = true;
     });
 
     test('an expired code is refused by the phone', () async {
-      final p = offer(expires: DateTime.now().subtract(const Duration(seconds: 1)));
-      await expectLater(c1.pair(p, platform: 'android', appVersion: '1'), _code('expired'));
+      final p = offer(
+        expires: DateTime.now().subtract(const Duration(seconds: 1)),
+      );
+      await expectLater(
+        c1.pair(p, platform: 'android', appVersion: '1'),
+        _code('expired'),
+      );
     });
 
     test('pairing works once and a reused code fails', () async {
@@ -232,23 +253,38 @@ void main() {
         expiresAt: p.expiresAt,
         desktopName: 'x',
       );
-      await expectLater(c2.pair(wrong, platform: 'android', appVersion: '1'), _code('untrusted_desktop'));
+      await expectLater(
+        c2.pair(wrong, platform: 'android', appVersion: '1'),
+        _code('untrusted_desktop'),
+      );
     });
 
-    test('upload with an original image, then repeat without duplicates', () async {
-      final bytes = Uint8List.fromList(List.generate(4000, (i) => (i * 7) % 251));
-      final sha = await phone1.journal.storeBlob(bytes);
-      await phone1.journal.add(_rec(phone1.store.deviceId, 'scan1', blobs: [sha], kind: SyncKind.inspection));
-      final s1 = await c1.syncNow(peer1!);
-      expect(s1.pushed, 1);
-      expect(s1.blobsUp, 1);
-      expect(desk.journal.length, 1);
-      expect(await desk.journal.getBlob(sha), bytes);
-      final s2 = await c1.syncNow(peer1!);
-      expect(s2.pushed, 0);
-      expect(s2.blobsUp, 0);
-      expect(desk.journal.length, 1);
-    });
+    test(
+      'upload with an original image, then repeat without duplicates',
+      () async {
+        final bytes = Uint8List.fromList(
+          List.generate(4000, (i) => (i * 7) % 251),
+        );
+        final sha = await phone1.journal.storeBlob(bytes);
+        await phone1.journal.add(
+          _rec(
+            phone1.store.deviceId,
+            'scan1',
+            blobs: [sha],
+            kind: SyncKind.inspection,
+          ),
+        );
+        final s1 = await c1.syncNow(peer1!);
+        expect(s1.pushed, 1);
+        expect(s1.blobsUp, 1);
+        expect(desk.journal.length, 1);
+        expect(await desk.journal.getBlob(sha), bytes);
+        final s2 = await c1.syncNow(peer1!);
+        expect(s2.pushed, 0);
+        expect(s2.blobsUp, 0);
+        expect(desk.journal.length, 1);
+      },
+    );
 
     test('download from the desktop', () async {
       await desk.journal.add(_rec(desk.store.deviceId, 'deskscan'));
@@ -260,27 +296,38 @@ void main() {
       expect(phone1.journal.length, 2);
     });
 
-    test('a second phone gets the first phone\'s data and not its own', () async {
-      peer2 = await c2.pair(offer(), platform: 'android', appVersion: '1');
-      await phone2.journal.add(_rec(phone2.store.deviceId, 'p2scan'));
-      final s = await c2.syncNow(peer2!);
-      expect(s.pushed, 1);
-      expect(s.pulled, 2);
-      final ids = phone2.journal.allRecords().map((r) => r.id).toSet();
-      expect(ids, contains('${phone1.store.deviceId}:scan1'));
-      expect(ids, contains('${desk.store.deviceId}:deskscan'));
-      await c1.syncNow(peer1!);
-      final ids1 = phone1.journal.allRecords().map((r) => r.id).toSet();
-      expect(ids1, contains('${phone2.store.deviceId}:p2scan'));
-    });
+    test(
+      'a second phone gets the first phone\'s data and not its own',
+      () async {
+        peer2 = await c2.pair(offer(), platform: 'android', appVersion: '1');
+        await phone2.journal.add(_rec(phone2.store.deviceId, 'p2scan'));
+        final s = await c2.syncNow(peer2!);
+        expect(s.pushed, 1);
+        expect(s.pulled, 2);
+        final ids = phone2.journal.allRecords().map((r) => r.id).toSet();
+        expect(ids, contains('${phone1.store.deviceId}:scan1'));
+        expect(ids, contains('${desk.store.deviceId}:deskscan'));
+        await c1.syncNow(peer1!);
+        final ids1 = phone1.journal.allRecords().map((r) => r.id).toSet();
+        expect(ids1, contains('${phone2.store.deviceId}:p2scan'));
+      },
+    );
 
     test('a signed request cannot be replayed', () async {
       final http = HttpClient(context: SecurityContext(withTrustedRoots: false))
-        ..badCertificateCallback = (cert, h, p) => sha256Hex(cert.der) == desk.store.identity!.fingerprint;
+        ..badCertificateCallback = (cert, h, p) =>
+            sha256Hex(cert.der) == desk.store.identity!.fingerprint;
       Future<int> call(String nonce, int ts) async {
         final uri = Uri.parse('https://127.0.0.1:${server.port}/v1/status');
         final req = await http.openUrl('GET', uri);
-        final sig = signRequest(base64.decode(peer2!.secretB64), 'GET', '/v1/status', ts, nonce, sha256Hex(const <int>[]));
+        final sig = signRequest(
+          base64.decode(peer2!.secretB64),
+          'GET',
+          '/v1/status',
+          ts,
+          nonce,
+          sha256Hex(const <int>[]),
+        );
         req.headers
           ..set('x-exalted-device', phone2.store.deviceId)
           ..set('x-exalted-ts', '$ts')
@@ -310,7 +357,10 @@ void main() {
       await phone2.journal.add(_rec(phone2.store.deviceId, 'offline1'));
       expect(phone2.journal.length, greaterThan(0));
       await expectLater(c2.syncNow(peer2!), throwsA(isA<LinkException>()));
-      expect(phone2.journal.allRecords().any((r) => r.id.endsWith(':offline1')), isTrue);
+      expect(
+        phone2.journal.allRecords().any((r) => r.id.endsWith(':offline1')),
+        isTrue,
+      );
     });
   });
 }

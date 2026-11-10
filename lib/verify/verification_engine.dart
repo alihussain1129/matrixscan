@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import '../interpret/interpreter.dart';
 import '../interpret/scan_field.dart';
@@ -58,10 +58,14 @@ class VerificationEngine {
       }
       toRun.add(s);
     }
-    _log('start run=[${toRun.map((s) => s.info.id).join(",")}] skipped=[${skipped.map((s) => s.id).join(",")}] allowed=[${allowedSources.join(",")}]');
+    _log(
+      'start run=[${toRun.map((s) => s.info.id).join(",")}] skipped=[${skipped.map((s) => s.id).join(",")}] allowed=[${allowedSources.join(",")}]',
+    );
     final results = await Future.wait([for (final s in toRun) _guard(s, base)]);
     for (final r in results) {
-      _log('${r.info.id}: ${r.claims.map((c) => c.status.label).join(" | ")} ${r.error ?? ""}');
+      _log(
+        '${r.info.id}: ${r.claims.map((c) => c.status.label).join(" | ")} ${r.error ?? ""}',
+      );
     }
     return VerificationReport(
       results: results,
@@ -122,7 +126,9 @@ class VerificationEngine {
     }
     final out = <String>[];
     byAspect.forEach((aspect, bySource) {
-      final distinct = bySource.values.map((v) => v.trim().toLowerCase()).toSet();
+      final distinct = bySource.values
+          .map((v) => v.trim().toLowerCase())
+          .toSet();
       if (bySource.length >= 2 && distinct.length > 1) {
         final says = bySource.entries
             .map((e) => '${e.key} says "${e.value}"')
@@ -280,10 +286,7 @@ Interpretation applyVerification(
   );
 }
 
-
 void _log(String m) {
   // ignore: avoid_print
   print('[EXALTED][VERIFY] $m');
 }
-
-

@@ -63,8 +63,9 @@ class FileSyncStore {
       }
     }
     if (await _conflictFile.exists()) {
-      for (final line
-          in const LineSplitter().convert(await _conflictFile.readAsString())) {
+      for (final line in const LineSplitter().convert(
+        await _conflictFile.readAsString(),
+      )) {
         try {
           final rec = SyncRecord.fromJson(jsonDecode(line));
           if (rec != null) _conflictKeys.add('${rec.id}:${rec.contentHash}');
@@ -107,8 +108,9 @@ class FileSyncStore {
   Future<List<SyncRecord>> conflicts() async {
     if (!await _conflictFile.exists()) return [];
     final out = <SyncRecord>[];
-    for (final line
-        in const LineSplitter().convert(await _conflictFile.readAsString())) {
+    for (final line in const LineSplitter().convert(
+      await _conflictFile.readAsString(),
+    )) {
       try {
         final rec = SyncRecord.fromJson(jsonDecode(line));
         if (rec != null) out.add(rec);

@@ -10,7 +10,8 @@ import '../models/ocv_rule.dart';
 /// Validates OCR output against industrial quality, formatting, expiry, and batch rules,
 /// generating explainable PASS / FAIL / INCONCLUSIVE verdicts.
 class OcvEngine {
-  const OcvEngine({DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
+  const OcvEngine({DateTime Function()? clock})
+    : _clock = clock ?? DateTime.now;
 
   final DateTime Function() _clock;
 
@@ -84,7 +85,8 @@ class OcvEngine {
         rule: rule,
         extractedText: text,
         matchedSubstring: text,
-        explanation: 'Text exactly matches expected target string "${rule.pattern}".',
+        explanation:
+            'Text exactly matches expected target string "${rule.pattern}".',
         timestamp: now,
         confidence: confidence,
       );
@@ -119,7 +121,8 @@ class OcvEngine {
           status: OcvStatus.fail,
           rule: rule,
           extractedText: text,
-          explanation: 'Extracted text does not match pattern "${rule.pattern}".',
+          explanation:
+              'Extracted text does not match pattern "${rule.pattern}".',
           timestamp: now,
           confidence: confidence,
         );
@@ -135,7 +138,8 @@ class OcvEngine {
           rule: rule,
           extractedText: text,
           matchedSubstring: matchedValue,
-          explanation: 'Found pattern but missing expected prefix "${rule.expectedPrefix}".',
+          explanation:
+              'Found pattern but missing expected prefix "${rule.expectedPrefix}".',
           timestamp: now,
           confidence: confidence,
         );
@@ -149,7 +153,8 @@ class OcvEngine {
           rule: rule,
           extractedText: text,
           matchedSubstring: matchedValue,
-          explanation: 'Found pattern but missing expected suffix "${rule.expectedSuffix}".',
+          explanation:
+              'Found pattern but missing expected suffix "${rule.expectedSuffix}".',
           timestamp: now,
           confidence: confidence,
         );
@@ -224,7 +229,8 @@ class OcvEngine {
         rule: rule,
         extractedText: text,
         matchedSubstring: dateStr,
-        explanation: 'Expired: $dateStr passed on ${expiryDate.toIso8601String().substring(0, 10)}.',
+        explanation:
+            'Expired: $dateStr passed on ${expiryDate.toIso8601String().substring(0, 10)}.',
         timestamp: now,
         confidence: confidence,
       );
@@ -238,7 +244,8 @@ class OcvEngine {
           rule: rule,
           extractedText: text,
           matchedSubstring: dateStr,
-          explanation: 'Near expiry: Only $daysLeft days remaining (required: ${rule.dateWithinDays} days).',
+          explanation:
+              'Near expiry: Only $daysLeft days remaining (required: ${rule.dateWithinDays} days).',
           timestamp: now,
           confidence: confidence,
         );
@@ -250,7 +257,8 @@ class OcvEngine {
       rule: rule,
       extractedText: text,
       matchedSubstring: dateStr,
-      explanation: 'Valid expiration date $dateStr (expires ${expiryDate.toIso8601String().substring(0, 10)}).',
+      explanation:
+          'Valid expiration date $dateStr (expires ${expiryDate.toIso8601String().substring(0, 10)}).',
       timestamp: now,
       confidence: confidence,
     );
@@ -284,7 +292,8 @@ class OcvEngine {
         rule: rule,
         extractedText: text,
         matchedSubstring: value.toString(),
-        explanation: 'Value $value is below minimum required (${rule.minNumber}).',
+        explanation:
+            'Value $value is below minimum required (${rule.minNumber}).',
         timestamp: now,
         confidence: confidence,
       );
@@ -296,7 +305,8 @@ class OcvEngine {
         rule: rule,
         extractedText: text,
         matchedSubstring: value.toString(),
-        explanation: 'Value $value exceeds maximum allowed (${rule.maxNumber}).',
+        explanation:
+            'Value $value exceeds maximum allowed (${rule.maxNumber}).',
         timestamp: now,
         confidence: confidence,
       );
@@ -307,7 +317,8 @@ class OcvEngine {
       rule: rule,
       extractedText: text,
       matchedSubstring: value.toString(),
-      explanation: 'Numeric value $value is within valid bounds [${rule.minNumber ?? '-∞'}..${rule.maxNumber ?? '∞'}].',
+      explanation:
+          'Numeric value $value is within valid bounds [${rule.minNumber ?? '-∞'}..${rule.maxNumber ?? '∞'}].',
       timestamp: now,
       confidence: confidence,
     );
@@ -322,11 +333,13 @@ class OcvEngine {
       final actChar = i < actual.length ? actual[i] : '∅';
 
       if (expChar != actChar) {
-        diffs.add(CharacterDiff(
-          position: i,
-          expectedChar: expChar,
-          actualChar: actChar,
-        ));
+        diffs.add(
+          CharacterDiff(
+            position: i,
+            expectedChar: expChar,
+            actualChar: actChar,
+          ),
+        );
       }
     }
 

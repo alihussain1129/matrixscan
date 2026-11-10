@@ -6,8 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'app.dart';
+import 'core/config/config_controller.dart';
+import 'core/config/config_provider.dart';
+import 'core/config/config_store.dart';
 import 'features/devices/camera/controller_camera_port.dart';
 
 Future<void> main() async {
@@ -25,9 +29,24 @@ Future<void> main() async {
       DeviceOrientation.portraitUp,
     ]);
   }
+  ConfigStore? configStore;
+  try {
+    configStore = ConfigStore(await getApplicationSupportDirectory());
+  } catch (_) {}
+  final startup = await loadStartupConfig(
+    dir: configStore?.dir,
+    store: configStore,
+  );
+  for (final n in startup.notes) {
+    debugPrint('[CONFIG] $n');
+  }
   runApp(
     ProviderScope(
-      overrides: [scannerCameraPortOverride],
+      overrides: [
+        scannerCameraPortOverride,
+        configProvider.overrideWithValue(startup.config),
+        configStoreProvider.overrideWithValue(configStore),
+      ],
       child: const ExaltedApp(),
     ),
   );
