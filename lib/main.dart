@@ -12,8 +12,10 @@ import 'app.dart';
 import 'core/config/config_controller.dart';
 import 'core/config/config_provider.dart';
 import 'core/config/config_store.dart';
+import 'core/crash/auto_restart.dart';
 import 'core/crash/crash_handlers.dart';
 import 'core/crash/crash_log.dart';
+import 'core/crash/restart_policy.dart';
 import 'features/devices/camera/controller_camera_port.dart';
 
 Future<void> main() async {
@@ -37,16 +39,32 @@ Future<void> main() async {
     supportDir = await getApplicationSupportDirectory();
     configStore = ConfigStore(supportDir);
   } catch (_) {}
-  if (supportDir != null) {
-    final crashDir = supportDir;
-    installCrashHandlers(CrashLog(() async => crashDir));
-  }
   final startup = await loadStartupConfig(
     dir: configStore?.dir,
     store: configStore,
   );
   for (final n in startup.notes) {
     debugPrint('[CONFIG] $n');
+  }
+  if (supportDir != null) {
+    final dir = supportDir;
+    final sc = startup.config.startup;
+    final restarter = (sc.autoRestart && (Platform.isLinux || Platform.isWindows))
+        ? AutoRestarter(
+            policy: RestartPolicy(
+              enabled: true,
+              maxPerHour: sc.maxRestartsPerHour,
+            ),
+            store: RestartHistoryStore(() async => dir),
+            log: (m) => debugPrint('[RESTART] $m'),
+          )
+        : null;
+    installCrashHandlers(
+      CrashLog(() async => dir),
+      onFatal: restarter == null
+          ? null
+          : () => unawaited(restarter.handleFatal()),
+    );
   }
   runApp(
     ProviderScope(
