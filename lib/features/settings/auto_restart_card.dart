@@ -37,7 +37,7 @@ class AutoRestartCard extends ConsumerWidget {
       configControllerProvider.select((c) => c.startup),
     );
     final choices = {...limits, sc.maxRestartsPerHour}.toList()..sort();
-    final supported = !Platform.isAndroid && !Platform.isIOS;
+    final supported = !Platform.isIOS;
     final style = Theme.of(context).textTheme.bodySmall;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -47,9 +47,11 @@ class AutoRestartCard extends ConsumerWidget {
           contentPadding: EdgeInsets.zero,
           title: const Text('Restart the app after a crash'),
           subtitle: Text(
-            supported
-                ? 'Starts a new copy after an uncaught error. Applies the next time the app starts.'
-                : 'Not supported on this platform yet.',
+            !supported
+                ? 'Not supported on this platform yet.'
+                : Platform.isAndroid
+                ? 'Starts the app again after a crash in its Android code. Takes effect right away.'
+                : 'Starts a new copy after an uncaught error. Applies the next time the app starts.',
           ),
           value: sc.autoRestart,
           onChanged: supported
