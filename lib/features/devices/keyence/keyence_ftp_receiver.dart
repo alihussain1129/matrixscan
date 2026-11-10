@@ -513,7 +513,9 @@ final keyenceFtpReceiverProvider = Provider<KeyenceFtpReceiver>((ref) {
     port: sc.ftpReceiverPort,
     imageStorage: imageStorage,
     maxUploadBytes: sc.ftpMaxUploadBytes ?? kMaxUploadBytes,
-    bindAddress: InternetAddress.tryParse(sc.ftpBindAddress),
+    // Never fall back to all interfaces on a bad value.
+    bindAddress:
+        InternetAddress.tryParse(sc.ftpBindAddress) ?? InternetAddress.loopbackIPv4,
   );
   ref.onDispose(server.dispose);
   return server;

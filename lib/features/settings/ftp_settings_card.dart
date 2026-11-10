@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -5,6 +7,22 @@ import '../../core/config/app_config.dart';
 import '../../core/config/config_controller.dart';
 import '../../core/config/platform_secret_store.dart';
 import '../../core/theme/app_spacing.dart';
+
+/// Local IPv4 addresses the receiver could listen on. Tests override this.
+final localIpv4AddressesProvider = FutureProvider<List<String>>((ref) async {
+  try {
+    final interfaces = await NetworkInterface.list(
+      type: InternetAddressType.IPv4,
+      includeLoopback: false,
+    );
+    return [
+      for (final i in interfaces)
+        for (final a in i.addresses) a.address,
+    ];
+  } catch (_) {
+    return const <String>[];
+  }
+});
 
 /// KEYENCE FTP receiver settings. The password is write-only: it goes to the
 /// system keyring and never to config.json, logs or the screen.
@@ -19,6 +37,7 @@ class _FtpSettingsCardState extends ConsumerState<FtpSettingsCard> {
   late final TextEditingController _user;
   final TextEditingController _pass = TextEditingController();
   bool _enabled = false;
+  String _bind = '0.0.0.0';
   bool? _hasPassword; // null = secure storage unavailable or not read yet
   bool _busy = false;
   String? _message;
@@ -30,6 +49,7 @@ class _FtpSettingsCardState extends ConsumerState<FtpSettingsCard> {
     final sc = ref.read(configControllerProvider).scanner;
     _user = TextEditingController(text: sc.ftpUsername ?? '');
     _enabled = sc.ftpReceiverEnabled;
+    _bind = sc.ftpBindAddress;
     _loadHasPassword();
   }
 
@@ -93,6 +113,7 @@ class _FtpSettingsCardState extends ConsumerState<FtpSettingsCard> {
         'scanner': {
           'ftpUsername': user.isEmpty ? null : user,
           'ftpReceiverEnabled': _enabled,
+          'ftpBindAddress': _bind,
         },
       });
       if (!result.applied) {
@@ -134,10 +155,36 @@ class _FtpSettingsCardState extends ConsumerState<FtpSettingsCard> {
     }
   }
 
+  List<DropdownMenuItem<String>> _bindItems(List<String> detected) {
+    final seen = <String>{};
+    final items = <DropdownMenuItem<String>>[];
+    void add(String value, String label) {
+      if (seen.add(value)) {
+        items.add(
+          DropdownMenuItem(
+            value: value,
+            child: Text(label, overflow: TextOverflow.ellipsis),
+          ),
+        );
+      }
+    }
+
+    add('0.0.0.0', 'All interfaces (0.0.0.0)');
+    add('127.0.0.1', 'This computer only (127.0.0.1)');
+    for (final a in detected) {
+      add(a, a);
+    }
+    // A saved address that is no longer present stays visible.
+    add(_bind, '$_bind (not currently available)');
+    return items;
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
+    final detected =
+        ref.watch(localIpv4AddressesProvider).asData?.value ?? const <String>[];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -153,6 +200,25 @@ class _FtpSettingsCardState extends ConsumerState<FtpSettingsCard> {
           onChanged: _busy ? null : (v) => setState(() => _enabled = v),
         ),
         const SizedBox(height: AppSpacing.sm),
+        DropdownButtonFormField<String>(
+          key: const Key('ftp-bind'),
+          initialValue: _bind,
+          isExpanded: true,
+          decoration: InputDecoration(
+            labelText: 'Listen on',
+            helperText: _bind == '0.0.0.0'
+                ? 'Every network can reach the receiver. Choose the address '
+                      'that faces the reader.'
+                : 'Only this address accepts connections.',
+          ),
+          items: _bindItems(detected),
+          onChanged: _busy
+              ? null
+              : (v) {
+                  if (v != null) setState(() => _bind = v);
+                },
+        ),
+        const SizedBox(height: AppSpacing.md),
         TextField(
           key: const Key('ftp-user'),
           controller: _user,
