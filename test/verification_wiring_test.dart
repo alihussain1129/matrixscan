@@ -7,6 +7,7 @@ import 'package:exalted/ffi/decode_result.dart';
 import 'package:exalted/verify/open_food_facts_source.dart';
 import 'package:exalted/verify/verification_engine.dart';
 import 'package:exalted/verify/verification_settings.dart';
+import 'package:exalted/verify/verification_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -109,6 +110,36 @@ void main() {
         .read(allowedSourcesProvider.notifier)
         .setAllowed('openfoodfacts', false);
     expect(c2.read(allowedSourcesProvider), isEmpty);
+  });
+
+  testWidgets('Verification screen exposes opt-in sources', (tester) async {
+    final store = _MemStore(<String>{});
+    final container = ProviderContainer(
+      overrides: [verificationStoreProvider.overrideWithValue(store)],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: VerificationScreen()),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(
+      find.text(
+        'Structural checks run on this device. Online sources stay off until you enable them here.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Open Food Facts'), findsOneWidget);
+    final sourceToggle = find.ancestor(
+      of: find.text('Open Food Facts'),
+      matching: find.byType(SwitchListTile),
+    );
+    await tester.ensureVisible(sourceToggle);
+    await tester.tap(sourceToggle);
+    await tester.pump();
+    expect(container.read(allowedSourcesProvider), contains('openfoodfacts'));
   });
 
   Future<int> pumpCard(WidgetTester tester, {required bool allowed}) async {

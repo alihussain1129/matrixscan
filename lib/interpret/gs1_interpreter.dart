@@ -85,9 +85,10 @@ class Gs1Interpreter implements PayloadInterpreter {
     }
 
     final product = group({'01': 'GTIN'}, ['02', '20', '240']);
-    final batch = group({'10': 'Batch/Lot number', '21': 'Serial number'}, [
-      '250',
-    ]);
+    final batch = group(
+      {'10': 'Batch/Lot number', '21': 'Serial number'},
+      ['250'],
+    );
     final dates = group({'17': 'Expiration date'}, ['11', '13', '15']);
 
     final expiry = result.fields.where((f) => f.ai == '17' && f.isValid);
@@ -137,7 +138,11 @@ class Gs1Interpreter implements PayloadInterpreter {
           ? 'GS1 data (Application Identifiers in text)'
           : 'GS1 element string',
       sections: [
-        ScanSection(id: 'product', title: 'Product identification', fields: product),
+        ScanSection(
+          id: 'product',
+          title: 'Product identification',
+          fields: product,
+        ),
         ScanSection(id: 'batch', title: 'Batch and serial', fields: batch),
         ScanSection(id: 'dates', title: 'Dates and expiry', fields: dates),
         if (other.isNotEmpty)

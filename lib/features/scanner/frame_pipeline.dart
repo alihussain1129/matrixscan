@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'scanner_analyzer.dart';
+import 'live_ocr_analyzer.dart';
 
 /// One camera frame as seen by analyzers (luminance plane only).
 ///
@@ -384,6 +385,7 @@ final framePipelineProvider = Provider<FramePipeline>((ref) {
   final pipeline = FramePipeline(targetFps: 60);
 
   pipeline.addAnalyzer(analyzer);
+  pipeline.addAnalyzer(ref.watch(liveOcrAnalyzerProvider));
 
   ref.onDispose(pipeline.dispose);
 

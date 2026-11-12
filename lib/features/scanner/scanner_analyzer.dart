@@ -53,6 +53,9 @@ class ScannerAnalyzer implements FrameAnalyzer {
 
   void Function(DecodedBarcode barcode)? onDecoded;
 
+  /// Native format mask. Zero means all formats supported by the core.
+  int formatsMask = 0;
+
   /// Scan window as fractions (0..1) of the upright preview image. Set by the
   /// scanner screen; null until the camera is showing.
   Rect? scanWindow;
@@ -115,7 +118,8 @@ class ScannerAnalyzer implements FrameAnalyzer {
   static const int _dotAfterMisses = 12;
   static const int _dotEvery = 3;
   int _dotCursor = 0;
-  int _missStreak = 0;  int _lightCursor = 0;
+  int _missStreak = 0;
+  int _lightCursor = 0;
 
   final Map<String, int> _passN = {};
   final Map<String, int> _passUs = {};
@@ -268,6 +272,7 @@ class ScannerAnalyzer implements FrameAnalyzer {
       width: frame.width,
       height: frame.height,
       rowStride: frame.yRowStride,
+      formatsMask: formatsMask,
       flags: pass.flags,
       cropLeft: crop?.left ?? 0,
       cropTop: crop?.top ?? 0,
@@ -394,6 +399,20 @@ class _Crop {
   final int top;
   final int width;
   final int height;
+}
+
+/// Converts persisted symbology names to the native decoder's format mask.
+/// An empty selection keeps the native API's documented "all formats" value.
+int decoderFormatsMask(Iterable<String> names) {
+  var mask = 0;
+  final selected = names.toSet();
+  if (selected.isEmpty) return 0;
+  for (final kind in BarcodeKind.values) {
+    if (kind != BarcodeKind.unknown && selected.contains(kind.name)) {
+      mask |= kind.flag;
+    }
+  }
+  return mask;
 }
 
 /// Provides the singleton [ScannerAnalyzer] for the scanner pipeline.

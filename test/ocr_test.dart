@@ -134,7 +134,7 @@ void main() {
         child: MaterialApp(
           theme: ThemeData(
             colorScheme: AppColors.lightScheme,
-            extensions: const [AppColors.lightExtra],
+            extensions: [AppColors.lightExtra],
           ),
           home: const OcrResultScreen(imagePath: '/missing.png'),
         ),

@@ -17,7 +17,9 @@ class _Fixed implements PayloadInterpreter {
         ScanSection(
           id: 'main',
           title: 'Main',
-          fields: [ScanField(label: 'Body', value: p.raw.substring(prefix.length))],
+          fields: [
+            ScanField(label: 'Body', value: p.raw.substring(prefix.length)),
+          ],
         ),
       ],
     );
@@ -84,24 +86,28 @@ void main() {
     expect(_value(i, 'technical', 'interpreter'), 'first');
   });
 
-  test('a throwing interpreter is isolated and reported without its message', () {
-    final registry = InterpreterRegistry([_Throws(), _Fixed('ok', 'X:')]);
-    final i = registry.interpret(_p('X:body'));
-    expect(i.interpreterId, 'ok');
-    expect(i.warnings.single, contains('failed'));
-    final err = _value(i, 'technical', 'errors');
-    expect(err, 'boom: StateError');
-    expect(err, isNot(contains('secret')));
-  });
+  test(
+    'a throwing interpreter is isolated and reported without its message',
+    () {
+      final registry = InterpreterRegistry([_Throws(), _Fixed('ok', 'X:')]);
+      final i = registry.interpret(_p('X:body'));
+      expect(i.interpreterId, 'ok');
+      expect(i.warnings.single, contains('failed'));
+      final err = _value(i, 'technical', 'errors');
+      expect(err, 'boom: StateError');
+      expect(err, isNot(contains('secret')));
+    },
+  );
 
   test('missing, empty and present are distinguishable', () {
     final empty = InterpreterRegistry([]).interpret(_p(''));
+    expect(empty.section('raw')!.fields.first.presence, FieldPresence.empty);
     expect(
-      empty.section('raw')!.fields.first.presence,
-      FieldPresence.empty,
-    );
-    expect(
-      empty.section('technical')!.fields.firstWhere((f) => f.id == 'errors').presence,
+      empty
+          .section('technical')!
+          .fields
+          .firstWhere((f) => f.id == 'errors')
+          .presence,
       FieldPresence.notPresent,
     );
   });

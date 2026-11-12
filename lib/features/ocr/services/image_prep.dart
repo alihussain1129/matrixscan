@@ -137,4 +137,74 @@ class ImagePrep {
       buffer?.dispose();
     }
   }
+
+  /// Crops an image to the given normalized bounding box [normalizedRoi] (0..1),
+  /// saving the cropped sub-image into a temporary PNG file.
+  static Future<String> cropRoi(String path, ui.Rect normalizedRoi) async {
+    final file = File(path);
+    if (!await file.exists()) {
+      throw OcrException(
+        OcrError.of(OcrErrorType.unsupportedImage, technical: 'File not found'),
+      );
+    }
+    final bytes = await file.readAsBytes();
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    final descriptor = await ui.ImageDescriptor.encoded(buffer);
+    final codec = await descriptor.instantiateCodec();
+    final frame = await codec.getNextFrame();
+    final image = frame.image;
+
+    final imgW = image.width.toDouble();
+    final imgH = image.height.toDouble();
+
+    final cropL = (normalizedRoi.left.clamp(0.0, 1.0) * imgW).clamp(0.0, imgW);
+    final cropT = (normalizedRoi.top.clamp(0.0, 1.0) * imgH).clamp(0.0, imgH);
+    final cropR = (normalizedRoi.right.clamp(0.0, 1.0) * imgW).clamp(
+      cropL,
+      imgW,
+    );
+    final cropB = (normalizedRoi.bottom.clamp(0.0, 1.0) * imgH).clamp(
+      cropT,
+      imgH,
+    );
+
+    final cropW = math.max(1.0, cropR - cropL);
+    final cropH = math.max(1.0, cropB - cropT);
+
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    final src = ui.Rect.fromLTWH(cropL, cropT, cropW, cropH);
+    final dst = ui.Rect.fromLTWH(0, 0, cropW, cropH);
+
+    canvas.drawImageRect(
+      image,
+      src,
+      dst,
+      ui.Paint()..filterQuality = ui.FilterQuality.high,
+    );
+    final picture = recorder.endRecording();
+    final croppedImg = await picture.toImage(cropW.round(), cropH.round());
+    final data = await croppedImg.toByteData(format: ui.ImageByteFormat.png);
+
+    image.dispose();
+    croppedImg.dispose();
+    picture.dispose();
+    descriptor.dispose();
+    buffer.dispose();
+    codec.dispose();
+
+    if (data == null) {
+      throw OcrException(
+        OcrError.of(OcrErrorType.failed, technical: 'ROI crop encoding failed'),
+      );
+    }
+
+    final dir = await Directory.systemTemp.createTemp('exalted_roi_');
+    final out = File('${dir.path}${Platform.pathSeparator}roi_cropped.png');
+    await out.writeAsBytes(
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      flush: true,
+    );
+    return out.path;
+  }
 }

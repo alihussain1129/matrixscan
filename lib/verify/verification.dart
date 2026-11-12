@@ -96,6 +96,7 @@ class SourceResult {
     this.claims = const [],
     this.fields = const [],
     this.dataUpdatedAt,
+    this.cachedAt,
     this.error,
   });
 
@@ -123,6 +124,12 @@ class SourceResult {
   /// Information the source supplied that is not in the barcode.
   final List<ScanField> fields;
   final DateTime? dataUpdatedAt;
+
+  /// Timestamp of the original network response when this result came from cache.
+  final DateTime? cachedAt;
+
+  bool get isCached => cachedAt != null;
+
   final String? error;
 }
 

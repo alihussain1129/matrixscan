@@ -1,4 +1,5 @@
-﻿import 'dart:convert';
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -7,12 +8,53 @@ import '../interpret/scan_field.dart';
 import 'verification.dart';
 
 class HttpReply {
-  const HttpReply(this.statusCode, this.body);
+  const HttpReply(this.statusCode, this.body, {this.headers = const {}});
   final int statusCode;
   final String body;
+  final Map<String, String> headers;
 }
 
 typedef HttpFetch = Future<HttpReply> Function(Uri uri);
+
+/// Retries one 429 response only when its Retry-After delay is short enough to
+/// fit inside an interactive verification request. Long delays are respected
+/// by returning the 429 without retrying early.
+Future<HttpReply> fetchRespectingRetryAfter(
+  HttpFetch fetch,
+  Uri uri, {
+  Duration maximumWait = const Duration(seconds: 4),
+  DateTime Function()? clock,
+}) async {
+  final first = await fetch(uri);
+  if (first.statusCode != 429) return first;
+  final now = (clock ?? DateTime.now)();
+  String? value;
+  for (final entry in first.headers.entries) {
+    if (entry.key.toLowerCase() == 'retry-after') {
+      value = entry.value.trim();
+      break;
+    }
+  }
+  if (value == null || value.isEmpty) return first;
+  final seconds = int.tryParse(value);
+  if (seconds != null && seconds < 0) return first;
+  DateTime? retryAt;
+  if (seconds == null) {
+    try {
+      retryAt = HttpDate.parse(value).toLocal();
+    } on FormatException {
+      retryAt = DateTime.tryParse(value)?.toLocal();
+    }
+  }
+  final delay = seconds != null
+      ? Duration(seconds: seconds)
+      : retryAt == null || !retryAt.isAfter(now)
+      ? Duration.zero
+      : retryAt.difference(now);
+  if (delay > maximumWait) return first;
+  if (delay > Duration.zero) await Future<void>.delayed(delay);
+  return fetch(uri);
+}
 
 Future<HttpReply> defaultHttpFetch(Uri uri) async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
@@ -42,7 +84,11 @@ Future<HttpReply> defaultHttpFetch(Uri uri) async {
 
     final body = utf8.decode(bytes.takeBytes());
 
-    return HttpReply(res.statusCode, body);
+    final headers = <String, String>{};
+    res.headers.forEach((name, values) {
+      headers[name] = values.join(', ');
+    });
+    return HttpReply(res.statusCode, body, headers: headers);
   } finally {
     client.close(force: true);
   }
@@ -65,8 +111,7 @@ String? gtinFrom(Interpretation i) {
   for (final f in i.allFields) {
     if (f.sensitive) continue;
     if (f.id == '01' &&
-        (f.standard == 'GS1' ||
-            f.standard == 'GS1 URL path (unconfirmed)') &&
+        (f.standard == 'GS1' || f.standard == 'GS1 URL path (unconfirmed)') &&
         f.validation == FieldValidation.valid) {
       final v = f.value;
       if (v != null && gtinCheckOk(v)) return v;
@@ -143,13 +188,18 @@ class OpenFoodFactsSource implements VerificationSource {
         );
   }
 
-  SourceResult _withCheckedAt(SourceResult result, DateTime checkedAt) {
+  SourceResult _withCheckedAt(
+    SourceResult result,
+    DateTime checkedAt, {
+    DateTime? cachedAt,
+  }) {
     return SourceResult(
       info: result.info,
       checkedAt: checkedAt,
       claims: result.claims,
       fields: result.fields,
       dataUpdatedAt: result.dataUpdatedAt,
+      cachedAt: cachedAt,
       error: result.error,
     );
   }
@@ -210,7 +260,7 @@ class OpenFoodFactsSource implements VerificationSource {
     if (cached != null) {
       final age = at.difference(cached.cachedAt);
       if (age >= Duration.zero && age < _cacheTtl) {
-        return _withCheckedAt(cached.result, at);
+        return _withCheckedAt(cached.result, at, cachedAt: cached.cachedAt);
       }
       _cache.remove(key);
     }
@@ -244,7 +294,7 @@ class OpenFoodFactsSource implements VerificationSource {
 
     final HttpReply reply;
     try {
-      reply = await _fetch(uri);
+      reply = await fetchRespectingRetryAfter(_fetch, uri);
       // ignore: avoid_print
       print('[EXALTED][VERIFY] GET $uri -> HTTP ${reply.statusCode}');
     } catch (e) {
@@ -462,5 +512,3 @@ class OpenFoodFactsSource implements VerificationSource {
     );
   }
 }
-
-

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../ffi/decode_result.dart';
 import '../../gs1/gs1_parser.dart';
@@ -72,10 +73,15 @@ class ScanResultCard extends StatelessWidget {
     final showConnect =
         wifi != null && wifi.canConnect && onConnectWifi != null;
 
+    final colors = context.exalted;
+
     return Material(
-      color: scheme.surface,
-      elevation: 8,
-      borderRadius: BorderRadius.circular(20),
+      color: colors.surfaceRaised,
+      elevation: 4,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        side: BorderSide(color: colors.outline),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(

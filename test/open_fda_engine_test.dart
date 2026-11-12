@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'package:exalted/interpret/default_registry.dart';
 import 'package:exalted/interpret/interpreter.dart';
@@ -59,10 +59,7 @@ void main() {
   test('consent for another source does not enable FDA', () async {
     final calls = <Uri>[];
 
-    await _engine(calls).verify(
-      _scan(),
-      allowedSources: {'openfoodfacts'},
-    );
+    await _engine(calls).verify(_scan(), allowedSources: {'openfoodfacts'});
 
     expect(calls, hasLength(1));
     expect(calls.single.host, 'world.openfoodfacts.org');
@@ -74,10 +71,8 @@ void main() {
     () async {
       final calls = <Uri>[];
 
-      final report = await _engine(calls).verify(
-        _scan(),
-        allowedSources: {'openfda-ndc'},
-      );
+      final report = await _engine(calls)
+          .verify(_scan(), allowedSources: {'openfda-ndc'});
 
       expect(calls, hasLength(1));
       expect(calls.single.host, 'api.fda.gov');
@@ -99,9 +94,7 @@ void main() {
   test('FDA source is a known, user-selectable online source', () {
     expect(knownOnlineSources, contains('openfda-ndc'));
 
-    final c = onlineSourceChoices
-        .where((o) => o.id == 'openfda-ndc')
-        .toList();
+    final c = onlineSourceChoices.where((o) => o.id == 'openfda-ndc').toList();
 
     expect(c, hasLength(1));
     expect(c.single.subtitle, contains('Off by default'));

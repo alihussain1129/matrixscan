@@ -185,7 +185,7 @@ class OpenFdaNdcSource implements VerificationSource {
 
     final HttpReply reply;
     try {
-      reply = await _fetch(uri).timeout(_timeout);
+      reply = await fetchRespectingRetryAfter(_fetch, uri).timeout(_timeout);
     } on TimeoutException {
       return SourceResult.unavailable(
         info,

@@ -51,7 +51,10 @@ void main() {
 
   group('element string form', () {
     test('group separator ends a variable-length field', () {
-      const text = '010400638133393117270924' '10ABC123$_gs' '21XYZ789';
+      const text =
+          '010400638133393117270924'
+          '10ABC123$_gs'
+          '21XYZ789';
       final r = parseGs1(text, assumeGs1: true, now: _now)!;
       expect(r.form, Gs1Form.elementString);
       expect(r.fields.map((f) => f.ai), ['01', '17', '10', '21']);
@@ -61,7 +64,10 @@ void main() {
     });
 
     test('without a separator the variable field swallows the rest', () {
-      const text = '0104006381333931' '10ABC123' '21XYZ';
+      const text =
+          '0104006381333931'
+          '10ABC123'
+          '21XYZ';
       final r = parseGs1(text, assumeGs1: true, now: _now)!;
       expect(r.fields.map((f) => f.ai), ['01', '10']);
       expect(r.field('10')!.value, 'ABC12321XYZ');

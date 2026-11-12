@@ -64,7 +64,11 @@ Interpretation _vcard(String text) {
     };
     fields.add(_field(name, label, value, raw, 'vCard'));
   }
-  return _build('vCard contact', fields, version == null ? null : 'vCard version $version');
+  return _build(
+    'vCard contact',
+    fields,
+    version == null ? null : 'vCard version $version',
+  );
 }
 
 Interpretation _mecard(String text) {
@@ -89,15 +93,20 @@ Interpretation _mecard(String text) {
   return _build('MECARD contact', fields, null);
 }
 
-ScanField _field(String id, String label, String value, String raw, String std) =>
-    ScanField(
-      id: id,
-      label: label,
-      value: value.isEmpty ? null : value,
-      original: raw,
-      standard: std,
-      presence: value.isEmpty ? FieldPresence.empty : FieldPresence.present,
-    );
+ScanField _field(
+  String id,
+  String label,
+  String value,
+  String raw,
+  String std,
+) => ScanField(
+  id: id,
+  label: label,
+  value: value.isEmpty ? null : value,
+  original: raw,
+  standard: std,
+  presence: value.isEmpty ? FieldPresence.empty : FieldPresence.present,
+);
 
 ScanField _unknownField(String name, String raw) {
   const max = 120;
@@ -157,13 +166,25 @@ List<(String, String)> _vcardProperties(String text) {
 }
 
 String _vcardName(String raw) {
-  final p = _splitUnescaped(raw, ';').map((s) => _unescape(s, vcard: true)).toList();
+  final p = _splitUnescaped(
+    raw,
+    ';',
+  ).map((s) => _unescape(s, vcard: true)).toList();
   String at(int i) => i < p.length ? p[i] : '';
-  return [at(3), at(1), at(2), at(0), at(4)].where((s) => s.isNotEmpty).join(' ');
+  return [
+    at(3),
+    at(1),
+    at(2),
+    at(0),
+    at(4),
+  ].where((s) => s.isNotEmpty).join(' ');
 }
 
 String _mecardName(String raw) {
-  final p = _splitUnescaped(raw, ',').map((s) => _unescape(s, vcard: false)).toList();
+  final p = _splitUnescaped(
+    raw,
+    ',',
+  ).map((s) => _unescape(s, vcard: false)).toList();
   if (p.length >= 2 && p[0].isNotEmpty && p[1].isNotEmpty) {
     return '${p[1]} ${p[0]}';
   }

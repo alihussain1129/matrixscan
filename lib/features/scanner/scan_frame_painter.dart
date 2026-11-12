@@ -31,9 +31,13 @@ class ScanFramePainter extends CustomPainter {
         ..color = Colors.white.withValues(alpha: 0.18),
     );
 
+    // Brackets breathe slightly with the scan line.
+    final bracketAlpha =
+        0.8 + 0.2 * Curves.easeInOut.transform(progress.clamp(0.0, 1.0));
+
     // Corner brackets.
     final bracket = Paint()
-      ..color = color
+      ..color = color.withValues(alpha: bracketAlpha)
       ..strokeWidth = 4
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
@@ -72,7 +76,7 @@ class ScanFramePainter extends CustomPainter {
 
     // Scan line with a soft glow.
     final y = 14 + (h - 28) * progress;
-    final glowRect = Rect.fromLTWH(14, y - 8, w - 28, 16);
+    final glowRect = Rect.fromLTWH(14, y - 20, w - 28, 40);
     canvas.drawRect(
       glowRect,
       Paint()
@@ -81,7 +85,7 @@ class ScanFramePainter extends CustomPainter {
           end: Alignment.bottomCenter,
           colors: [
             color.withValues(alpha: 0),
-            color.withValues(alpha: 0.22),
+            color.withValues(alpha: 0.26),
             color.withValues(alpha: 0),
           ],
         ).createShader(glowRect),

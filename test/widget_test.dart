@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 ThemeData _testTheme() => ThemeData(
   colorScheme: AppColors.lightScheme,
-  extensions: const [AppColors.lightExtra],
+  extensions: [AppColors.lightExtra],
 );
 
 void main() {

@@ -1,6 +1,8 @@
 import 'dart:ffi';
 import 'dart:io' show Platform;
 
+import 'native_library_loader.dart';
+
 typedef VersionNative = Int32 Function();
 typedef VersionFn = int Function();
 
@@ -54,14 +56,15 @@ typedef DecodeFn = int Function(
 
 /// Typed handles to the C functions exported by libexalted_ffi.so.
 class ExaltedBindings {
-  ExaltedBindings._(DynamicLibrary lib)
+  ExaltedBindings._(DynamicLibrary lib, this.loadedFrom)
     : apiVersion = lib.lookupFunction<VersionNative, VersionFn>(
         'exalted_api_version',
       ),
       probe = lib.lookupFunction<ProbeNative, ProbeFn>('exalted_probe'),
       decode = lib.lookupFunction<DecodeNative, DecodeFn>('exalted_decode');
 
-  static const String libraryName = 'libexalted_ffi.so';
+  /// File name of the native library on this platform.
+  static String get libraryName => NativeLibraryLoader.platformLibraryName();
 
   /// Must match exalted_api_version() in cpp/src/ffi_api.cpp.
   static const int expectedApiVersion = 2;
@@ -69,18 +72,32 @@ class ExaltedBindings {
   /// Slots written by exalted_decode (EXALTED_DECODE_INFO_LEN).
   static const int decodeInfoLen = 12;
 
+  /// Where the library was loaded from (a full path, or the bare name when
+  /// the operating system's loader resolved it).
+  final String loadedFrom;
+
   final VersionFn apiVersion;
   final ProbeFn probe;
   final DecodeFn decode;
 
-  /// Opens the native library. Throws if it is missing or a symbol is absent.
+  /// Opens the native library. Throws a [NativeLibraryException] listing
+  /// every location tried if it is missing, and a [StateError] if it loads
+  /// but lacks an expected export (an outdated build).
   static ExaltedBindings open() {
-    if (!Platform.isAndroid) {
+    if (!(Platform.isAndroid || Platform.isLinux || Platform.isWindows)) {
       throw UnsupportedError(
-        'The native core is only loaded on Android '
-        '(running on ${Platform.operatingSystem}).',
+        'The native core is not supported on ${Platform.operatingSystem}.',
       );
     }
-    return ExaltedBindings._(DynamicLibrary.open(libraryName));
+    final loaded = NativeLibraryLoader.open();
+    try {
+      return ExaltedBindings._(loaded.library, loaded.path);
+    } on ArgumentError catch (e) {
+      throw StateError(
+        'Native library ${loaded.path} loaded but is missing an expected '
+        'export ($e). It is probably an outdated build; rebuild the native '
+        'core.',
+      );
+    }
   }
 }

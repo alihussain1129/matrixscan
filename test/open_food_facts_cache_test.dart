@@ -52,6 +52,9 @@ void main() {
     expect(calls, 1);
     expect(first.claims, isNotEmpty);
     expect(second.checkedAt, now);
+    expect(first.isCached, isFalse);
+    expect(second.isCached, isTrue);
+    expect(second.cachedAt, DateTime(2026, 10, 10, 10));
     expect(second.fields.length, first.fields.length);
     expect(second.dataUpdatedAt, first.dataUpdatedAt);
   });

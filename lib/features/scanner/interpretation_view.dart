@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -214,11 +214,7 @@ class _InterpretationViewState extends State<InterpretationView> {
       return Icon(Icons.check_circle_outline, size: 18, color: colors.valid);
     }
     if (f.presence != FieldPresence.present) {
-      return Icon(
-        Icons.info_outline,
-        size: 18,
-        color: scheme.onSurfaceVariant,
-      );
+      return Icon(Icons.info_outline, size: 18, color: scheme.onSurfaceVariant);
     }
     return const SizedBox(width: 18, height: 18);
   }
@@ -246,7 +242,8 @@ class _InterpretationViewState extends State<InterpretationView> {
       if (f.verification == FieldVerification.mismatch) 'Mismatch',
     ];
 
-    final invalid = f.validation == FieldValidation.invalid ||
+    final invalid =
+        f.validation == FieldValidation.invalid ||
         f.verification == FieldVerification.mismatch;
 
     return Container(
@@ -257,7 +254,9 @@ class _InterpretationViewState extends State<InterpretationView> {
         color: theme.colorScheme.surface.withValues(alpha: 0.72),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: invalid ? scheme.error.withValues(alpha: 0.65) : colors.outline,
+          color: invalid
+              ? scheme.error.withValues(alpha: 0.65)
+              : colors.outline,
         ),
       ),
       child: Row(
@@ -380,5 +379,3 @@ class _InterpretationViewState extends State<InterpretationView> {
     );
   }
 }
-
-

@@ -120,6 +120,29 @@ bool check(const char* label, const Image& img, const std::string& expected,
     return true;
 }
 
+
+// Decodes `img` with an explicit symbology mask and returns the native status.
+int decodeWithMask(const Image& img, std::int32_t mask, std::int32_t* info,
+                   std::uint8_t* text, std::int32_t textCap)
+{
+    return exalted_decode(
+        img.data.data(), static_cast<std::int32_t>(img.data.size()),
+        img.width, img.height, img.stride,
+        mask, 1, info, EXALTED_DECODE_INFO_LEN, text, textCap);
+}
+
+bool expectRc(const char* label, int got, int expected)
+{
+    if (got != expected)
+    {
+        std::cerr << "FAIL: " << label << " rc=" << got << " (expected "
+                  << expected << ")\n";
+        return false;
+    }
+    std::cout << "PASS: " << label << " -> rc=" << got << "\n";
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -183,6 +206,66 @@ int main()
             ok = false;
         }
         else std::cout << "PASS: bad arguments rejected (-1, -2, -3)\n";
+    }
+
+    // Symbology mask semantics, taken from the real native implementation:
+    //   0                 -> every supported format
+    //   DATAMATRIX bit    -> Data Matrix is decoded
+    //   a mask without it -> the Data Matrix symbol must NOT be reported
+    {
+        Symbol s;
+        if (!load("dm_14x14_ABCDEF.txt", s))
+        {
+            std::cerr << "FAIL: cannot load dm_14x14_ABCDEF.txt for mask test\n";
+            ok = false;
+        }
+        else
+        {
+            const Image img = render(s, 6, 4, 13);
+            std::int32_t info[EXALTED_DECODE_INFO_LEN] = {};
+            std::vector<std::uint8_t> text(256);
+            const std::int32_t cap = static_cast<std::int32_t>(text.size());
+
+            ok &= expectRc("mask 0 (any format) decodes Data Matrix",
+                           decodeWithMask(img, 0, info, text.data(), cap), 1);
+            ok &= expectRc("mask DATAMATRIX decodes Data Matrix",
+                           decodeWithMask(img, EXALTED_FMT_DATAMATRIX, info,
+                                          text.data(), cap), 1);
+            ok &= expectRc("mask DATAMATRIX|QRCODE decodes Data Matrix",
+                           decodeWithMask(img,
+                                          EXALTED_FMT_DATAMATRIX | EXALTED_FMT_QRCODE,
+                                          info, text.data(), cap), 1);
+            ok &= expectRc("mask QRCODE only does not report Data Matrix",
+                           decodeWithMask(img, EXALTED_FMT_QRCODE, info,
+                                          text.data(), cap), 0);
+            ok &= expectRc("mask EAN13|CODE128 does not report Data Matrix",
+                           decodeWithMask(img,
+                                          EXALTED_FMT_EAN13 | EXALTED_FMT_CODE128,
+                                          info, text.data(), cap), 0);
+        }
+    }
+
+    // Output buffer too small: -5, with info[1] telling the caller what to
+    // allocate. Nothing may be written past textCap.
+    {
+        Symbol s;
+        if (load("dm_14x14_ABCDEF.txt", s))
+        {
+            const Image img = render(s, 6, 4, 13);
+            std::int32_t info[EXALTED_DECODE_INFO_LEN] = {};
+            std::uint8_t text[8];
+            for (std::uint8_t& b : text) b = 0xEE;
+            const int rc = decodeWithMask(img, 0, info, text, 2);
+            bool untouched = true;
+            for (int i = 2; i < 8; ++i) untouched &= (text[i] == 0xEE);
+            if (rc != -5 || info[1] != 6 || !untouched)
+            {
+                std::cerr << "FAIL: small text buffer rc=" << rc << " needed="
+                          << info[1] << " untouched=" << untouched << "\n";
+                ok = false;
+            }
+            else std::cout << "PASS: small text buffer -> -5, needed size reported, no overrun\n";
+        }
     }
 
     if (!ok) { std::cerr << "NATIVE DECODE TEST FAILED\n"; return 1; }

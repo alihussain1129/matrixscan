@@ -9,7 +9,9 @@ int emvCrc16(List<int> data) {
   for (final b in data) {
     crc ^= (b & 0xFF) << 8;
     for (var i = 0; i < 8; i++) {
-      crc = (crc & 0x8000) != 0 ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+      crc = (crc & 0x8000) != 0
+          ? ((crc << 1) ^ 0x1021) & 0xFFFF
+          : (crc << 1) & 0xFFFF;
     }
   }
   return crc;
@@ -35,14 +37,24 @@ List<_Tlv>? _parse(List<int> b) {
   var i = 0;
   while (i < b.length) {
     if (i + 4 > b.length) return null;
-    if (!_digit(b[i]) || !_digit(b[i + 1]) || !_digit(b[i + 2]) || !_digit(b[i + 3])) {
+    if (!_digit(b[i]) ||
+        !_digit(b[i + 1]) ||
+        !_digit(b[i + 2]) ||
+        !_digit(b[i + 3])) {
       return null;
     }
     final id = String.fromCharCodes(b.sublist(i, i + 2));
     final len = int.parse(String.fromCharCodes(b.sublist(i + 2, i + 4)));
     final end = i + 4 + len;
     if (end > b.length) return null;
-    out.add(_Tlv(id, utf8.decode(b.sublist(i + 4, end), allowMalformed: true), i, i + 4));
+    out.add(
+      _Tlv(
+        id,
+        utf8.decode(b.sublist(i + 4, end), allowMalformed: true),
+        i,
+        i + 4,
+      ),
+    );
     i = end;
   }
   return out;
@@ -132,8 +144,13 @@ class EmvInterpreter implements PayloadInterpreter {
       return null;
     }
 
-    ScanField present(String tag, String label,
-        {String? note, String? unit, String? display}) {
+    ScanField present(
+      String tag,
+      String label, {
+      String? note,
+      String? unit,
+      String? display,
+    }) {
       final v = top(tag);
       if (v == null) return ScanField.notPresent(label, id: tag, standard: std);
       return ScanField(
@@ -150,7 +167,11 @@ class EmvInterpreter implements PayloadInterpreter {
 
     final init = top('01');
     final initField = init == null
-        ? const ScanField.notPresent('Point of initiation', id: '01', standard: std)
+        ? const ScanField.notPresent(
+            'Point of initiation',
+            id: '01',
+            standard: std,
+          )
         : ScanField(
             id: '01',
             label: 'Point of initiation',
@@ -227,40 +248,50 @@ class EmvInterpreter implements PayloadInterpreter {
       if (n < 26 || n > 51) continue;
       final subs = _parse(utf8.encode(t.value));
       if (subs == null) {
-        warnings.add('Account template ${t.id} could not be split into fields.');
-        accountSections.add(ScanSection(
+        warnings.add(
+          'Account template ${t.id} could not be split into fields.',
+        );
+        accountSections.add(
+          ScanSection(
+            id: 'acct${t.id}',
+            title: 'Merchant account information (ID ${t.id})',
+            fields: [
+              ScanField(
+                id: t.id,
+                label: 'Template content',
+                value: t.value,
+                sensitive: true,
+                validation: FieldValidation.invalid,
+              ),
+            ],
+          ),
+        );
+        continue;
+      }
+      accountSections.add(
+        ScanSection(
           id: 'acct${t.id}',
           title: 'Merchant account information (ID ${t.id})',
           fields: [
-            ScanField(
-              id: t.id,
-              label: 'Template content',
-              value: t.value,
-              sensitive: true,
-              validation: FieldValidation.invalid,
-            ),
+            for (final s in subs)
+              ScanField(
+                id: '${t.id}.${s.id}',
+                label: s.id == '00'
+                    ? 'Globally unique identifier'
+                    : 'Sub-field ${s.id}',
+                value: s.value.isEmpty ? null : s.value,
+                presence: s.value.isEmpty
+                    ? FieldPresence.empty
+                    : FieldPresence.present,
+                standard: std,
+                sensitive: s.id != '00',
+                note: s.id == '00'
+                    ? 'Identifies the scheme or provider that defines the other sub-fields. EXALTED does not interpret them.'
+                    : 'Scheme-specific; may be an account identifier. Hidden in exports.',
+              ),
           ],
-        ));
-        continue;
-      }
-      accountSections.add(ScanSection(
-        id: 'acct${t.id}',
-        title: 'Merchant account information (ID ${t.id})',
-        fields: [
-          for (final s in subs)
-            ScanField(
-              id: '${t.id}.${s.id}',
-              label: s.id == '00' ? 'Globally unique identifier' : 'Sub-field ${s.id}',
-              value: s.value.isEmpty ? null : s.value,
-              presence: s.value.isEmpty ? FieldPresence.empty : FieldPresence.present,
-              standard: std,
-              sensitive: s.id != '00',
-              note: s.id == '00'
-                  ? 'Identifies the scheme or provider that defines the other sub-fields. EXALTED does not interpret them.'
-                  : 'Scheme-specific; may be an account identifier. Hidden in exports.',
-            ),
-        ],
-      ));
+        ),
+      );
     }
 
     final extra = top('62');
@@ -268,17 +299,23 @@ class EmvInterpreter implements PayloadInterpreter {
     if (extra != null) {
       final subs = _parse(utf8.encode(extra));
       if (subs == null) {
-        warnings.add('The additional data template (ID 62) could not be split.');
+        warnings.add(
+          'The additional data template (ID 62) could not be split.',
+        );
       } else {
         for (final s in subs) {
-          additional.add(ScanField(
-            id: '62.${s.id}',
-            label: _additionalLabels[s.id] ?? 'Sub-field ${s.id}',
-            value: s.value.isEmpty ? null : s.value,
-            presence: s.value.isEmpty ? FieldPresence.empty : FieldPresence.present,
-            standard: std,
-            sensitive: s.id == '02',
-          ));
+          additional.add(
+            ScanField(
+              id: '62.${s.id}',
+              label: _additionalLabels[s.id] ?? 'Sub-field ${s.id}',
+              value: s.value.isEmpty ? null : s.value,
+              presence: s.value.isEmpty
+                  ? FieldPresence.empty
+                  : FieldPresence.present,
+              standard: std,
+              sensitive: s.id == '02',
+            ),
+          );
         }
       }
     }
@@ -287,20 +324,24 @@ class EmvInterpreter implements PayloadInterpreter {
     final crcTlv = tlv.where((t) => t.id == '63').toList();
     final crcFields = <ScanField>[];
     if (crcTlv.isEmpty) {
-      warnings.add('The QR has no CRC field, so its integrity cannot be checked.');
+      warnings.add(
+        'The QR has no CRC field, so its integrity cannot be checked.',
+      );
       crcFields.add(const ScanField.notPresent('CRC', id: '63', standard: std));
     } else {
       final c = crcTlv.last;
       final isLast = identical(c, tlv.last);
       if (!isLast || !_hex4.hasMatch(c.value)) {
         warnings.add('The CRC field is misplaced or malformed.');
-        crcFields.add(ScanField(
-          id: '63',
-          label: 'CRC in QR',
-          value: c.value,
-          validation: FieldValidation.invalid,
-          standard: std,
-        ));
+        crcFields.add(
+          ScanField(
+            id: '63',
+            label: 'CRC in QR',
+            value: c.value,
+            validation: FieldValidation.invalid,
+            standard: std,
+          ),
+        );
       } else {
         final expected = emvCrc16(bytes.sublist(0, c.valueStart))
             .toRadixString(16)
@@ -320,7 +361,8 @@ class EmvInterpreter implements PayloadInterpreter {
             value: c.value.toUpperCase(),
             standard: std,
             validation: ok ? FieldValidation.valid : FieldValidation.invalid,
-            note: 'A matching CRC shows the text was not damaged. It does not '
+            note:
+                'A matching CRC shows the text was not damaged. It does not '
                 'show the payee is genuine.',
           ),
           ScanField(
@@ -333,15 +375,34 @@ class EmvInterpreter implements PayloadInterpreter {
       }
     }
 
-    const known = {'00', '01', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63'};
+    const known = {
+      '00',
+      '01',
+      '52',
+      '53',
+      '54',
+      '55',
+      '56',
+      '57',
+      '58',
+      '59',
+      '60',
+      '61',
+      '62',
+      '63',
+    };
     final other = <ScanField>[
       for (final t in tlv)
-        if (!known.contains(t.id) && !((int.tryParse(t.id) ?? -1) >= 26 && (int.tryParse(t.id) ?? -1) <= 51))
+        if (!known.contains(t.id) &&
+            !((int.tryParse(t.id) ?? -1) >= 26 &&
+                (int.tryParse(t.id) ?? -1) <= 51))
           ScanField(
             id: t.id,
             label: 'Other field ${t.id}',
             value: t.value.isEmpty ? null : t.value,
-            presence: t.value.isEmpty ? FieldPresence.empty : FieldPresence.present,
+            presence: t.value.isEmpty
+                ? FieldPresence.empty
+                : FieldPresence.present,
             note: 'Not interpreted by EXALTED; kept as encoded.',
           ),
     ];
@@ -357,7 +418,13 @@ class EmvInterpreter implements PayloadInterpreter {
           id: 'accounts',
           title: 'Merchant account information',
           fields: accountSections.isEmpty
-              ? const [ScanField.notPresent('Merchant account information', id: '26-51', standard: std)]
+              ? const [
+                  ScanField.notPresent(
+                    'Merchant account information',
+                    id: '26-51',
+                    standard: std,
+                  ),
+                ]
               : const [],
           sections: accountSections,
         ),
@@ -365,11 +432,22 @@ class EmvInterpreter implements PayloadInterpreter {
           id: 'additional',
           title: 'Additional data',
           fields: additional.isEmpty
-              ? const [ScanField.notPresent('Additional data', id: '62', standard: std)]
+              ? const [
+                  ScanField.notPresent(
+                    'Additional data',
+                    id: '62',
+                    standard: std,
+                  ),
+                ]
               : additional,
         ),
-        ScanSection(id: 'integrity', title: 'Integrity check', fields: crcFields),
-        if (other.isNotEmpty) ScanSection(id: 'other', title: 'Other fields', fields: other),
+        ScanSection(
+          id: 'integrity',
+          title: 'Integrity check',
+          fields: crcFields,
+        ),
+        if (other.isNotEmpty)
+          ScanSection(id: 'other', title: 'Other fields', fields: other),
       ],
     );
   }

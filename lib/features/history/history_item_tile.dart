@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_spacing.dart';
 import 'history_entry.dart';
+import '../../core/storage/file_exists_cache.dart';
 
 /// "Today, 14:05", "Yesterday, 09:30" or "8 Oct 2026, 14:05".
 String formatHistoryTime(DateTime time, DateTime now) {
@@ -46,6 +49,13 @@ String historySourceLabel(HistorySource source) {
   }
 }
 
+String historyDeviceLabel(HistoryEntry entry) {
+  final origin = entry.originDeviceId;
+  if (origin == null || origin.isEmpty) return 'This device';
+  final short = origin.length <= 12 ? origin : '${origin.substring(0, 12)}…';
+  return 'Remote device $short';
+}
+
 IconData _iconFor(HistoryEntry entry) {
   if (entry.kind == HistoryKind.ocr) return Icons.text_snippet_outlined;
   final format = entry.format ?? '';
@@ -69,21 +79,46 @@ class HistoryItemTile extends StatelessWidget {
     final scheme = theme.colorScheme;
     final text = theme.textTheme;
 
+    final hasImage =
+        entry.imagePath != null &&
+        entry.imagePath!.isNotEmpty &&
+        cachedFileExists(entry.imagePath!);
+
     return ListTile(
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(
         horizontal: 0,
         vertical: AppSpacing.xs,
       ),
-      leading: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: scheme.primary.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(_iconFor(entry), color: scheme.primary),
-      ),
+      leading: hasImage
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.file(
+                File(entry.imagePath!),
+                cacheWidth: 132,
+                width: 44,
+                height: 44,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(_iconFor(entry), color: scheme.primary),
+                ),
+              ),
+            )
+          : Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(_iconFor(entry), color: scheme.primary),
+            ),
       title: Text(
         entry.text,
         maxLines: 2,
@@ -94,6 +129,7 @@ class HistoryItemTile extends StatelessWidget {
         padding: const EdgeInsets.only(top: 2),
         child: Text(
           '${historyTypeLabel(entry)} · ${historySourceLabel(entry.source)}'
+          ' · ${historyDeviceLabel(entry)}'
           '\n${formatHistoryTime(entry.createdAt, DateTime.now())}',
           style: text.bodySmall,
         ),

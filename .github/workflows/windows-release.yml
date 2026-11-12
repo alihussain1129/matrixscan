@@ -1,0 +1,222 @@
+name: Exalted Windows Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "**"
+    paths:
+      - ".github/workflows/windows-release.yml"
+      - "lib/**"
+      - "windows/**"
+      - "cpp/**"
+      - "test/**"
+      - "packaging/windows/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+      - "analysis_options.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: exalted-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows-x64:
+    name: Build Exalted for Windows x64
+    runs-on: windows-2025
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.9"
+          cache: true
+
+      - name: Show toolchain
+        shell: pwsh
+        run: |
+          flutter --version
+          flutter doctor -v
+          cmake --version
+
+      - name: Resolve Flutter packages
+        run: flutter pub get
+
+      - name: Analyze Windows OCR integration
+        run: >-
+          flutter analyze
+          lib/features/ocr/services/tesseract_locator.dart
+          lib/features/ocr/services/desktop_ocr_engine.dart
+          lib/features/scanner/live_ocr_analyzer.dart
+          lib/core/navigation/desktop_chrome.dart
+          test/tesseract_prefix_test.dart
+
+      - name: Test Tesseract discovery
+        run: flutter test test/tesseract_locator_test.dart
+
+      - name: Test bundled Tesseract data path
+        run: flutter test test/tesseract_prefix_test.dart
+
+      - name: Test desktop OCR engine
+        run: flutter test test/desktop_ocr_engine_test.dart
+
+      - name: Build Windows x64 release
+        env:
+          CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+        run: flutter build windows --release
+
+      - name: Build and package Tesseract 5.5.4 (Windows x64)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vcpkgRoot = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          $tesseractRoot = Join-Path $env:RUNNER_TEMP 'tesseract-src'
+          $installRoot = Join-Path $env:RUNNER_TEMP 'tesseract-install'
+
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git $vcpkgRoot
+          if ($LASTEXITCODE -ne 0) { throw 'Could not clone vcpkg.' }
+          & (Join-Path $vcpkgRoot 'bootstrap-vcpkg.bat') -disableMetrics
+          if ($LASTEXITCODE -ne 0) { throw 'Could not bootstrap vcpkg.' }
+          & (Join-Path $vcpkgRoot 'vcpkg.exe') install leptonica:x64-windows
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install the Leptonica dependency.' }
+
+          git clone --depth 1 --branch 5.5.4 https://github.com/tesseract-ocr/tesseract.git $tesseractRoot
+          if ($LASTEXITCODE -ne 0) { throw 'Could not clone Tesseract 5.5.4.' }
+
+          $buildRoot = Join-Path $tesseractRoot 'build'
+          $toolchain = Join-Path $vcpkgRoot 'scripts\buildsystems\vcpkg.cmake'
+          $configureArgs = @(
+            '-S', $tesseractRoot,
+            '-B', $buildRoot,
+            '-DCMAKE_BUILD_TYPE=Release',
+            '-DOPENMP_BUILD=OFF',
+            '-DBUILD_TRAINING_TOOLS=OFF',
+            "-DCMAKE_TOOLCHAIN_FILE=$toolchain",
+            '-DVCPKG_TARGET_TRIPLET=x64-windows',
+            "-DCMAKE_INSTALL_PREFIX=$installRoot"
+          )
+          & cmake @configureArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Tesseract 5.5.4 CMake configuration failed.' }
+          & cmake --build $buildRoot --config Release --parallel --target install
+          if ($LASTEXITCODE -ne 0) { throw 'Tesseract 5.5.4 build/install failed.' }
+
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE 'build\windows\x64\runner\Release'
+          if (!(Test-Path (Join-Path $releaseDir 'exalted.exe') -PathType Leaf)) {
+            throw "Flutter release executable missing from $releaseDir"
+          }
+
+          $bundleDir = Join-Path $releaseDir 'tesseract'
+          New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
+
+          $installedExe = Get-ChildItem -Path $installRoot -Filter 'tesseract.exe' -File -Recurse | Select-Object -First 1
+          if (!$installedExe) {
+            $buildExe = Join-Path $buildRoot 'bin\Release\tesseract.exe'
+            if (!(Test-Path $buildExe -PathType Leaf)) {
+              throw "Tesseract executable not found under $installRoot or $buildExe"
+            }
+            Copy-Item $buildExe $bundleDir -Force
+            $buildBin = Split-Path $buildExe -Parent
+            Get-ChildItem -Path $buildBin -Filter '*.dll' -File | Copy-Item -Destination $bundleDir -Force
+          } else {
+            $installedBin = Split-Path $installedExe.FullName -Parent
+            Get-ChildItem -Path $installedBin -File | Copy-Item -Destination $bundleDir -Force
+          }
+
+          # Package all runtime DLLs supplied by vcpkg's Leptonica dependency graph.
+          $vcpkgBin = Join-Path $vcpkgRoot 'installed\x64-windows\bin'
+          if (Test-Path $vcpkgBin) {
+            Get-ChildItem -Path $vcpkgBin -Filter '*.dll' -File | Copy-Item -Destination $bundleDir -Force
+          }
+
+          # Pin the official fast English model to the published 4.1.0 data release.
+          $dataDir = Join-Path $bundleDir 'tessdata'
+          New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+          $trainedData = Join-Path $dataDir 'eng.traineddata'
+          $trainedDataUrl = 'https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/eng.traineddata'
+          Invoke-WebRequest -Uri $trainedDataUrl -OutFile $trainedData
+          if (!(Test-Path $trainedData -PathType Leaf) -or (Get-Item $trainedData).Length -lt 1000000) {
+            throw 'Downloaded English traineddata is missing or unexpectedly small.'
+          }
+
+          $licenseDir = Join-Path $bundleDir 'licenses'
+          New-Item -ItemType Directory -Force -Path $licenseDir | Out-Null
+          foreach ($licenseName in @('LICENSE', 'COPYING')) {
+            $licensePath = Join-Path $tesseractRoot $licenseName
+            if (Test-Path $licensePath -PathType Leaf) {
+              Copy-Item $licensePath (Join-Path $licenseDir "tesseract-$licenseName.txt") -Force
+            }
+          }
+          $modelLicense = Join-Path $env:RUNNER_TEMP 'tessdata-fast-LICENSE'
+          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/LICENSE' -OutFile $modelLicense
+          Copy-Item $modelLicense (Join-Path $licenseDir 'tessdata-fast-LICENSE.txt') -Force
+
+          # Include dependency notices made available by vcpkg.
+          $shareRoot = Join-Path $vcpkgRoot 'installed\x64-windows\share'
+          if (Test-Path $shareRoot) {
+            Get-ChildItem -Path $shareRoot -Filter 'copyright' -File -Recurse | ForEach-Object {
+              $safeName = ($_.Directory.Name -replace '[^A-Za-z0-9._-]', '_')
+              Copy-Item $_.FullName (Join-Path $licenseDir "$safeName-copyright.txt") -Force
+            }
+          }
+
+          $bundleExe = Join-Path $bundleDir 'tesseract.exe'
+          if (!(Test-Path $bundleExe -PathType Leaf)) { throw 'Bundled tesseract.exe is missing.' }
+          $env:TESSDATA_PREFIX = $dataDir
+          $languageOutput = (& $bundleExe --list-langs 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $languageOutput -notmatch '(?m)^\s*eng\s*$') {
+            throw "Bundled Tesseract cannot load English language data:`n$languageOutput"
+          }
+          $versionOutput = (& $bundleExe --version 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $versionOutput -notmatch '5\.5\.4') {
+            throw "Expected Tesseract 5.5.4 but got:`n$versionOutput"
+          }
+          Write-Host $versionOutput
+          Write-Host "Bundled Tesseract 5.5.4 verified at $bundleDir"
+
+      - name: Build Inno Setup installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup --version=6.7.1 --no-progress -y
+          $isccCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+          if ($isccCommand) {
+            $iscc = $isccCommand.Source
+          } else {
+            $roots = @(
+              (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6'),
+              (Join-Path $env:ProgramFiles 'Inno Setup 6'),
+              (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 7'),
+              (Join-Path $env:ProgramFiles 'Inno Setup 7')
+            )
+            $iscc = $null
+            foreach ($root in $roots) {
+              $candidate = Join-Path $root 'ISCC.exe'
+              if (Test-Path $candidate -PathType Leaf) { $iscc = $candidate; break }
+            }
+          }
+          if (!$iscc) { throw 'Inno Setup compiler (ISCC.exe) was not found.' }
+
+          & $iscc 'packaging/windows/installer.iss'
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+
+          $installer = 'build/exalted_setup_1.0.0_win64.exe'
+          if (!(Test-Path $installer -PathType Leaf)) { throw "Installer output missing: $installer" }
+          Get-Item $installer | Format-List FullName, Length, LastWriteTime
+
+      - name: Upload Windows release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: exalted-windows-x64-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            build/exalted_setup_1.0.0_win64.exe
+            build/windows/x64/runner/Release/**

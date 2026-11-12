@@ -7,7 +7,13 @@ enum Gs1ValueType { numeric, alphanumeric, date, gtin }
 
 /// Length and character rules for one Application Identifier.
 class Gs1AiSpec {
-  const Gs1AiSpec(this.ai, this.name, this.minLength, this.maxLength, this.type);
+  const Gs1AiSpec(
+    this.ai,
+    this.name,
+    this.minLength,
+    this.maxLength,
+    this.type,
+  );
 
   final String ai;
   final String name;
@@ -32,8 +38,20 @@ const Map<String, Gs1AiSpec> gs1AiTable = {
   '21': Gs1AiSpec('21', 'Serial number', 1, 20, Gs1ValueType.alphanumeric),
   '30': Gs1AiSpec('30', 'Variable count', 1, 8, Gs1ValueType.numeric),
   '37': Gs1AiSpec('37', 'Count of trade items', 1, 8, Gs1ValueType.numeric),
-  '240': Gs1AiSpec('240', 'Additional product ID', 1, 30, Gs1ValueType.alphanumeric),
-  '250': Gs1AiSpec('250', 'Secondary serial number', 1, 30, Gs1ValueType.alphanumeric),
+  '240': Gs1AiSpec(
+    '240',
+    'Additional product ID',
+    1,
+    30,
+    Gs1ValueType.alphanumeric,
+  ),
+  '250': Gs1AiSpec(
+    '250',
+    'Secondary serial number',
+    1,
+    30,
+    Gs1ValueType.alphanumeric,
+  ),
 };
 
 /// A GS1 date (YYMMDD). [day] 0 means "day not specified".
@@ -214,11 +232,7 @@ Gs1Field _makeField(String ai, String value, DateTime? now) {
 ///
 /// This works on text only. It cannot confirm that the symbol itself was
 /// encoded as GS1; that needs the symbology identifier from the native core.
-Gs1ParseResult? parseGs1(
-  String text, {
-  bool assumeGs1 = false,
-  DateTime? now,
-}) {
+Gs1ParseResult? parseGs1(String text, {bool assumeGs1 = false, DateTime? now}) {
   if (text.startsWith('(')) {
     return _parseParenthesized(text, now);
   }
@@ -254,7 +268,11 @@ Gs1AiSpec? _specAt(String s, int i) {
   return null;
 }
 
-Gs1ParseResult? _parseElementString(String text, String? prefix, DateTime? now) {
+Gs1ParseResult? _parseElementString(
+  String text,
+  String? prefix,
+  DateTime? now,
+) {
   var i = prefix?.length ?? 0;
   final fields = <Gs1Field>[];
   var unparsed = '';

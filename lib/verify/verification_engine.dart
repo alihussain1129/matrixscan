@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import '../interpret/interpreter.dart';
 import '../interpret/scan_field.dart';
@@ -58,10 +58,14 @@ class VerificationEngine {
       }
       toRun.add(s);
     }
-    _log('start run=[${toRun.map((s) => s.info.id).join(",")}] skipped=[${skipped.map((s) => s.id).join(",")}] allowed=[${allowedSources.join(",")}]');
+    _log(
+      'start run=[${toRun.map((s) => s.info.id).join(",")}] skipped=[${skipped.map((s) => s.id).join(",")}] allowed=[${allowedSources.join(",")}]',
+    );
     final results = await Future.wait([for (final s in toRun) _guard(s, base)]);
     for (final r in results) {
-      _log('${r.info.id}: ${r.claims.map((c) => c.status.label).join(" | ")} ${r.error ?? ""}');
+      _log(
+        '${r.info.id}: ${r.claims.map((c) => c.status.label).join(" | ")} ${r.error ?? ""}',
+      );
     }
     return VerificationReport(
       results: results,
@@ -96,6 +100,7 @@ class VerificationEngine {
       checkedAt: r.checkedAt,
       fields: r.fields,
       dataUpdatedAt: r.dataUpdatedAt,
+      cachedAt: r.cachedAt,
       error: r.error,
       claims: [
         for (final c in r.claims)
@@ -122,7 +127,9 @@ class VerificationEngine {
     }
     final out = <String>[];
     byAspect.forEach((aspect, bySource) {
-      final distinct = bySource.values.map((v) => v.trim().toLowerCase()).toSet();
+      final distinct = bySource.values
+          .map((v) => v.trim().toLowerCase())
+          .toSet();
       if (bySource.length >= 2 && distinct.length > 1) {
         final says = bySource.entries
             .map((e) => '${e.key} says "${e.value}"')
@@ -218,16 +225,29 @@ Interpretation applyVerification(
         warnings.add('${c.aspect}: ${c.status.label} (${r.info.name}).');
       }
     }
+    final cacheAge = r.cachedAt == null
+        ? null
+        : r.checkedAt.difference(r.cachedAt!);
+    final cacheAgeLabel = cacheAge == null
+        ? null
+        : cacheAge.inSeconds < 60
+        ? '< 1 minute'
+        : cacheAge.inMinutes == 1
+        ? '1 minute'
+        : '${cacheAge.inMinutes} minutes';
     provenance.add(
       ScanField(
         id: 'source.${r.info.id}',
         label: r.info.name,
         value: r.error == null
-            ? 'Checked ${_iso(r.checkedAt)}'
+            ? r.isCached
+                  ? 'Cached response · $cacheAgeLabel old'
+                  : 'Checked ${_iso(r.checkedAt)}'
             : 'Source unavailable',
         origin: external ? FieldOrigin.external : FieldOrigin.calculated,
         note:
             '${r.info.kind.label}. '
+            '${r.isCached ? 'Originally fetched ${_iso(r.cachedAt!)}. ' : ''}'
             '${r.info.authoritative ? 'Authoritative source.' : 'Not an authoritative source.'} '
             '${r.info.requirement}',
         warning: r.error,
@@ -280,10 +300,7 @@ Interpretation applyVerification(
   );
 }
 
-
 void _log(String m) {
   // ignore: avoid_print
   print('[EXALTED][VERIFY] $m');
 }
-
-

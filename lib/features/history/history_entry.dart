@@ -14,6 +14,9 @@ class HistoryEntry {
     required this.createdAt,
     this.format,
     this.pinned = false,
+    this.imagePath,
+    this.processingDurationMs,
+    this.originDeviceId,
   });
 
   final String id;
@@ -26,7 +29,21 @@ class HistoryEntry {
   final String? format;
   final bool pinned;
 
-  HistoryEntry copyWith({bool? pinned}) => HistoryEntry(
+  /// Path to the preserved image on disk, if any.
+  final String? imagePath;
+
+  /// Processing time in milliseconds, if recorded.
+  final double? processingDurationMs;
+
+  /// Stable origin ID for imported synchronized records. Null means this
+  /// record was created on the current device.
+  final String? originDeviceId;
+
+  HistoryEntry copyWith({
+    bool? pinned,
+    String? imagePath,
+    double? processingDurationMs,
+  }) => HistoryEntry(
     id: id,
     kind: kind,
     source: source,
@@ -34,6 +51,9 @@ class HistoryEntry {
     createdAt: createdAt,
     format: format,
     pinned: pinned ?? this.pinned,
+    imagePath: imagePath ?? this.imagePath,
+    processingDurationMs: processingDurationMs ?? this.processingDurationMs,
+    originDeviceId: originDeviceId,
   );
 
   Map<String, Object?> toJson() => {
@@ -44,6 +64,9 @@ class HistoryEntry {
     'createdAt': createdAt.toIso8601String(),
     'format': format,
     'pinned': pinned,
+    'imagePath': imagePath,
+    'processingDurationMs': processingDurationMs,
+    if (originDeviceId != null) 'originDeviceId': originDeviceId,
   };
 
   static HistoryEntry? fromJson(Object? json) {
@@ -65,6 +88,10 @@ class HistoryEntry {
     final sourceValue = HistorySource.values.asNameMap()[source];
     if (date == null || kindValue == null || sourceValue == null) return null;
     final format = json['format'];
+    final imagePath = json['imagePath'] is String
+        ? json['imagePath'] as String
+        : null;
+    final duration = (json['processingDurationMs'] as num?)?.toDouble();
     return HistoryEntry(
       id: id,
       kind: kindValue,
@@ -73,6 +100,11 @@ class HistoryEntry {
       createdAt: date,
       format: format is String ? format : null,
       pinned: json['pinned'] == true,
+      imagePath: imagePath,
+      processingDurationMs: duration,
+      originDeviceId: json['originDeviceId'] is String
+          ? json['originDeviceId'] as String
+          : null,
     );
   }
 }

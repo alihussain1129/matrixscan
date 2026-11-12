@@ -1,6 +1,9 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/ocr_result.dart';
+import '../services/desktop_ocr_engine.dart';
 import '../services/mlkit_ocr_engine.dart';
 import '../services/ocr_engine.dart';
 
@@ -16,7 +19,12 @@ class OcrState {
 
 /// The engine in use. Override this in tests, or swap the engine here later.
 final ocrEngineProvider = Provider<OcrEngine>((ref) {
-  final engine = MlKitOcrEngine();
+  final OcrEngine engine;
+  if (Platform.isAndroid || Platform.isIOS) {
+    engine = MlKitOcrEngine();
+  } else {
+    engine = DesktopOcrEngine();
+  }
   ref.onDispose(() {
     engine.dispose();
   });

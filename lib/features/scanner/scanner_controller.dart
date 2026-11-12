@@ -1,8 +1,11 @@
-import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:camera/camera.dart';
+import 'package:camera_desktop/camera_desktop.dart';
+
+import 'desktop_frame.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,6 +17,11 @@ import '../history/history_repository.dart';
 import 'frame_pipeline.dart';
 import 'scanner_analyzer.dart';
 import 'scan_feedback.dart';
+import 'detection_events.dart';
+import '../inspection/combined_inspector.dart';
+import 'captured_frame.dart';
+import '../../core/config/app_config.dart';
+import '../../core/config/config_controller.dart';
 
 enum CameraStatus {
   idle,
@@ -25,7 +33,11 @@ enum CameraStatus {
 }
 
 const String _qualityDefine = String.fromEnvironment('EXALTED_QUALITY');
-const CameraQuality _defaultQuality = _qualityDefine == 'high' ? CameraQuality.high : (_qualityDefine == 'ultra' ? CameraQuality.ultra : CameraQuality.balanced);
+const CameraQuality _defaultQuality = _qualityDefine == 'high'
+    ? CameraQuality.high
+    : (_qualityDefine == 'ultra'
+          ? CameraQuality.ultra
+          : CameraQuality.balanced);
 
 enum CameraQuality {
   balanced('Balanced', ResolutionPreset.medium),
@@ -110,6 +122,12 @@ class ScannerController extends Notifier<ScannerUiState> {
   Future<List<CameraDescription>>? _camerasFuture;
 
   int _rotation = 90;
+  int _lastGrayMs = -1000;
+  final GrayConverter _gray = GrayConverter();
+
+  /// Camera frames received so far. Read once per second to measure the
+  /// real frame rate.
+  int cameraFrames = 0;
 
   bool _starting = false;
   bool _wantRunning = false;
@@ -125,8 +143,12 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   final Stopwatch _resultClock = Stopwatch()..start();
 
-  String? _lastText;
-  int _lastResultMs = -10000;
+  /// Groups the per-frame decoder hits into detection events.
+  final DetectionEventTracker _events = DetectionEventTracker();
+  int _suppressedHits = 0;
+
+  /// Pending request for the next camera frame (used by OCR).
+  Completer<CapturedFrame>? _grab;
   int _scanStartMs = 0;
 
   @override
@@ -134,8 +156,15 @@ class ScannerController extends Notifier<ScannerUiState> {
     // The analyzer belongs to the scanner provider graph. Wire its result
     // callback here so every native decode reaches the controller/UI.
     final analyzer = _analyzer;
+    void applyDecoderConfig(AppConfig config) {
+      analyzer.formatsMask = decoderFormatsMask(config.decoder.symbologies);
+    }
+
+    applyDecoderConfig(ref.read(configControllerProvider));
+    ref.listen(configControllerProvider, (_, next) => applyDecoderConfig(next));
     final pipeline = _pipeline;
     analyzer.onDecoded = _onDecoded;
+    _gray.onGray = _onGray;
     _startup('scanner created');
 
     // Warm up in parallel with the camera start: native library, decode
@@ -150,6 +179,7 @@ class ScannerController extends Notifier<ScannerUiState> {
       // Providers must not be read inside onDispose, so use the objects
       // captured above.
       analyzer.onDecoded = null;
+      _gray.dispose();
 
       _wantRunning = false;
 
@@ -163,18 +193,19 @@ class ScannerController extends Notifier<ScannerUiState> {
       pipeline.stop();
     });
 
-    unawaited(_loadQuality()); return const ScannerUiState();
+    unawaited(_loadQuality());
+    return const ScannerUiState();
   }
 
   // ---- simple toggles ----------------------------------------------------
 
-    static const String _qualityKey = 'exalted_camera_quality';
-
   Future<void> _loadQuality() async {
     if (_qualityDefine.isNotEmpty) return;
+    // Yield first: build() has not returned yet, and its return value would
+    // overwrite any state set before it does.
+    await Future<void>.value();
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final saved = prefs.getString(_qualityKey);
+      final saved = ref.read(configControllerProvider).camera.quality;
       for (final q in CameraQuality.values) {
         if (q.name == saved && q != state.quality) {
           state = state.copyWith(quality: q);
@@ -185,13 +216,27 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   Future<void> _saveQuality(CameraQuality quality) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_qualityKey, quality.name);
+      await ref.read(configControllerProvider.notifier).patch({
+        'camera': {'quality': quality.name},
+      });
     } catch (_) {}
   }
 
   void toggleContinuous() {
-    state = state.copyWith(continuous: !state.continuous);
+    final next = !state.continuous;
+    // Leaving Single mode while it is stopped on a result: scanning must
+    // restart by itself, without Scan Again.
+    if (next && state.paused && state.result != null) {
+      _events.reset();
+      state = state.copyWith(
+        continuous: true,
+        clearResult: true,
+        paused: false,
+      );
+      unawaited(_syncStream());
+      return;
+    }
+    state = state.copyWith(continuous: next);
   }
 
   Future<void> toggleAuto() async {
@@ -201,7 +246,8 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   /// Applied the next time the camera starts.
   void setQuality(CameraQuality quality) {
-    state = state.copyWith(quality: quality); unawaited(_saveQuality(quality));
+    state = state.copyWith(quality: quality);
+    unawaited(_saveQuality(quality));
   }
 
   void clearNotice() {
@@ -227,23 +273,44 @@ class ScannerController extends Notifier<ScannerUiState> {
     _starting = true;
 
     try {
-      final permission = await Permission.camera.status;
-      _startup('camera permission checked');
+      if (Platform.isAndroid || Platform.isIOS) {
+        final permission = await Permission.camera.status;
+        _startup('camera permission checked');
 
-      if (permission.isGranted) {
-        await _openCamera();
-      } else if (permission.isPermanentlyDenied) {
-        state = state.copyWith(status: CameraStatus.permissionDenied);
+        if (permission.isGranted) {
+          await _openCamera();
+        } else if (permission.isPermanentlyDenied) {
+          state = state.copyWith(status: CameraStatus.permissionDenied);
+        } else {
+          state = state.copyWith(status: CameraStatus.needsPermission);
+        }
       } else {
-        state = state.copyWith(status: CameraStatus.needsPermission);
+        // Desktop platforms (Linux / Windows)
+        try {
+          await _openCamera();
+        } catch (_) {
+          state = state.copyWith(
+            status: CameraStatus.ready,
+            clearCamera: true,
+            notice: 'Desktop Mode: Image & Document Decoder Ready',
+          );
+        }
       }
     } catch (e) {
       debugPrint('[EXALTED][CAMERA] start failed: $e');
 
-      state = state.copyWith(
-        status: CameraStatus.error,
-        errorMessage: 'Could not start the camera.',
-      );
+      if (!Platform.isAndroid && !Platform.isIOS) {
+        state = state.copyWith(
+          status: CameraStatus.ready,
+          clearCamera: true,
+          notice: 'Desktop Mode: Image & Document Decoder Ready',
+        );
+      } else {
+        state = state.copyWith(
+          status: CameraStatus.error,
+          errorMessage: 'Could not start the camera.',
+        );
+      }
     } finally {
       _starting = false;
     }
@@ -291,6 +358,17 @@ class ScannerController extends Notifier<ScannerUiState> {
     try {
       await controller.initialize();
       _startup('camera initialized');
+
+      if (Platform.isLinux) {
+        // The Linux plugin mirrors by default. A mirrored image breaks
+        // barcode decoding, so turn it off.
+        try {
+          await CameraDesktopPlugin().setMirror(controller.cameraId, false);
+          debugPrint('[EXALTED][CAMERA] mirror off');
+        } catch (e) {
+          debugPrint('[EXALTED][CAMERA] mirror setting failed: $e');
+        }
+      }
 
       // Explicitly request automatic focus. This is non-fatal because
       // camera implementations differ in their supported controls.
@@ -429,14 +507,59 @@ class ScannerController extends Notifier<ScannerUiState> {
     await start();
   }
 
+  /// A copy of the next camera frame, or null when none arrives in time.
+  /// Used to run OCR on the same image the decoder is looking at.
+  Future<CapturedFrame?> grabFrame({
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    if (_camera == null || !_wantRunning) return null;
+    final c = _grab ??= Completer<CapturedFrame>();
+    try {
+      return await c.future.timeout(timeout);
+    } on TimeoutException {
+      if (identical(_grab, c)) _grab = null;
+      return null;
+    }
+  }
+
   // ---- frame stream ------------------------------------------------------
 
+  void _onGray(Uint8List gray, int width, int height) {
+    if (!_wantRunning || state.paused || !state.autoScan) return;
+    _pipeline.submit(
+      width: width,
+      height: height,
+      rotationDegrees: _rotation,
+      yPlane: gray,
+      yRowStride: width,
+    );
+  }
+
   void _onFrame(CameraImage image) {
+    cameraFrames++;
+    final grab = _grab;
+    if (grab != null && !grab.isCompleted) {
+      _grab = null;
+      grab.complete(CapturedFrame.fromCameraImage(image, _rotation));
+    }
     if (!_wantRunning || state.paused || !state.autoScan) {
       return;
     }
 
     final y = image.planes.first;
+
+    if (image.format.group == ImageFormatGroup.bgra8888) {
+      // Desktop cameras send BGRA. The decoder wants one gray byte per
+      // pixel, so convert here, at most about 15 times per second.
+      final now = _resultClock.elapsedMilliseconds;
+      if (now - _lastGrayMs < 66) return;
+      // The conversion runs on a background isolate. The frame is skipped
+      // when that isolate is still busy with the previous one.
+      if (_gray.submit(y.bytes, image.width, image.height, y.bytesPerRow)) {
+        _lastGrayMs = now;
+      }
+      return;
+    }
 
     _pipeline.submit(
       width: image.width,
@@ -505,6 +628,10 @@ class ScannerController extends Notifier<ScannerUiState> {
   // ---- permission --------------------------------------------------------
 
   Future<void> requestPermission() async {
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      await start();
+      return;
+    }
     final result = await Permission.camera.request();
 
     if (result.isGranted) {
@@ -517,7 +644,9 @@ class ScannerController extends Notifier<ScannerUiState> {
   }
 
   Future<void> openSettings() async {
-    await openAppSettings();
+    if (Platform.isAndroid || Platform.isIOS) {
+      await openAppSettings();
+    }
   }
 
   // ---- scanner controls --------------------------------------------------
@@ -566,6 +695,7 @@ class ScannerController extends Notifier<ScannerUiState> {
     }
 
     final resuming = state.paused;
+    if (resuming) _events.reset();
 
     state = state.copyWith(paused: !state.paused, clearResult: resuming);
 
@@ -574,6 +704,7 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   Future<void> resumeScanning() async {
     debugPrint('[EXALTED][SCAN] scan again');
+    _events.reset();
     _scanStartMs = _resultClock.elapsedMilliseconds;
     state = state.copyWith(clearResult: true, paused: false);
 
@@ -589,16 +720,20 @@ class ScannerController extends Notifier<ScannerUiState> {
 
     final now = _resultClock.elapsedMilliseconds;
 
-    // Prevent the same barcode from repeatedly firing while continuous
-    // scanning is active.
-    if (state.continuous &&
-        barcode.text == _lastText &&
-        now - _lastResultMs < 2500) {
+    // The analyzer reports a hit on nearly every frame while a code stays in
+    // view. All of those frames are one detection event. A new event starts
+    // when the payload changes or the code was out of view for the re-arm gap,
+    // so the same payload on a new product is recorded again.
+    if (!_events.observe(barcode.text, now, ref.read(rearmGapProvider))) {
+      _suppressedHits++;
       return;
     }
-
-    _lastText = barcode.text;
-    _lastResultMs = now;
+    debugPrint(
+      '[EXALTED][EVENT] t=${now}ms continuous=${state.continuous} '
+      'gap=${ref.read(rearmGapProvider)}ms sameFramesBefore=$_suppressedHits '
+      'textLength=${barcode.text.length}',
+    );
+    _suppressedHits = 0;
 
     HapticFeedback.mediumImpact();
     unawaited(ScanFeedback.beep());
@@ -636,6 +771,20 @@ class ScannerController extends Notifier<ScannerUiState> {
               source: source,
               text: barcode.text,
               format: barcode.kind.label,
+              processingDurationMs: barcode.decodeMicros / 1000,
+              // Event tracking already removed per-frame repeats.
+              allowRepeat: source == HistorySource.live,
+            ),
+      );
+      // One related data row per inspection event (fields, checks, status).
+      unawaited(
+        ref
+            .read(combinedInspectorProvider.notifier)
+            .record(
+              raw: barcode.text,
+              symbology: barcode.kind.label,
+              source: source.name,
+              decodeMs: barcode.decodeMicros / 1000,
             ),
       );
     } catch (e) {
@@ -645,8 +794,7 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   /// Shows a barcode decoded from an imported gallery image.
   void presentImported(DecodedBarcode barcode) {
-    _lastText = barcode.text;
-    _lastResultMs = _resultClock.elapsedMilliseconds;
+    _events.reset();
 
     HapticFeedback.mediumImpact();
     unawaited(ScanFeedback.beep());
@@ -659,8 +807,79 @@ class ScannerController extends Notifier<ScannerUiState> {
 
     unawaited(_syncStream());
   }
+
+  /// Shows a barcode decoded by an external industrial scanner (e.g. KEYENCE SR-751).
+  ///
+  /// Integrates directly into Exalted's primary pipeline:
+  /// - Triggers sound & haptic feedback
+  /// - Saves to history
+  /// - Records in combined inspection
+  /// - Sets the result in the UI state so [ConnectedScanResultCard] renders
+  ///   the full GS1 breakdown, GTIN, AI extraction, and verification.
+  void presentIndustrialScan({
+    required String text,
+    String format = 'Keyence SR-751',
+    int? decodeMicros,
+  }) {
+    _events.reset();
+    _scanStartMs = _resultClock.elapsedMilliseconds;
+
+    HapticFeedback.mediumImpact();
+    unawaited(ScanFeedback.beep());
+
+    debugPrint('[EXALTED][SCANNER] industrial scan received: $text ($format)');
+
+    final kind = _inferSymbology(text);
+
+    final barcode = DecodedBarcode(
+      text: text,
+      kind: kind,
+      corners: const [],
+      decodeMicros: decodeMicros ?? 25000,
+      frameWidth: 1280,
+      frameHeight: 1024,
+    );
+
+    _saveToHistory(barcode, HistorySource.live);
+
+    state = state.copyWith(result: barcode, paused: !state.continuous);
+
+    unawaited(_syncStream());
+  }
+
+  static BarcodeKind _inferSymbology(String text) {
+    final trimmed = text.trim();
+    if (trimmed.startsWith(']d') || trimmed.startsWith(']D')) {
+      return BarcodeKind.dataMatrix;
+    }
+    if (trimmed.startsWith(']Q') || trimmed.startsWith(']q')) {
+      return BarcodeKind.qrCode;
+    }
+    if (trimmed.startsWith(']C') || trimmed.startsWith(']c')) {
+      return BarcodeKind.code128;
+    }
+    if (trimmed.startsWith('WIFI:') ||
+        trimmed.startsWith('http://') ||
+        trimmed.startsWith('https://')) {
+      return BarcodeKind.qrCode;
+    }
+    // Pure numeric formats
+    if (RegExp(r'^\d{13}$').hasMatch(trimmed)) {
+      return BarcodeKind.ean13;
+    }
+    if (RegExp(r'^\d{12}$').hasMatch(trimmed)) {
+      return BarcodeKind.upcA;
+    }
+    if (RegExp(r'^\d{8}$').hasMatch(trimmed)) {
+      return BarcodeKind.ean8;
+    }
+    if (trimmed.startsWith('(01)') || trimmed.startsWith('01')) {
+      return BarcodeKind.dataMatrix;
+    }
+    // Default for industrial optical 2D readers
+    return BarcodeKind.dataMatrix;
+  }
 }
 
 final scannerControllerProvider =
     NotifierProvider<ScannerController, ScannerUiState>(ScannerController.new);
-

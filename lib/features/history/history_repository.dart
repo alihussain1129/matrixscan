@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'history_entry.dart';
+import '../../core/config/data_directory_provider.dart';
+import '../../core/storage/json_decode.dart';
 
 /// Stores scan history as JSON in the app's private storage. It never leaves
 /// the device. Newest entries come first.
@@ -45,7 +47,7 @@ class HistoryRepository {
     final file = await _file();
     if (!await file.exists()) return <HistoryEntry>[];
     try {
-      final raw = jsonDecode(await file.readAsString());
+      final raw = await decodeJsonOffThread(await file.readAsString());
       if (raw is! List) return <HistoryEntry>[];
       return [for (final item in raw) ?HistoryEntry.fromJson(item)];
     } catch (_) {
@@ -92,13 +94,16 @@ class HistoryRepository {
     required HistorySource source,
     required String text,
     String? format,
+    String? imagePath,
+    double? processingDurationMs,
+    bool allowRepeat = false,
   }) {
     return _serialized<HistoryEntry?>(() async {
       if (text.isEmpty) return null;
       try {
         final entries = await _read();
         final now = _clock();
-        if (entries.isNotEmpty) {
+        if (!allowRepeat && entries.isNotEmpty) {
           final newest = entries.first;
           if (newest.kind == kind &&
               newest.text == text &&
@@ -113,6 +118,8 @@ class HistoryRepository {
           text: text,
           createdAt: now,
           format: format,
+          imagePath: imagePath,
+          processingDurationMs: processingDurationMs,
         );
         entries.insert(0, entry);
         await _write(_trim(entries));
@@ -136,6 +143,23 @@ class HistoryRepository {
     await _write(<HistoryEntry>[]);
   });
 
+  /// Adds a record received from a linked device. It keeps its own ID, is
+  /// skipped when that ID is already stored, and ignores the repeat filter.
+  /// Returns true when it was stored.
+  Future<bool> addImported(HistoryEntry entry) => _serialized<bool>(() async {
+    try {
+      final entries = await _read();
+      if (entries.any((e) => e.id == entry.id)) return false;
+      var at = entries.indexWhere((e) => e.createdAt.isBefore(entry.createdAt));
+      if (at < 0) at = entries.length;
+      entries.insert(at, entry);
+      await _write(_trim(entries));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  });
+
   Future<void> delete(String id) => _serialized<void>(() async {
     final entries = await _read();
     entries.removeWhere((e) => e.id == id);
@@ -144,5 +168,5 @@ class HistoryRepository {
 }
 
 final historyRepositoryProvider = Provider<HistoryRepository>((ref) {
-  return HistoryRepository();
+  return HistoryRepository(directory: ref.watch(dataDirectoryProvider));
 });

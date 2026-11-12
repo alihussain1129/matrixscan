@@ -10,13 +10,16 @@ Future<void> _pump(WidgetTester tester, String raw) async {
   tester.view.physicalSize = const Size(800, 3000);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
-  final i = defaultInterpreterRegistry(clock: () => DateTime(2026, 10, 9))
-      .interpret(ScanPayload(raw: raw, symbology: 'Data Matrix', source: 'live'));
+  final i = defaultInterpreterRegistry(
+    clock: () => DateTime(2026, 10, 9),
+  ).interpret(ScanPayload(raw: raw, symbology: 'Data Matrix', source: 'live'));
   await tester.pumpWidget(
     MaterialApp(
       theme: AppTheme.dark(),
       home: Scaffold(
-        body: SingleChildScrollView(child: InterpretationView(interpretation: i)),
+        body: SingleChildScrollView(
+          child: InterpretationView(interpretation: i),
+        ),
       ),
     ),
   );
@@ -26,7 +29,9 @@ Future<void> _pump(WidgetTester tester, String raw) async {
 void main() {
   const gs1 = '(01)04006381333931(17)270924(10)ABC123(21)XYZ789';
 
-  testWidgets('GS1 fields, encoded value and warning are shown', (tester) async {
+  testWidgets('GS1 fields, encoded value and warning are shown', (
+    tester,
+  ) async {
     await _pump(tester, gs1);
     expect(find.text('GTIN'), findsOneWidget);
     expect(find.text('04006381333931'), findsOneWidget);

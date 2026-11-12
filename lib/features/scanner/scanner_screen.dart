@@ -1,3 +1,14 @@
+import '../../design/exalted_spring_up.dart';
+import '../../design/exalted_success_burst.dart';
+import '../ocr/services/ocr_history_repository.dart';
+import '../ocr/models/ocr_record.dart';
+import '../../core/storage/image_storage_service.dart';
+import 'captured_frame.dart';
+import 'live_ocr_analyzer.dart';
+import 'ocr_auto_saver.dart';
+
+import 'dart:io';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -45,10 +56,12 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
 
   Offset? _focusTap;
   int _focusId = 0;
+  int _burst = 0;
 
   @override
   void initState() {
     super.initState();
+    _ocrSaver.start();
     _line = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2200),
@@ -65,12 +78,17 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _ocrSaver.stop();
     _line.dispose();
     super.dispose();
   }
 
   void _startLineAnimation() {
     if (!mounted || _kNoScanLine) return;
+    if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) {
+      _line.value = 0.5; // reduced motion: static line, no loop
+      return;
+    }
     if (!_line.isAnimating) {
       _line.repeat(reverse: true);
     }
@@ -95,6 +113,50 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
         lifecycle == AppLifecycleState.detached) {
       ctrl.stop();
       _stopLineAnimation();
+    }
+  }
+
+  late final OcrAutoSaver _ocrSaver = OcrAutoSaver(ref, () => mounted);
+
+  Future<void> _saveLiveOcr({bool silent = false}) async {
+    final live = ref.read(liveOcrAnalyzerProvider);
+    final txt = live.text.value.trim();
+    if (txt.isEmpty) {
+      if (!silent) _snack('No text read yet');
+      return;
+    }
+    try {
+      var path = '';
+      final frame = silent
+          ? null
+          : await ref.read(scannerControllerProvider.notifier).grabFrame();
+      if (frame != null) {
+        final encoded = await encodeFrame(frame);
+        if (encoded != null) {
+          path = await ref
+              .read(imageStorageServiceProvider)
+              .saveImageBytes(encoded.png, prefix: 'ocr_live', ext: 'png');
+        }
+      }
+      await ref
+          .read(ocrHistoryRepositoryProvider)
+          .addRecord(
+            OcrRecord(
+              id: 'ocr_${DateTime.now().microsecondsSinceEpoch}',
+              imagePath: path,
+              text: txt,
+              rawText: txt,
+              createdAt: DateTime.now(),
+              language: 'eng',
+              engine: Platform.isAndroid
+                  ? 'Google ML Kit (live)'
+                  : 'Tesseract (live)',
+              processingDurationMs: live.lastMs.value,
+            ),
+          );
+      if (!silent) _snack('Saved to OCR History');
+    } catch (e) {
+      if (!silent) _snack('Could not save: $e');
     }
   }
 
@@ -244,6 +306,11 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     }
   }
 
+  bool get _isPhone {
+    final p = Theme.of(context).platform;
+    return p == TargetPlatform.android || p == TargetPlatform.iOS;
+  }
+
   /// Full-bleed preview. The camera reports its size in landscape; the app is
   /// locked to portrait, so the portrait box is (short side x long side).
   Widget _preview(CameraController cam) {
@@ -257,8 +324,8 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       child: FittedBox(
         fit: BoxFit.cover,
         child: SizedBox(
-          width: size.shortestSide,
-          height: size.longestSide,
+          width: _isPhone ? size.shortestSide : size.width,
+          height: _isPhone ? size.longestSide : size.height,
           child: CameraPreview(cam),
         ),
       ),
@@ -290,16 +357,20 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
     });
 
     // The scan line is hidden under a result card, so stop animating it.
-    ref.listen<bool>(scannerControllerProvider.select((s) => s.result != null), (
-      previous,
-      hasResult,
-    ) {
-      if (hasResult) {
-        _stopLineAnimation();
-      } else if (ref.read(navIndexProvider) == kScanTab) {
-        _startLineAnimation();
-      }
-    });
+    ref.listen<bool>(
+      scannerControllerProvider.select((s) => s.result != null),
+      (previous, hasResult) {
+        if (hasResult) {
+          _stopLineAnimation();
+          HapticFeedback.mediumImpact();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() => _burst++);
+          });
+        } else if (ref.read(navIndexProvider) == kScanTab) {
+          _startLineAnimation();
+        }
+      },
+    );
     ref.listen<String?>(scannerControllerProvider.select((s) => s.notice), (
       previous,
       next,
@@ -441,6 +512,75 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                           ),
                         ),
 
+                      // Success burst on every good decode.
+                      if (!showPanel)
+                        Positioned.fromRect(
+                          rect: scanRect,
+                          child: Center(
+                            child: ExaltedSuccessBurst(
+                              trigger: _burst,
+                              color: scheme.primary,
+                              size: side * 0.9,
+                            ),
+                          ),
+                        ),
+
+                      // Live OCR text (read from the camera feed).
+                      Positioned(
+                        left: 12,
+                        right: 12,
+                        top: MediaQuery.paddingOf(context).top + 64,
+                        child: IgnorePointer(
+                          child: ValueListenableBuilder<String>(
+                            valueListenable: ref
+                                .watch(liveOcrAnalyzerProvider)
+                                .text,
+                            builder: (context, liveText, _) {
+                              if (liveText.isEmpty) {
+                                return const SizedBox.shrink();
+                              }
+                              return Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withAlpha(170),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  liveText,
+                                  maxLines: 6,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+
+                      // Save the live OCR read to OCR History.
+                      Positioned(
+                        left: 12,
+                        top: MediaQuery.paddingOf(context).top + 16,
+                        child: ValueListenableBuilder<String>(
+                          valueListenable: ref
+                              .watch(liveOcrAnalyzerProvider)
+                              .text,
+                          builder: (context, liveText, _) {
+                            if (liveText.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
+                            return ActionChip(
+                              avatar: const Icon(Icons.save_alt, size: 16),
+                              label: const Text('Save OCR'),
+                              onPressed: _saveLiveOcr,
+                            );
+                          },
+                        ),
+                      ),
+
                       // Tap-to-focus ring.
                       if (_focusTap != null)
                         Positioned(
@@ -575,23 +715,25 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                           bottom:
                               AppSpacing.lg +
                               MediaQuery.of(context).padding.bottom,
-                          child: ConnectedScanResultCard(
-                            barcode: ui.result!,
-                            onCopy: () {
-                              Clipboard.setData(
-                                ClipboardData(text: ui.result!.text),
-                              );
-                              HapticFeedback.selectionClick();
-                              _snack('Copied');
-                            },
-                            onScanAgain: ctrl.resumeScanning,
-                            onConnectWifi: () {
-                              final wifi = parseWifiQr(ui.result!.text);
-                              if (wifi != null) _connectWifi(wifi);
-                            },
-                            onOpenLink: linkUri(ui.result!.text) == null
-                                ? null
-                                : () => _openLink(linkUri(ui.result!.text)!),
+                          child: ExaltedSpringUp(
+                            child: ConnectedScanResultCard(
+                              barcode: ui.result!,
+                              onCopy: () {
+                                Clipboard.setData(
+                                  ClipboardData(text: ui.result!.text),
+                                );
+                                HapticFeedback.selectionClick();
+                                _snack('Copied');
+                              },
+                              onScanAgain: ctrl.resumeScanning,
+                              onConnectWifi: () {
+                                final wifi = parseWifiQr(ui.result!.text);
+                                if (wifi != null) _connectWifi(wifi);
+                              },
+                              onOpenLink: linkUri(ui.result!.text) == null
+                                  ? null
+                                  : () => _openLink(linkUri(ui.result!.text)!),
+                            ),
                           ),
                         ),
                     ],
@@ -630,6 +772,17 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
         );
 
       default:
+        if (!Platform.isAndroid && !Platform.isIOS) {
+          return ScannerStatePanel(
+            icon: Icons.qr_code_scanner,
+            title: 'Industrial Desktop Decoder',
+            message:
+                'Select an image or document from your computer to decode '
+                'Barcodes, Data Matrix, QR codes, and GS1 with the native C++20 engine.',
+            actionLabel: 'Select Image File',
+            onAction: _openGallery,
+          );
+        }
         return ScannerStatePanel(
           icon: Icons.error_outline,
           title: "Couldn't start the camera",

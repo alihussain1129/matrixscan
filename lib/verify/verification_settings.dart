@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'verification_engine.dart';
+import '../core/config/data_directory_provider.dart';
 
 /// Online sources the user is allowed to switch on. Anything else in the
 /// saved file is ignored.
@@ -26,7 +27,9 @@ class VerificationSettingsStore {
 
   Future<File> _file() async {
     final dir = await _directory();
-    return File('${dir.path}${Platform.pathSeparator}verification_settings.json');
+    return File(
+      '${dir.path}${Platform.pathSeparator}verification_settings.json',
+    );
   }
 
   /// Never throws. Anything unreadable means "nothing allowed".
@@ -59,7 +62,8 @@ class VerificationSettingsStore {
 }
 
 final verificationStoreProvider = Provider<VerificationSettingsStore>(
-  (ref) => VerificationSettingsStore(),
+  (ref) =>
+      VerificationSettingsStore(directory: ref.watch(dataDirectoryProvider)),
 );
 
 final verificationEngineProvider = Provider<VerificationEngine>(
@@ -143,6 +147,3 @@ const List<OnlineSourceChoice> onlineSourceChoices = [
     'US drug and health-product listings. Sends the scanned UPC/GTIN only. Off by default. Official FDA listing, not proof a pack is genuine.',
   ),
 ];
-
-
-

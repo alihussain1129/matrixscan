@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'decode_result.dart';
 import 'decode_worker.dart';
 import 'exalted_bindings.dart';
+import 'native_library_loader.dart';
 
 /// Owns the native library handle and the native-side buffers.
 ///
@@ -36,6 +37,12 @@ class DecoderService {
   /// Why loading failed, if it did.
   String? loadError;
 
+  /// Where the native library was loaded from. Null until a load succeeds, so
+  /// a test can tell real native decoding from "no native library available".
+  String? loadedFrom;
+
+  static bool _loadFailureDetailLogged = false;
+
   /// Native status code of the most recent [decode] call (0 = none found).
   int lastDecodeStatus = 0;
 
@@ -57,12 +64,21 @@ class DecoderService {
         );
       }
       _bindings = bindings;
-      debugPrint(
-        '[EXALTED][FFI] loaded ${ExaltedBindings.libraryName}, api v$version',
-      );
+      loadedFrom = bindings.loadedFrom;
+      debugPrint('[EXALTED][FFI] loaded ${bindings.loadedFrom}, api v$version');
     } catch (e) {
       loadError = '$e';
-      debugPrint('[EXALTED][FFI] LOAD FAILED: $e');
+      // Full detail once per isolate; later failures get one line so tests
+      // and logs are not flooded.
+      if (_loadFailureDetailLogged || e is! NativeLibraryException) {
+        debugPrint(
+          '[EXALTED][FFI] LOAD FAILED: '
+          '${e is NativeLibraryException ? e.summary : e}',
+        );
+      } else {
+        _loadFailureDetailLogged = true;
+        debugPrint('[EXALTED][FFI] LOAD FAILED: $e');
+      }
     }
   }
 

@@ -99,6 +99,29 @@ void main() {
     expect(sent, isNot(contains('XYZ789')));
   });
 
+  test('cached verification is labeled with its age and fetch time', () async {
+    var now = DateTime(2026, 10, 10, 10);
+    var calls = 0;
+    final source = OpenFoodFactsSource(
+      clock: () => now,
+      fetch: (u) async {
+        calls++;
+        return HttpReply(200, _found);
+      },
+    );
+    final engine = VerificationEngine([source], clock: () => now);
+    final base = _i(_gs1);
+
+    await engine.verify(base, allowedSources: _allow);
+    now = now.add(const Duration(minutes: 2));
+    final report = await engine.verify(base, allowedSources: _allow);
+    final out = applyVerification(base, report);
+
+    expect(calls, 1);
+    expect(_f(out, 'Open Food Facts').value, 'Cached response · 2 minutes old');
+    expect(_f(out, 'Open Food Facts').note, contains('Originally fetched'));
+  });
+
   test('without consent nothing is sent and the source is listed', () async {
     final engine = VerificationEngine([
       OpenFoodFactsSource(fetch: (u) async => throw StateError('called')),

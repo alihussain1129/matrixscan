@@ -51,10 +51,6 @@ class StructuralSource implements VerificationSource {
         );
       }
     }
-    return SourceResult(
-      info: info,
-      checkedAt: DateTime.now(),
-      claims: claims,
-    );
+    return SourceResult(info: info, checkedAt: DateTime.now(), claims: claims);
   }
 }

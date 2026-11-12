@@ -1,8 +1,13 @@
 package com.exaltedcoding.exalted
 
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.net.wifi.WifiConfiguration
 import android.net.wifi.WifiManager
 import android.media.AudioManager
@@ -18,9 +23,11 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private var pendingResult: MethodChannel.Result? = null
     private var scanToneGenerator: ToneGenerator? = null
+    private var notificationsChannel: MethodChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        CrashRestart.install(applicationContext)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -30,6 +37,33 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        notificationsChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            NOTIFICATIONS_CHANNEL,
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "show" -> showCompanionNotification(call, result)
+                    "getLaunchTarget" -> {
+                        val target = intent.getStringExtra("exalted_route")
+                        intent.removeExtra("exalted_route")
+                        result.success(target)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    NOTIFICATION_ID,
+                    "Desktop companion",
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ).apply { description = "Authenticated desktop activity and command results" },
+            )
+        }
+
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             FEEDBACK_CHANNEL,
@@ -38,6 +72,61 @@ class MainActivity : FlutterActivity() {
                 "beep" -> beep(result)
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    private fun showCompanionNotification(call: MethodCall, result: MethodChannel.Result) {
+        val stableId = call.argument<String>("id")
+        val title = call.argument<String>("title")
+        val body = call.argument<String>("body")
+        if (stableId.isNullOrBlank() || stableId.length > 200 ||
+            title.isNullOrBlank() || body.isNullOrBlank()) {
+            result.error("bad_notification", "Invalid notification content", null)
+            return
+        }
+        try {
+            val target = call.argument<String>("route") ?: "activity"
+            val launch = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("exalted_route", target)
+                data = android.net.Uri.parse("exalted://notification/${android.net.Uri.encode(stableId)}")
+            }
+            val pending = PendingIntent.getActivity(
+                this,
+                0,
+                launch,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(this, NOTIFICATION_ID)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(this)
+            }
+            val notification = builder
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(title.take(80))
+                .setContentText(body.take(180))
+                .setStyle(Notification.BigTextStyle().bigText(body.take(180)))
+                .setColor(Color.rgb(18, 83, 82))
+                .setContentIntent(pending)
+                .setAutoCancel(true)
+                .build()
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.notify(stableId, 0, notification)
+            result.success(true)
+        } catch (e: SecurityException) {
+            result.error("notification_denied", "Android notification permission is not granted", null)
+        } catch (e: Exception) {
+            result.error("notification_failed", "Could not show the notification", null)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra("exalted_route")?.let { route ->
+            notificationsChannel?.invokeMethod("notificationTapped", route)
         }
     }
 
@@ -218,6 +307,8 @@ class MainActivity : FlutterActivity() {
     private companion object {
         const val CHANNEL = "com.exaltedcoding.exalted/wifi"
         const val FEEDBACK_CHANNEL = "com.exaltedcoding.exalted/scan_feedback"
+        const val NOTIFICATIONS_CHANNEL = "com.exaltedcoding.exalted/notifications"
+        const val NOTIFICATION_ID = "exalted_companion_activity"
         const val REQUEST_ADD_WIFI = 4711
     }
 }

@@ -136,9 +136,7 @@ class _FieldTile extends StatelessWidget {
       }
     }
 
-    final lines = <Widget>[
-      Text('$label (AI $ai)', style: text.bodySmall),
-    ];
+    final lines = <Widget>[Text('$label (AI $ai)', style: text.bodySmall)];
     if (f == null) {
       lines.add(Text('Not present in barcode', style: text.bodyMedium));
     } else {

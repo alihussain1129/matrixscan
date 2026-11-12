@@ -12,9 +12,9 @@ class AppSpacing {
 /// Corner radii.
 class AppRadius {
   AppRadius._();
-  static const double chip = 6;
-  static const double button = 8;
-  static const double card = 12;
+  static const double chip = 10;
+  static const double button = 12;
+  static const double card = 16;
   static const double sheet = 20;
   static const double pill = 999;
 }

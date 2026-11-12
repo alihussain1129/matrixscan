@@ -56,6 +56,9 @@ enum BarcodeKind {
   upcA(1 << 14, 'UPC-A'),
   upcE(1 << 15, 'UPC-E'),
   microQr(1 << 16, 'Micro QR'),
+  rmQr(1 << 17, 'rMQR'),
+  dxFilmEdge(1 << 18, 'DX Film Edge'),
+  dataBarLimited(1 << 19, 'GS1 DataBar Limited'),
   unknown(0, 'Unknown');
 
   const BarcodeKind(this.flag, this.label);

@@ -43,6 +43,9 @@ EXALTED_API int32_t exalted_probe(
 #define EXALTED_FMT_UPCA         (1 << 14)
 #define EXALTED_FMT_UPCE         (1 << 15)
 #define EXALTED_FMT_MICROQR      (1 << 16)
+#define EXALTED_FMT_RMQR         (1 << 17)
+#define EXALTED_FMT_DX_FILM_EDGE (1 << 18)
+#define EXALTED_FMT_DATABAR_LIMITED (1 << 19)
 
 // Number of int32 slots exalted_decode writes into `info`.
 #define EXALTED_DECODE_INFO_LEN 12

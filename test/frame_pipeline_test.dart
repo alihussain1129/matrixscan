@@ -5,6 +5,7 @@ import 'package:exalted/features/scanner/frame_pipeline.dart';
 import 'package:exalted/features/scanner/scanner_analyzer.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:exalted/features/scanner/live_ocr_analyzer.dart';
 
 class _FakeAnalyzer implements FrameAnalyzer {
   _FakeAnalyzer([this._name = 'fake']);
@@ -217,15 +218,20 @@ void main() {
 
     final pipeline = container.read(framePipelineProvider);
     expect(pipeline.hasAnalyzers, isTrue);
-    expect(pipeline.analyzers.length, 1);
+    expect(pipeline.analyzers.length, 2);
     expect(pipeline.analyzers.first, isA<ScannerAnalyzer>());
 
     // Repeated reads return the identical pipeline without re-registering
     final pipeline2 = container.read(framePipelineProvider);
     expect(identical(pipeline, pipeline2), isTrue);
-    expect(pipeline2.analyzers.length, 1);
+    expect(pipeline2.analyzers.length, 2);
 
     final analyzer = container.read(scannerAnalyzerProvider);
     expect(identical(pipeline.analyzers.first, analyzer), isTrue);
+
+    // The live OCR analyzer is registered second (added with the live OCR
+    // workflow), and is also the container's singleton instance.
+    final ocrAnalyzer = container.read(liveOcrAnalyzerProvider);
+    expect(identical(pipeline.analyzers[1], ocrAnalyzer), isTrue);
   });
 }
