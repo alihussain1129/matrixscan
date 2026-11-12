@@ -70,8 +70,9 @@ Exalted operates natively across three primary targets:
    - On Linux/Windows desktop, `DesktopOcrEngine` executes offline Tesseract 5.3 and parses structured TSV streams.
    - On Android mobile, `MlKitOcrEngine` invokes on-device ML Kit text recognition.
 3. **Responsive UI Shell**:
-   - Screen width $\ge 900$ px: `DesktopAppShell` activates, providing a 220px fixed navigation rail, expandable inspector sidebar, and hardware status indicators.
-   - Screen width $< 900$ px: `AppShell` activates, providing standard touch-friendly mobile bottom navigation.
+   - Windows and Linux: `AppShell` selects `ExaltedShell`, providing responsive workstation navigation, a collapsible sidebar, desktop top bar, status bar, keyboard shortcuts, and command palette.
+   - Android and iOS: `AppShell` selects `MobileShell`, providing touch-friendly mobile navigation.
+   - Desktop layouts adapt to available window width without switching to the mobile shell.
 
 ---
 

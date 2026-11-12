@@ -23,7 +23,7 @@ Target Platforms: Linux Desktop (x86_64), Windows Desktop (x64), Android Mobile 
 ## 2. Navigating the Interface
 
 ### Desktop Layout (Linux & Windows)
-On desktop screens (width $\ge$ 900px), Exalted provides an industrial navigation sidebar (`DesktopAppShell`):
+On Windows and Linux, `AppShell` selects `ExaltedShell`, the responsive workstation interface. Its navigation sidebar adapts to available window width, with desktop top bar, status bar, keyboard shortcuts, command palette, and image-import actions:
 - **Dashboard**: System overview, device statuses, recent activity, and quick-launch inspection actions.
 - **Scanner / Decoder**: Live camera scanner, file scanning, and batch decoding.
 - **OCR / OCV Workspace**: Industrial image inspection, ROI crop, offline OCR, rule verification, and recipe management.
