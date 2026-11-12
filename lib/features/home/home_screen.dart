@@ -1,6 +1,7 @@
 import '../../design/exalted_shimmer.dart';
 import '../../design/exalted_hero_card.dart';
 import '../../design/exalted_stagger.dart';
+import '../../design/exalted_press_scale.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -686,21 +687,24 @@ class _WorkspaceCardState extends State<_WorkspaceCard> {
         : (_hovered ? colors.outline.withAlpha(200) : colors.outline);
 
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
-      child: Card(
-        color: widget.primary
-            ? (theme.brightness == Brightness.dark
-                  ? colors.surfaceRaised
-                  : AppColors.neutralWhite)
-            : colors.surfaceRaised,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          side: BorderSide(color: borderColor, width: widget.primary ? 1.5 : 1),
-        ),
-        child: InkWell(
-          onTap: widget.onTap,
-          borderRadius: BorderRadius.circular(AppRadius.card),
+      child: ExaltedPressScale(
+        onTap: widget.onTap,
+        child: Card(
+          color: widget.primary
+              ? (theme.brightness == Brightness.dark
+                    ? colors.surfaceRaised
+                    : AppColors.neutralWhite)
+              : colors.surfaceRaised,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            side: BorderSide(
+              color: borderColor,
+              width: widget.primary ? 1.5 : 1,
+            ),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.lg),
             child: Column(

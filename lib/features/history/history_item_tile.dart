@@ -92,7 +92,7 @@ class HistoryItemTile extends StatelessWidget {
       ),
       leading: hasImage
           ? ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(12),
               child: Image.file(
                 File(entry.imagePath!),
                 cacheWidth: 132,
