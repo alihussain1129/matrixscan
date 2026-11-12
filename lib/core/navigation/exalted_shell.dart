@@ -377,44 +377,52 @@ class _SidebarItem extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          Material(
-            color: selected
-                ? scheme.primary.withValues(alpha: 0.14)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.button),
-            child: InkWell(
+          AnimatedContainer(
+            duration: AppMotion.normal,
+            curve: AppMotion.curve,
+            decoration: BoxDecoration(
+              color: selected
+                  ? scheme.primary.withValues(alpha: 0.14)
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(AppRadius.button),
-              onTap: onTap,
-              child: SizedBox(
-                height: AppSizes.buttonRegular,
-                child: Row(
-                  mainAxisAlignment: showLabel
-                      ? MainAxisAlignment.start
-                      : MainAxisAlignment.center,
-                  children: [
-                    if (showLabel) const SizedBox(width: AppSpacing.md),
-                    Icon(
-                      selected ? destination.activeIcon : destination.icon,
-                      size: AppSizes.iconMd,
-                      color: fg,
-                    ),
-                    if (showLabel) ...[
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: Text(
-                          destination.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium!.copyWith(
-                            color: fg,
-                            fontWeight: selected
-                                ? FontWeight.w700
-                                : FontWeight.w400,
+            ),
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(AppRadius.button),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(AppRadius.button),
+                onTap: onTap,
+                child: SizedBox(
+                  height: AppSizes.buttonRegular,
+                  child: Row(
+                    mainAxisAlignment: showLabel
+                        ? MainAxisAlignment.start
+                        : MainAxisAlignment.center,
+                    children: [
+                      if (showLabel) const SizedBox(width: AppSpacing.md),
+                      Icon(
+                        selected ? destination.activeIcon : destination.icon,
+                        size: AppSizes.iconMd,
+                        color: fg,
+                      ),
+                      if (showLabel) ...[
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: Text(
+                            destination.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium!.copyWith(
+                              color: fg,
+                              fontWeight: selected
+                                  ? FontWeight.w700
+                                  : FontWeight.w400,
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),

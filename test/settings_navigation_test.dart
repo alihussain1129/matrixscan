@@ -1,6 +1,7 @@
 import 'package:exalted/core/router/app_router.dart';
 import 'package:exalted/core/config/config_controller.dart';
 import 'package:exalted/core/theme/app_theme.dart';
+import 'package:exalted/design/exalted_tab_pills.dart';
 import 'package:exalted/features/settings/settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -54,10 +55,30 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.byType(ChoiceChip), findsNWidgets(11));
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Decoder'));
+    Finder tab(String label) => find.descendant(
+      of: find.byType(ExaltedTabPills),
+      matching: find.text(label),
+    );
+
+    expect(find.byType(ExaltedTabPills), findsOneWidget);
+    for (final label in const [
+      'General',
+      'Appearance',
+      'Scanning',
+      'Decoder',
+      'OCR',
+      'Verification',
+      'Devices & Sync',
+      'Network & FTP',
+      'Notifications & Feedback',
+      'Advanced',
+      'About',
+    ]) {
+      expect(tab(label), findsOneWidget, reason: label);
+    }
+    await tester.tap(tab('Decoder'));
     await tester.pump();
-    expect(find.text('ENABLED SYMBOLOGIES'), findsOneWidget);
+    expect(find.text('Enabled symbologies'), findsOneWidget);
     expect(find.text('rMQR'), findsOneWidget);
     final qrToggle = find.ancestor(
       of: find.text('QR Code'),
@@ -71,16 +92,16 @@ void main() {
       isNot(contains('qrCode')),
     );
 
-    await tester.tap(find.widgetWithText(ChoiceChip, 'OCR'));
+    await tester.tap(tab('OCR'));
     await tester.pump();
     expect(find.text('Live text reading'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Verification'));
+    await tester.tap(tab('Verification'));
     await tester.pump();
     await tester.tap(find.text('Open verification settings'));
     expect(container.read(navIndexProvider), kVerificationTab);
 
-    final aboutCategory = find.widgetWithText(ChoiceChip, 'About');
+    final aboutCategory = tab('About');
     await tester.ensureVisible(aboutCategory);
     await tester.pump();
     await tester.tap(aboutCategory);
