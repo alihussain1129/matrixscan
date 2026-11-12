@@ -69,8 +69,9 @@ class ExaltedGroup extends StatelessWidget {
     final line = s.onSurface.withValues(alpha: dark ? 0.10 : 0.08);
     final rows = <Widget>[];
     for (var i = 0; i < children.length; i++) {
-      if (i > 0)
+      if (i > 0) {
         rows.add(Divider(height: 1, thickness: 1, indent: inset, color: line));
+      }
       rows.add(children[i]);
     }
     final radius = BorderRadius.circular(18);
