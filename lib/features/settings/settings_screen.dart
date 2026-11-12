@@ -118,7 +118,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     : Platform.operatingSystem));
 
     return SafeArea(
-      child: ExaltedPage(
+      child: ExaltedPageFrame(
         child: ListView(
           padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl),
           children: [

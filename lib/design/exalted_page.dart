@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 /// Centers page content and caps its width. Padding grows with the screen:
 /// 16 on phones, 24 on tablets, 32 on desktop.
-class ExaltedPage extends StatelessWidget {
-  const ExaltedPage({super.key, required this.child, this.maxWidth = 980});
+class ExaltedPageFrame extends StatelessWidget {
+  const ExaltedPageFrame({super.key, required this.child, this.maxWidth = 980});
 
   final Widget child;
   final double maxWidth;

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../design/exalted_shimmer.dart';
 import '../../core/widgets/empty_state.dart';
 import '../ocr/models/ocr_record.dart';
 import '../ocr/services/ocr_history_repository.dart';
@@ -379,7 +380,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
                     loading: () {
                       final previous = history.value;
                       if (previous == null) {
-                        return const Center(child: CircularProgressIndicator());
+                        return const _HistorySkeleton();
                       }
                       return _decoderList(filterHistory(previous, _query));
                     },
@@ -392,7 +393,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
                     future: _ocrFuture,
                     builder: (context, snapshot) {
                       if (!snapshot.hasData) {
-                        return const Center(child: CircularProgressIndicator());
+                        return const _HistorySkeleton();
                       }
                       final ocrRecords = snapshot.data!;
                       if (ocrRecords.isEmpty) {
@@ -414,6 +415,41 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Placeholder rows shown while history loads.
+class _HistorySkeleton extends StatelessWidget {
+  const _HistorySkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ExaltedShimmer(
+      child: ListView.builder(
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(top: AppSpacing.md),
+        itemCount: 6,
+        itemBuilder: (context, i) => const Padding(
+          padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
+          child: Row(
+            children: [
+              ExaltedSkeletonBox(width: 44, height: 44, radius: 12),
+              SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ExaltedSkeletonBox(height: 14),
+                    SizedBox(height: AppSpacing.sm),
+                    ExaltedSkeletonBox(width: 140, height: 12),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

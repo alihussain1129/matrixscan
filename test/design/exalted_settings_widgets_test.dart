@@ -82,7 +82,7 @@ void main() {
   testWidgets('page and section header build', (tester) async {
     await tester.pumpWidget(
       _app(
-        const ExaltedPage(
+        const ExaltedPageFrame(
           child: ExaltedSectionHeader(title: 'Scanning', subtitle: 'Engine'),
         ),
       ),
