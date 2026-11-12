@@ -74,3 +74,4 @@ verification_inspection.txt
 
 # Android build output
 android/build/
+/Exalted-source-*.zip
