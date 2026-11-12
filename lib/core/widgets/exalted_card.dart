@@ -29,7 +29,9 @@ class ExaltedCard extends StatelessWidget {
         border: Border.all(color: colors.outline),
         boxShadow: isDark ? const [] : AppShadows.card,
       ),
-      child: child,
+      // Lets ListTile and SwitchListTile show hover and tap effects
+      // inside the decorated box.
+      child: Material(type: MaterialType.transparency, child: child),
     );
   }
 }

@@ -56,7 +56,7 @@ class OpenLibrarySource implements VerificationSource {
     });
     final HttpReply reply;
     try {
-      reply = await _fetch(uri);
+      reply = await fetchRespectingRetryAfter(_fetch, uri);
     } catch (e) {
       return SourceResult.unavailable(
         info,

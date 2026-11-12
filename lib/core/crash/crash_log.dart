@@ -38,7 +38,8 @@ class CrashLog {
       final f = await _file();
       final lines = (stack?.toString() ?? '').split('\n');
       final trace = lines.take(maxStackLines).join('\n');
-      final entry = '[${_clock().toIso8601String()}] $source\n$error\n$trace\n\n';
+      final entry =
+          '[${_clock().toIso8601String()}] $source\n$error\n$trace\n\n';
       final old = f.existsSync() ? await f.readAsString() : '';
       var text = old + entry;
       if (text.length > maxBytes) {

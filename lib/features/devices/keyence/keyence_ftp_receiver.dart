@@ -357,7 +357,13 @@ class _FtpSession {
     await _closePassive();
 
     try {
-      final localAddress = controlSocket.address;
+      final localAddress = await _passiveAddress();
+      if (localAddress == null) {
+        _reply(
+          '425 Cannot select a passive IPv4 address. Configure a specific FTP network interface.',
+        );
+        return;
+      }
       final octets = localAddress.address.split('.');
       if (localAddress.type != InternetAddressType.IPv4 || octets.length != 4) {
         _reply('425 Passive mode needs an IPv4 connection.');
@@ -397,6 +403,43 @@ class _FtpSession {
       debugPrint('[KEYENCE][FTP] Passive mode error: $e');
       _reply('425 Cannot enter passive mode.');
     }
+  }
+
+  Future<InternetAddress?> _passiveAddress() async {
+    final socketAddress = controlSocket.address;
+    if (socketAddress.address != InternetAddress.anyIPv4.address) {
+      return socketAddress;
+    }
+
+    final remoteAddress = InternetAddress.tryParse(clientIp);
+    if (remoteAddress?.isLoopback == true) {
+      // Windows may report the wildcard listener address on accepted sockets.
+      // Loopback clients need a concrete PASV address rather than 0.0.0.0.
+      return InternetAddress.loopbackIPv4;
+    }
+
+    final candidates = <String>{};
+    for (final interface in await NetworkInterface.list(
+      type: InternetAddressType.IPv4,
+      includeLoopback: false,
+    )) {
+      for (final address in interface.addresses) {
+        if (address.type == InternetAddressType.IPv4 &&
+            !address.isLoopback &&
+            !address.address.startsWith('169.254.') &&
+            address.address != InternetAddress.anyIPv4.address) {
+          candidates.add(address.address);
+        }
+      }
+    }
+
+    // With one active IPv4 interface the route is unambiguous. On hosts with
+    // several interfaces, fail closed rather than advertise a wrong PASV IP;
+    // selecting the interface in FTP settings makes the endpoint explicit.
+    if (candidates.length == 1) {
+      return InternetAddress(candidates.single);
+    }
+    return null;
   }
 
   Future<void> _receiveFile(String rawName) async {
@@ -515,7 +558,8 @@ final keyenceFtpReceiverProvider = Provider<KeyenceFtpReceiver>((ref) {
     maxUploadBytes: sc.ftpMaxUploadBytes ?? kMaxUploadBytes,
     // Never fall back to all interfaces on a bad value.
     bindAddress:
-        InternetAddress.tryParse(sc.ftpBindAddress) ?? InternetAddress.loopbackIPv4,
+        InternetAddress.tryParse(sc.ftpBindAddress) ??
+        InternetAddress.loopbackIPv4,
   );
   ref.onDispose(server.dispose);
   return server;

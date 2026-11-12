@@ -44,6 +44,12 @@ class LinkClient {
         return 'The desktop owner did not approve this device.';
       case 'unauthorized':
         return 'This desktop no longer trusts this device. Link it again.';
+      case 'remote_control_disabled':
+        return 'The desktop owner has not authorized scanner control for this phone.';
+      case 'command_id_conflict':
+        return 'This command identifier was already used for another action.';
+      case 'bad_command':
+        return 'The desktop rejected an invalid scanner command.';
       case 'too_large':
         return 'The data was too large for one request.';
       default:
@@ -218,7 +224,9 @@ class LinkClient {
             port: p.port,
             fingerprint: p.fingerprint,
             secretB64: secret,
-            pairedAt: _clock(),
+            pairedAt:
+                DateTime.tryParse(j['serverTime'] as String? ?? '') ?? _clock(),
+            eventCursor: (j['lastSeq'] as num?)?.toInt() ?? 0,
           );
           await store.addPeer(peer);
           return peer;
@@ -229,6 +237,158 @@ class LinkClient {
       }
       throw last ?? LinkException('network', 'Cannot reach the desktop.');
     } finally {
+      http.close(force: true);
+    }
+  }
+
+  /// Fetches the authenticated live companion snapshot from a paired desktop.
+  /// A successful reply is the heartbeat; pairing alone does not mean online.
+  Future<CompanionSnapshot> fetchCompanionSnapshot(PeerDesktop peer) async {
+    final http = _newHttp(peer.fingerprint);
+    try {
+      final body = await _json(http, peer, 'GET', '/v1/companion/snapshot');
+      final snapshot = CompanionSnapshot.fromJson(body);
+      if (snapshot == null || snapshot.deviceId != peer.id) {
+        throw LinkException(
+          'bad_companion_snapshot',
+          'The linked desktop returned invalid status data.',
+        );
+      }
+      return snapshot;
+    } finally {
+      http.close(force: true);
+    }
+  }
+
+  /// Sends one idempotent scanner command over the existing pinned, signed
+  /// channel. Commands are never queued locally for offline execution.
+  Future<RemoteCommandResult> remoteScannerCommand(
+    PeerDesktop peer,
+    String action, {
+    String? commandId,
+  }) async {
+    const actions = {'start', 'stop', 'pause', 'resume'};
+    if (!actions.contains(action)) {
+      throw LinkException('bad_command', 'Unsupported scanner command.');
+    }
+    final id = commandId ?? randomToken(18);
+    final http = _newHttp(peer.fingerprint);
+    try {
+      final value = await _json(
+        http,
+        peer,
+        'POST',
+        '/v1/companion/commands',
+        body: {'commandId': id, 'action': action},
+      );
+      if (value['id'] != id ||
+          value['action'] != action ||
+          value['state'] is! String ||
+          value['message'] is! String) {
+        throw LinkException(
+          'bad_reply',
+          'Invalid command result from desktop.',
+        );
+      }
+      return RemoteCommandResult(
+        commandId: id,
+        action: action,
+        state: value['state'] as String,
+        message: value['message'] as String,
+      );
+    } finally {
+      http.close(force: true);
+    }
+  }
+
+  /// Opens the pinned-TLS, HMAC-authenticated event stream. Event cursors are
+  /// included in the signed URL so reconnects replay anything not yet stored.
+  Stream<CompanionStreamMessage> watchCompanionEvents(
+    PeerDesktop peer, {
+    required int after,
+  }) async* {
+    final http = _newHttp(peer.fingerprint);
+    WebSocket? socket;
+    try {
+      final uri = Uri(
+        scheme: 'wss',
+        host: peer.host,
+        port: peer.port,
+        path: '/v1/companion/events',
+        queryParameters: {'after': '$after'},
+      );
+      final ts = _clock().millisecondsSinceEpoch;
+      final nonce = randomToken(12);
+      final signature = signRequest(
+        base64.decode(peer.secretB64),
+        'GET',
+        pathAndQuery(uri),
+        ts,
+        nonce,
+        sha256Hex(const <int>[]),
+      );
+      socket = await WebSocket.connect(
+        uri.toString(),
+        customClient: http,
+        headers: {
+          'x-exalted-device': store.deviceId,
+          'x-exalted-ts': '$ts',
+          'x-exalted-nonce': nonce,
+          'x-exalted-sig': signature,
+        },
+        maxPayloadLength: 1 << 20,
+      ).timeout(const Duration(seconds: 10));
+      socket.pingInterval = const Duration(seconds: 15);
+      await for (final frame in socket.timeout(const Duration(seconds: 35))) {
+        if (frame is! String || frame.length > (1 << 20)) {
+          throw LinkException('bad_stream_message', 'Invalid event frame.');
+        }
+        Object? decoded;
+        try {
+          decoded = jsonDecode(frame);
+        } catch (_) {
+          throw LinkException('bad_stream_message', 'Invalid event frame.');
+        }
+        final message = CompanionStreamMessage.fromJson(decoded);
+        if (message == null || message.cursor < after) {
+          throw LinkException('bad_stream_message', 'Invalid event frame.');
+        }
+        yield message;
+      }
+      throw LinkException(
+        'stream_closed',
+        'The desktop event stream closed.',
+        retryable: true,
+      );
+    } on LinkException {
+      rethrow;
+    } on TimeoutException {
+      throw LinkException(
+        'stream_timeout',
+        'The desktop event stream timed out.',
+        retryable: true,
+      );
+    } on TlsException {
+      throw LinkException(
+        'untrusted_desktop',
+        'Security check failed. This is not the desktop you paired with.',
+      );
+    } on SocketException {
+      throw LinkException(
+        'network',
+        'Cannot reach the desktop event stream.',
+        retryable: true,
+      );
+    } on WebSocketException {
+      throw LinkException(
+        'stream_unavailable',
+        'The desktop event stream is unavailable.',
+        retryable: true,
+      );
+    } finally {
+      try {
+        await socket?.close();
+      } catch (_) {}
       http.close(force: true);
     }
   }
@@ -259,6 +419,8 @@ class LinkClient {
     SyncSummary s,
     void Function(SyncProgress)? onProgress,
   ) async {
+    var imagesUploaded = 0;
+    var recordsProcessed = 0;
     while (true) {
       final page = journal.page(
         after: peer.pushCursor,
@@ -279,7 +441,6 @@ class LinkClient {
             ),
           );
           final missing = (res['missing'] as List? ?? const []).cast<String>();
-          var done = 0;
           for (final h in missing) {
             final bytes = await journal.getBlob(h);
             if (bytes == null) {
@@ -304,8 +465,9 @@ class LinkClient {
               _decode(r);
             });
             s.blobsUp++;
+            imagesUploaded++;
             onProgress?.call(
-              SyncProgress('Uploading images', ++done, missing.length),
+              SyncProgress('Uploading images', imagesUploaded, 0),
             );
           }
         }
@@ -330,7 +492,10 @@ class LinkClient {
         s.pushed += (res['added'] as int? ?? 0);
         s.duplicates += (res['duplicate'] as int? ?? 0);
         s.conflicts += (res['conflict'] as int? ?? 0);
-        onProgress?.call(SyncProgress('Uploading records', s.pushed, s.pushed));
+        recordsProcessed += page.entries.length;
+        onProgress?.call(
+          SyncProgress('Uploading records', recordsProcessed, 0),
+        );
       }
       peer.pushCursor = page.next;
       await store.save();
@@ -344,6 +509,7 @@ class LinkClient {
     SyncSummary s,
     void Function(SyncProgress)? onProgress,
   ) async {
+    var recordsProcessed = 0;
     while (true) {
       final res = await _retry(
         () => _json(
@@ -394,11 +560,15 @@ class LinkClient {
           case IngestResult.conflict:
             s.conflicts++;
         }
+        recordsProcessed++;
       }
-      onProgress?.call(SyncProgress('Downloading records', s.pulled, s.pulled));
+      onProgress?.call(
+        SyncProgress('Downloading records', recordsProcessed, 0),
+      );
       final next = res['next'];
-      if (next is! int)
+      if (next is! int) {
         throw LinkException('bad_reply', 'Invalid reply from desktop.');
+      }
       peer.pullCursor = next;
       await store.save();
       if (res['more'] != true) break;

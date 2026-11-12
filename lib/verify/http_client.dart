@@ -5,7 +5,8 @@ import 'dart:typed_data';
 
 import 'open_food_facts_source.dart' show HttpReply;
 
-export 'open_food_facts_source.dart' show HttpReply, HttpFetch;
+export 'open_food_facts_source.dart'
+    show HttpReply, HttpFetch, fetchRespectingRetryAfter;
 
 /// HTTP GET with a hard time limit per attempt and one retry on network
 /// failures. Slow mobile networks often fail the first attempt.
@@ -49,9 +50,14 @@ Future<HttpReply> _once(Uri uri) async {
       }
       builder.add(chunk);
     }
+    final headers = <String, String>{};
+    res.headers.forEach((name, values) {
+      headers[name] = values.join(', ');
+    });
     return HttpReply(
       res.statusCode,
       utf8.decode(builder.takeBytes(), allowMalformed: true),
+      headers: headers,
     );
   } finally {
     client.close(force: true);

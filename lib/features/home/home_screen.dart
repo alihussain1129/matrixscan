@@ -16,7 +16,20 @@ import '../gallery/gallery_import_service.dart';
 import '../history/history_entry.dart';
 import '../history/history_repository.dart';
 import '../inspection/inspection_log.dart';
+import '../inspection/inspection_row.dart';
 import '../ocr/ocr_entry.dart';
+
+class _DashboardData {
+  const _DashboardData({
+    required this.recent,
+    required this.totalScans,
+    required this.totalInspections,
+  });
+
+  final List<HistoryEntry> recent;
+  final int totalScans;
+  final int totalInspections;
+}
 
 /// Operational Industrial Dashboard: Real-time telemetry, active hardware status,
 /// operational statistics, workspace access, and inspection audit trail.
@@ -28,40 +41,36 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  late Future<List<HistoryEntry>> _recentFuture;
-  late Future<int> _totalScansFuture;
-  late Future<int> _totalInspectionsFuture;
+  late Future<_DashboardData> _dashboardFuture;
   bool _picking = false;
+  bool _telemetryReady = false;
 
   @override
   void initState() {
     super.initState();
     _refreshData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _telemetryReady = true);
+    });
   }
 
   void _refreshData() {
-    _recentFuture = _loadRecent();
-    _totalScansFuture = _loadTotalScans();
-    _totalInspectionsFuture = _loadTotalInspections();
+    _dashboardFuture = _loadDashboardData();
   }
 
-  Future<List<HistoryEntry>> _loadRecent() async {
-    final all = await ref.read(historyRepositoryProvider).loadAll();
-    return all.take(8).toList();
-  }
-
-  Future<int> _loadTotalScans() async {
-    final all = await ref.read(historyRepositoryProvider).loadAll();
-    return all.length;
-  }
-
-  Future<int> _loadTotalInspections() async {
-    try {
-      final rows = await ref.read(inspectionLogProvider).loadAll();
-      return rows.length;
-    } catch (_) {
-      return 0;
-    }
+  Future<_DashboardData> _loadDashboardData() async {
+    final historyFuture = ref.read(historyRepositoryProvider).loadAll();
+    final inspectionsFuture = ref
+        .read(inspectionLogProvider)
+        .loadAll()
+        .catchError((Object _) => <InspectionRow>[]);
+    final history = await historyFuture;
+    final inspections = await inspectionsFuture;
+    return _DashboardData(
+      recent: history.take(8).toList(growable: false),
+      totalScans: history.length,
+      totalInspections: inspections.length,
+    );
   }
 
   void _snack(String message) {
@@ -117,9 +126,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final theme = Theme.of(context);
     final colors = context.exalted;
     final text = theme.textTheme;
-    final keyence = ref.watch(keyenceScannerCoordinatorProvider);
-    final coordNotifier = ref.read(keyenceScannerCoordinatorProvider.notifier);
-    final ocrAsync = ref.watch(ocrAvailabilityProvider);
+    final keyence = _telemetryReady
+        ? ref.watch(keyenceScannerCoordinatorProvider)
+        : const KeyenceCoordinatorState();
+    final coordNotifier = _telemetryReady
+        ? ref.read(keyenceScannerCoordinatorProvider.notifier)
+        : null;
+    final ocrAsync = _telemetryReady
+        ? ref.watch(ocrAvailabilityProvider)
+        : const AsyncLoading<OcrAvailability>();
     final width = MediaQuery.sizeOf(context).width;
     final isDesktop = width >= 1024;
     final isTablet = width >= 640 && width < 1024;
@@ -136,11 +151,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         child: RefreshIndicator(
           onRefresh: () async {
             setState(_refreshData);
-            await Future.wait([
-              _recentFuture,
-              _totalScansFuture,
-              _totalInspectionsFuture,
-            ]);
+            await _dashboardFuture;
           },
           child: ListView(
             padding: EdgeInsets.symmetric(
@@ -149,11 +160,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             children: [
               // Top Brand and System Status Header
-              _buildHeader(colors, text, keyence),
+              _buildHeader(colors, text, keyence, _telemetryReady),
               const SizedBox(height: AppSpacing.xl),
 
               // KPI Metric Cards (Real Database Data)
-              _buildMetricCardsGrid(keyence, ocrAsync, isDesktop, isTablet),
+              _buildMetricCardsGrid(
+                keyence,
+                ocrAsync,
+                isDesktop,
+                isTablet,
+                _telemetryReady,
+              ),
               const SizedBox(height: AppSpacing.xl),
 
               // Main operational body: 2 columns on wide screens, 1 on mobile
@@ -172,6 +189,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             coordNotifier,
                             colors,
                             text,
+                            _telemetryReady,
                           ),
                           const SizedBox(height: AppSpacing.xl),
                           _buildWorkspacesSection(colors, text),
@@ -190,7 +208,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _buildHardwareCard(keyence, coordNotifier, colors, text),
+                    _buildHardwareCard(
+                      keyence,
+                      coordNotifier,
+                      colors,
+                      text,
+                      _telemetryReady,
+                    ),
                     const SizedBox(height: AppSpacing.xl),
                     _buildWorkspacesSection(colors, text),
                     const SizedBox(height: AppSpacing.xl),
@@ -208,24 +232,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ExaltedColors colors,
     TextTheme text,
     KeyenceCoordinatorState keyence,
+    bool telemetryReady,
   ) {
     return Row(
       children: [
         const ExaltedLogo(width: 140),
         const Spacer(),
         StatusBadge(
-          label: 'OFFLINE ENGINE',
-          sublabel: 'AIR-GAPPED',
-          variant: StatusBadgeVariant.success,
+          label: 'LOCAL FIRST',
+          sublabel: 'ONLINE LOOKUPS OPT-IN',
+          variant: StatusBadgeVariant.neutral,
           icon: Icons.shield_outlined,
           compact: true,
         ),
         const SizedBox(width: AppSpacing.sm),
         StatusBadge(
-          label: keyence.isConnected
+          label: !telemetryReady
+              ? 'CHECKING'
+              : keyence.isConnected
               ? 'KEYENCE ${keyence.model}'
-              : 'SCANNER READY',
-          variant: keyence.isConnected
+              : keyence.isDiscovering
+              ? 'DISCOVERING SCANNER'
+              : 'KEYENCE OFFLINE',
+          variant: !telemetryReady
+              ? StatusBadgeVariant.processing
+              : keyence.isConnected
               ? StatusBadgeVariant.success
               : (keyence.isDiscovering
                     ? StatusBadgeVariant.processing
@@ -242,6 +273,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     AsyncValue<OcrAvailability> ocrAsync,
     bool isDesktop,
     bool isTablet,
+    bool telemetryReady,
   ) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -250,11 +282,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
         return Column(
           children: [
-            FutureBuilder<List<int>>(
-              future: Future.wait([_totalScansFuture, _totalInspectionsFuture]),
+            FutureBuilder<_DashboardData>(
+              future: _dashboardFuture,
               builder: (context, snap) {
-                final totalScans = snap.data?[0] ?? 0;
-                final totalInspections = snap.data?[1] ?? 0;
+                final totalScans = snap.data?.totalScans ?? 0;
+                final totalInspections = snap.data?.totalInspections ?? 0;
 
                 final ocrLabel = ocrAsync.maybeWhen(
                   data: (o) => o.ok ? 'Tesseract Ready' : 'Install Needed',
@@ -276,16 +308,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     subtitle: 'GS1 & OCV validation',
                     icon: Icons.fact_check_outlined,
                     iconColor: AppColors.aqua,
-                    onTap: () => _navigateTo(kHomeTab),
+                    onTap: () => _navigateTo(kInspectionTab),
                   ),
                   MetricCard(
                     title: 'Industrial Scanner',
-                    value: keyence.isConnected ? keyence.model : 'Offline',
-                    subtitle: keyence.isConnected
+                    value: !telemetryReady
+                        ? 'Checking…'
+                        : keyence.isConnected
+                        ? keyence.model
+                        : 'Offline',
+                    subtitle: !telemetryReady
+                        ? 'Connection status'
+                        : keyence.isConnected
                         ? '${keyence.host} (${keyence.totalConnectionTimeMs}ms)'
                         : 'Standby for ethernet',
                     icon: Icons.router_outlined,
-                    iconColor: keyence.isConnected
+                    iconColor: telemetryReady && keyence.isConnected
                         ? AppColors.successGreen
                         : AppColors.slate400,
                     onTap: () => _navigateTo(kDevicesTab),
@@ -352,9 +390,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildHardwareCard(
     KeyenceCoordinatorState keyence,
-    KeyenceScannerCoordinator coordNotifier,
+    KeyenceScannerCoordinator? coordNotifier,
     ExaltedColors colors,
     TextTheme text,
+    bool telemetryReady,
   ) {
     final isConnected = keyence.isConnected;
 
@@ -404,6 +443,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       Text(
                         isConnected
                             ? 'Connected to ${keyence.host}:${keyence.port} · Verified in ${keyence.totalConnectionTimeMs}ms'
+                            : !telemetryReady
+                            ? 'Checking saved connection…'
                             : (keyence.isDiscovering
                                   ? 'Auto-discovering active scanners on network...'
                                   : 'Not connected · Plug ethernet to auto-discover or tap Connect'),
@@ -415,9 +456,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 StatusBadge(
                   label: isConnected
                       ? 'CONNECTED'
+                      : !telemetryReady
+                      ? 'CHECKING'
                       : (keyence.isDiscovering ? 'SCANNING' : 'OFFLINE'),
                   variant: isConnected
                       ? StatusBadgeVariant.success
+                      : !telemetryReady
+                      ? StatusBadgeVariant.processing
                       : (keyence.isDiscovering
                             ? StatusBadgeVariant.processing
                             : StatusBadgeVariant.neutral),
@@ -434,19 +479,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   OutlinedButton.icon(
                     icon: const Icon(Icons.flash_on_outlined, size: 16),
                     label: const Text('Trigger Read'),
-                    onPressed: () => coordNotifier.triggerRead(),
+                    onPressed: coordNotifier == null
+                        ? null
+                        : () => coordNotifier.triggerRead(),
                   ),
                   const SizedBox(width: AppSpacing.sm),
                   OutlinedButton.icon(
                     icon: const Icon(Icons.volume_up_outlined, size: 16),
                     label: const Text('Beep'),
-                    onPressed: () => coordNotifier.beep(),
+                    onPressed: coordNotifier == null
+                        ? null
+                        : () => coordNotifier.beep(),
                   ),
                 ] else ...[
                   ElevatedButton.icon(
                     icon: const Icon(Icons.search_rounded, size: 16),
                     label: const Text('Auto-Discover'),
-                    onPressed: keyence.isDiscovering
+                    onPressed: coordNotifier == null || keyence.isDiscovering
                         ? null
                         : () => coordNotifier.discoverScanners(),
                   ),
@@ -454,7 +503,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   OutlinedButton.icon(
                     icon: const Icon(Icons.bolt, size: 16),
                     label: const Text('Fast Connect'),
-                    onPressed: () => coordNotifier.connect(),
+                    onPressed: coordNotifier == null
+                        ? null
+                        : () => coordNotifier.connect(),
                   ),
                 ],
                 const Spacer(),
@@ -518,8 +569,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             child: const Text('View All'),
           ),
         ),
-        FutureBuilder<List<HistoryEntry>>(
-          future: _recentFuture,
+        FutureBuilder<_DashboardData>(
+          future: _dashboardFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Padding(
@@ -534,7 +585,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               );
             }
 
-            final items = snapshot.data ?? const <HistoryEntry>[];
+            final items = snapshot.data?.recent ?? const <HistoryEntry>[];
             if (items.isEmpty) {
               return EmptyState(
                 icon: Icons.history_outlined,

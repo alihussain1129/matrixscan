@@ -80,6 +80,25 @@ class InspectionLog {
     return (await _readAll()).reversed.toList();
   });
 
+  /// Adds a row received from a linked device. It keeps its own ID, is
+  /// skipped when that ID is already stored, and is not re-checked: the
+  /// device that made it already evaluated it. Returns true when stored.
+  Future<bool> addImported(InspectionRow row) => _serialized<bool>(() async {
+    try {
+      final existing = await _readAll();
+      if (existing.any((r) => r.id == row.id)) return false;
+      final file = await _file();
+      await file.writeAsString(
+        '${jsonEncode(row.toJson())}\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  });
+
   Future<void> clear() => _serialized<void>(() async {
     final file = await _file();
     if (await file.exists()) await file.delete();

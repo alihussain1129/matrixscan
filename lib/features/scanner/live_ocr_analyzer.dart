@@ -21,6 +21,22 @@ class LiveOcrAnalyzer implements FrameAnalyzer {
 
   final int minIntervalMs;
 
+  final ValueNotifier<bool> _enabled = ValueNotifier<bool>(true);
+
+  /// Whether live reading is on. Changes are announced to listeners.
+  ValueListenable<bool> get enabledListenable => _enabled;
+  bool get enabled => _enabled.value;
+
+  /// Turns live reading on or off. Off clears the last text and stops all
+  /// OCR work; barcode decoding is not affected.
+  void setEnabled(bool value) {
+    _enabled.value = value;
+    if (!value) {
+      text.value = '';
+      lastMs.value = 0;
+    }
+  }
+
   /// Latest recognized text (empty when nothing was read).
   final ValueNotifier<String> text = ValueNotifier<String>('');
 
@@ -41,7 +57,7 @@ class LiveOcrAnalyzer implements FrameAnalyzer {
 
   @override
   Future<void> analyze(AnalysisFrame frame) async {
-    if (_disposed || _busy) return;
+    if (_disposed || _busy || !_enabled.value) return;
     final now = _clock.elapsedMilliseconds;
     if (now - _lastStartMs < minIntervalMs) return;
     _busy = true;

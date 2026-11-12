@@ -90,8 +90,10 @@ class RestartHistoryStore {
   }
 }
 
-typedef ProcessStarter =
-    Future<void> Function(String executable, List<String> args);
+typedef ProcessStarter = Future<void> Function(
+  String executable,
+  List<String> args,
+);
 
 Future<void> _startDetached(String exe, List<String> args) async {
   await Process.start(exe, args, mode: ProcessStartMode.detached);

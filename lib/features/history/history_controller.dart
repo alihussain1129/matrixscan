@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/router/app_router.dart';
+import '../../features/link/link_providers.dart';
 import 'history_entry.dart';
 import 'history_repository.dart';
 
@@ -12,13 +12,18 @@ List<HistoryEntry> orderHistory(List<HistoryEntry> entries) => [
 
 /// Loads saved scans and applies pin and delete.
 ///
-/// It watches the bottom-nav index, so the list is read again each time the
-/// user switches tabs. That picks up scans made on the Scan tab.
+/// It watches the bottom-nav index and the sync journal change stream, so new
+/// events arriving from linked devices appear live without a manual refresh.
 class HistoryController extends AsyncNotifier<List<HistoryEntry>> {
   @override
   Future<List<HistoryEntry>> build() async {
-    ref.watch(navIndexProvider);
     final entries = await ref.read(historyRepositoryProvider).loadAll();
+
+    // Listen to sync journal changes so newly synced records refresh the UI.
+    ref.listen(syncChangeStreamProvider, (previous, next) {
+      ref.invalidateSelf();
+    });
+
     return orderHistory(entries);
   }
 

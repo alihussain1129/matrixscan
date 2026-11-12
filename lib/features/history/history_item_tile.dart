@@ -49,6 +49,13 @@ String historySourceLabel(HistorySource source) {
   }
 }
 
+String historyDeviceLabel(HistoryEntry entry) {
+  final origin = entry.originDeviceId;
+  if (origin == null || origin.isEmpty) return 'This device';
+  final short = origin.length <= 12 ? origin : '${origin.substring(0, 12)}…';
+  return 'Remote device $short';
+}
+
 IconData _iconFor(HistoryEntry entry) {
   if (entry.kind == HistoryKind.ocr) return Icons.text_snippet_outlined;
   final format = entry.format ?? '';
@@ -122,6 +129,7 @@ class HistoryItemTile extends StatelessWidget {
         padding: const EdgeInsets.only(top: 2),
         child: Text(
           '${historyTypeLabel(entry)} · ${historySourceLabel(entry.source)}'
+          ' · ${historyDeviceLabel(entry)}'
           '\n${formatHistoryTime(entry.createdAt, DateTime.now())}',
           style: text.bodySmall,
         ),

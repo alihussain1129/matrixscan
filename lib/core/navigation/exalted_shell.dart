@@ -6,17 +6,23 @@ import '../../features/devices/keyence/keyence_device_screen.dart';
 import '../../features/gallery/gallery_import_service.dart';
 import '../../features/history/history_screen.dart';
 import '../../features/home/home_screen.dart';
+import '../../features/diagnostics/diagnostics_screen.dart';
+import '../../features/inspection/inspection_data_screen.dart';
+import '../../features/link/linked_devices_screen.dart';
 import '../../features/ocr/ocr_entry.dart';
 import '../../features/ocr/views/ocr_workspace_screen.dart';
 import '../../features/scanner/desktop_decoder_screen.dart';
 import '../../features/settings/settings_screen.dart';
+import '../../verify/verification_screen.dart';
 import '../router/app_router.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_tokens.dart';
+import '../widgets/command_palette.dart';
 import '../widgets/exalted_logo.dart';
 import 'app_destinations.dart';
+import 'compact_nav_bar.dart';
 import 'desktop_chrome.dart';
 
 // The scanner tab uses dark chrome, so its bottom bar is dark too.
@@ -29,7 +35,15 @@ const List<LogicalKeyboardKey> _digitKeys = [
   LogicalKeyboardKey.digit4,
   LogicalKeyboardKey.digit5,
   LogicalKeyboardKey.digit6,
+  LogicalKeyboardKey.digit7,
+  LogicalKeyboardKey.digit8,
+  LogicalKeyboardKey.digit9,
+  LogicalKeyboardKey.digit0,
 ];
+
+/// Number of Ctrl+digit shortcuts. A test keeps this at least as large as
+/// the destination list, because a missing key would crash the shell.
+int get kShortcutKeyCount => _digitKeys.length;
 
 /// The Windows and Linux workstation shell. Phones use [MobileShell].
 class ExaltedShell extends ConsumerStatefulWidget {
@@ -54,6 +68,10 @@ class _ExaltedShellState extends ConsumerState<ExaltedShell> {
     kOcrTab => const OcrWorkspaceScreen(),
     kHistoryTab => const HistoryScreen(),
     kDevicesTab => const KeyenceDeviceScreen(),
+    kLinkTab => const LinkedDevicesScreen(),
+    kVerificationTab => const VerificationScreen(),
+    kDiagnosticsTab => const DiagnosticsScreen(),
+    kInspectionTab => const InspectionDataScreen(),
     _ => const SettingsScreen(),
   };
 
@@ -79,27 +97,11 @@ class _ExaltedShellState extends ConsumerState<ExaltedShell> {
   }
 
   void _showMore(int index) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final d in kDestinations.skip(kBottomBarCount))
-              ListTile(
-                leading: Icon(d.index == index ? d.activeIcon : d.icon),
-                title: Text(d.label),
-                selected: d.index == index,
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _select(d.index);
-                },
-              ),
-          ],
-        ),
-      ),
-    );
+    showMoreDestinations(context, index: index, onSelect: _select);
+  }
+
+  Future<void> _showCommandPalette() async {
+    await showCommandPalette(context);
   }
 
   @override
@@ -123,7 +125,7 @@ class _ExaltedShellState extends ConsumerState<ExaltedShell> {
           body: body,
           bottomNavigationBar: Theme(
             data: navTheme,
-            child: _CompactBar(
+            child: CompactNavBar(
               index: index,
               onSelect: _select,
               onMore: () => _showMore(index),
@@ -138,6 +140,8 @@ class _ExaltedShellState extends ConsumerState<ExaltedShell> {
 
     return CallbackShortcuts(
       bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyK, control: true):
+            _showCommandPalette,
         for (final d in kDestinations)
           SingleActivator(_digitKeys[d.index], control: true): () =>
               _select(d.index),
@@ -161,7 +165,12 @@ class _ExaltedShellState extends ConsumerState<ExaltedShell> {
                     Expanded(
                       child: Column(
                         children: [
-                          DesktopTopBar(title: title),
+                          DesktopTopBar(
+                            title: title,
+                            scannerActive: _visited.contains(kScanTab),
+                            devicesActive: _visited.contains(kDevicesTab),
+                            onOpenCommandPalette: _showCommandPalette,
+                          ),
                           Expanded(child: body),
                         ],
                       ),
@@ -169,7 +178,10 @@ class _ExaltedShellState extends ConsumerState<ExaltedShell> {
                   ],
                 ),
               ),
-              const DesktopStatusBar(),
+              DesktopStatusBar(
+                scannerActive: _visited.contains(kScanTab),
+                devicesActive: _visited.contains(kDevicesTab),
+              ),
             ],
           ),
         ),
@@ -234,13 +246,16 @@ class _Sidebar extends StatelessWidget {
               Expanded(
                 child: ListView(
                   children: [
-                    for (final d in kDestinations)
-                      _SidebarItem(
-                        destination: d,
-                        selected: d.index == index,
-                        showLabel: showLabel,
-                        onTap: () => onSelect(d.index),
-                      ),
+                    for (final g in kDestinationGroups) ...[
+                      _SidebarGroupHeader(title: g.title, showLabel: showLabel),
+                      for (final i in g.indexes)
+                        _SidebarItem(
+                          destination: kDestinations[i],
+                          selected: i == index,
+                          showLabel: showLabel,
+                          onTap: () => onSelect(i),
+                        ),
+                    ],
                   ],
                 ),
               ),
@@ -293,6 +308,43 @@ class _Sidebar extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _SidebarGroupHeader extends StatelessWidget {
+  const _SidebarGroupHeader({required this.title, required this.showLabel});
+
+  final String title;
+  final bool showLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = context.exalted;
+    if (!showLabel) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
+        child: Divider(color: colors.outline),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.md,
+        AppSpacing.lg,
+        AppSpacing.xs,
+      ),
+      child: Text(
+        title,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: colors.muted,
+          letterSpacing: 1.2,
+        ),
       ),
     );
   }
@@ -393,120 +445,6 @@ class _SidebarItem extends StatelessWidget {
       label: destination.label,
       excludeSemantics: true,
       child: item,
-    );
-  }
-}
-
-// ------------------------------------------------------------ compact bar
-
-class _CompactBar extends StatelessWidget {
-  const _CompactBar({
-    required this.index,
-    required this.onSelect,
-    required this.onMore,
-  });
-
-  final int index;
-  final ValueChanged<int> onSelect;
-  final VoidCallback onMore;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = context.exalted;
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        border: Border(top: BorderSide(color: colors.outline)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: 68,
-          child: Row(
-            children: [
-              for (final d in kDestinations.take(kBottomBarCount))
-                Expanded(
-                  child: _BarItem(
-                    icon: d.index == index ? d.activeIcon : d.icon,
-                    label: d.label,
-                    selected: d.index == index,
-                    onTap: () => onSelect(d.index),
-                  ),
-                ),
-              Expanded(
-                child: _BarItem(
-                  icon: Icons.more_horiz,
-                  label: 'More',
-                  selected: index >= kBottomBarCount,
-                  onTap: onMore,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _BarItem extends StatelessWidget {
-  const _BarItem({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = context.exalted;
-    final color = selected ? colors.primaryText : colors.muted;
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: label,
-      onTap: onTap,
-      child: ExcludeSemantics(
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onTap,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              AnimatedContainer(
-                duration: AppMotion.normal,
-                curve: AppMotion.curve,
-                width: 56,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: selected
-                      ? theme.colorScheme.primary.withValues(alpha: 0.16)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                ),
-                child: Icon(icon, color: color, size: AppSizes.iconLg),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                label,
-                maxLines: 1,
-                style: theme.textTheme.labelSmall!.copyWith(
-                  color: color,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  letterSpacing: 0.4,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

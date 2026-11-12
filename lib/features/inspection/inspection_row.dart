@@ -20,6 +20,7 @@ class InspectionRow {
     this.ocrNote,
     this.imagePath,
     this.duplicateOf,
+    this.originDeviceId,
   });
 
   final String id;
@@ -46,6 +47,7 @@ class InspectionRow {
   /// Original image kept for this event, when image evidence is on.
   final String? imagePath;
   final String? duplicateOf;
+  final String? originDeviceId;
 
   String? get gtin => fields['01'];
   String? get lot => fields['10'];
@@ -69,6 +71,7 @@ class InspectionRow {
     'ocrNote': ocrNote,
     'imagePath': imagePath,
     'duplicateOf': duplicateOf,
+    if (originDeviceId != null) 'originDeviceId': originDeviceId,
   };
 
   static InspectionRow? fromJson(Object? json) {
@@ -111,6 +114,9 @@ class InspectionRow {
       ocrNote: json['ocrNote'] as String?,
       imagePath: json['imagePath'] as String?,
       duplicateOf: json['duplicateOf'] as String?,
+      originDeviceId: json['originDeviceId'] is String
+          ? json['originDeviceId'] as String
+          : null,
     );
   }
 }

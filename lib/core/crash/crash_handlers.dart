@@ -21,9 +21,7 @@ void installCrashHandlers(CrashLog log, {void Function()? onFatal}) {
   final previousPlatform = PlatformDispatcher.instance.onError;
   PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
     unawaited(
-      log
-          .record(error, stack, source: 'platform')
-          .then((_) => onFatal?.call()),
+      log.record(error, stack, source: 'platform').then((_) => onFatal?.call()),
     );
     return previousPlatform?.call(error, stack) ?? false;
   };

@@ -81,5 +81,7 @@ class OcvRulesRepository {
 }
 
 final ocvRulesRepositoryProvider = Provider<OcvRulesRepository>((ref) {
-  return OcvRulesRepository(directoryProvider: ref.watch(dataDirectoryProvider));
+  return OcvRulesRepository(
+    directoryProvider: ref.watch(dataDirectoryProvider),
+  );
 });

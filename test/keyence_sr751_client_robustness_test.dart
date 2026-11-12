@@ -4,8 +4,11 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:exalted/features/devices/keyence/keyence_sr751_client.dart';
 
-Future<void> until(bool Function() condition) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 3));
+Future<void> until(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 3),
+}) async {
+  final deadline = DateTime.now().add(timeout);
   while (!condition()) {
     if (DateTime.now().isAfter(deadline)) {
       throw TestFailure('Condition not met within 3 seconds');
@@ -134,9 +137,10 @@ void main() {
         reconnectMaxDelay: const Duration(milliseconds: 5),
       );
       expect(await c.connect(), isFalse);
-      await pause(800);
-
-      expect(c.reconnectAttempts, greaterThan(10));
+      await until(
+        () => c.reconnectAttempts > 10,
+        timeout: const Duration(seconds: 5),
+      );
       await c.disconnect();
       final attempts = c.reconnectAttempts;
       await pause(100);

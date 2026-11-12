@@ -10,6 +10,30 @@ using exalted::DataMatrixTraversal;
 
 namespace
 {
+    struct BitPos
+    {
+        int row;
+        int col;
+    };
+
+    // Corner layouts from ISO 16022:2006, Figures F.3 to F.6. A negative
+    // value counts back from the symbol's far edge. These tables are written
+    // independently of the implementation under test and were cross-checked
+    // against the vendored zxing-cpp (core/src/datamatrix/DMBitLayout.cpp).
+    constexpr BitPos kCorner1[8] = {{-1, 0}, {-1, 1}, {-1, 2}, {0, -2},
+                                    {0, -1}, {1, -1}, {2, -1}, {3, -1}};
+    constexpr BitPos kCorner2[8] = {{-3, 0}, {-2, 0}, {-1, 0}, {0, -4},
+                                    {0, -3}, {0, -2}, {0, -1}, {1, -1}};
+    constexpr BitPos kCorner3[8] = {{-1, 0}, {-1, -1}, {0, -3}, {0, -2},
+                                    {0, -1}, {1, -3}, {1, -2}, {1, -1}};
+    constexpr BitPos kCorner4[8] = {{-3, 0}, {-2, 0}, {-1, 0}, {0, -2},
+                                    {0, -1}, {1, -1}, {2, -1}, {3, -1}};
+
+    int resolve(int value, int extent)
+    {
+        return value < 0 ? extent + value : value;
+    }
+
     void requireEqual(
         const char* name,
         std::uint8_t expected,
@@ -51,6 +75,84 @@ namespace
                 coordinates[i][0],
                 values[i]);
         }
+    }
+
+    // Builds a symbol of numRows x numCols whose every module equals
+    // `background` except for the eight corner positions, which take `values`
+    // (first = MSB). Callers run every pattern against BOTH a 1 and a 0
+    // background: a read of a wrong module returns the background value, so
+    // it is caught whichever bit the pattern holds at that position.
+    BitMatrix makeCornerMatrix(
+        const BitPos (&layout)[8],
+        int numRows,
+        int numCols,
+        const bool values[8],
+        bool background)
+    {
+        BitMatrix matrix(numCols, numRows);
+
+        for (int y = 0; y < numRows; ++y)
+        {
+            for (int x = 0; x < numCols; ++x)
+            {
+                matrix.set(x, y, background);
+            }
+        }
+
+        for (int i = 0; i < 8; ++i)
+        {
+            matrix.set(
+                resolve(layout[i].col, numCols),
+                resolve(layout[i].row, numRows),
+                values[i]);
+        }
+
+        return matrix;
+    }
+
+    using CornerReader = std::uint8_t (*)(const BitMatrix&, int, int);
+
+    // Walking-one / walking-zero check. For each of the eight positions in
+    // turn, only that module differs from the background, so the result must
+    // be exactly that bit (MSB first). Unlike a fixed pattern, this detects
+    // every single misplaced coordinate and every ordering mistake.
+    void requireWalkingBits(
+        const char* name,
+        const BitPos (&layout)[8],
+        CornerReader reader,
+        int numRows,
+        int numCols)
+    {
+        for (const bool background : {false, true})
+        {
+            for (int i = 0; i < 8; ++i)
+            {
+                bool values[8];
+                for (int k = 0; k < 8; ++k)
+                {
+                    values[k] = background;
+                }
+                values[i] = !background;
+
+                const BitMatrix matrix = makeCornerMatrix(
+                    layout, numRows, numCols, values, background);
+
+                const std::uint8_t single =
+                    static_cast<std::uint8_t>(1u << (7 - i));
+                const std::uint8_t expected =
+                    background ? static_cast<std::uint8_t>(~single) : single;
+
+                if (reader(matrix, numRows, numCols) != expected)
+                {
+                    std::cerr << name << " walking bit " << i
+                              << " (background " << background
+                              << ") FAILED\n";
+                    throw std::runtime_error(name);
+                }
+            }
+        }
+
+        std::cout << name << " walking-bit PASS (16 cases)\n";
     }
 }
 
@@ -108,193 +210,83 @@ int main()
             requireEqual("Utah", 0xA5, actual);
         }
 
-        /*
-         * ------------------------------------------------------------
-         * Corner 1
-         * ------------------------------------------------------------
-         *
-         * Anchor:
-         *     row    = 10
-         *     column = 5
-         *
-         * Reads:
-         *
-         * (9,5) (9,6) (9,7)
-         * (10,3) (10,4) (10,5)
-         * (11,4) (11,5)
-         *
-         * Expected:
-         *     00111100 = 0x3C
-         */
+        // The four corner patterns use a non-square 10 x 14 symbol so a
+        // swapped rows/columns argument cannot go unnoticed.
+        constexpr int kRows = 10;
+        constexpr int kCols = 14;
+
         {
-            BitMatrix matrix(20, 20);
-
-            const int coordinates[8][2] =
-            {
-                {9,  5},
-                {9,  6},
-                {9,  7},
-                {10, 3},
-                {10, 4},
-                {10, 5},
-                {11, 4},
-                {11, 5}
-            };
-
+            // 10110001
             const bool values[8] =
+                {true, false, true, true, false, false, false, true};
+            for (const bool background : {true, false})
             {
-                false, false, true, true,
-                true, true, false, false
-            };
-
-            setBits(matrix, coordinates, values);
-
-            const auto actual =
-                DataMatrixTraversal::readCorner1(matrix, 10, 5);
-
-            requireEqual("Corner 1", 0x3C, actual);
+                const BitMatrix matrix = makeCornerMatrix(
+                    kCorner1, kRows, kCols, values, background);
+                requireEqual(
+                    background ? "Corner 1 (bg=1)" : "Corner 1 (bg=0)",
+                    0xB1,
+                    DataMatrixTraversal::readCorner1(matrix, kRows, kCols));
+            }
         }
 
-        /*
-         * ------------------------------------------------------------
-         * Corner 2
-         * ------------------------------------------------------------
-         *
-         * Anchor:
-         *     row    = 5
-         *     column = 8
-         *
-         * Reads:
-         *
-         * (2,8) (3,8) (4,8)
-         * (5,4) (5,5) (5,6) (5,7)
-         * (6,7)
-         *
-         * Expected:
-         *     10010110 = 0x96
-         */
         {
-            BitMatrix matrix(20, 20);
-
-            const int coordinates[8][2] =
-            {
-                {2, 8},
-                {3, 8},
-                {4, 8},
-                {5, 4},
-                {5, 5},
-                {5, 6},
-                {5, 7},
-                {6, 7}
-            };
-
+            // 01101001
             const bool values[8] =
+                {false, true, true, false, true, false, false, true};
+            for (const bool background : {true, false})
             {
-                true, false, false, true,
-                false, true, true, false
-            };
-
-            setBits(matrix, coordinates, values);
-
-            const auto actual =
-                DataMatrixTraversal::readCorner2(matrix, 5, 8);
-
-            requireEqual("Corner 2", 0x96, actual);
+                const BitMatrix matrix = makeCornerMatrix(
+                    kCorner2, kRows, kCols, values, background);
+                requireEqual(
+                    background ? "Corner 2 (bg=1)" : "Corner 2 (bg=0)",
+                    0x69,
+                    DataMatrixTraversal::readCorner2(matrix, kRows, kCols));
+            }
         }
 
-        /*
-         * ------------------------------------------------------------
-         * Corner 3
-         * ------------------------------------------------------------
-         *
-         * Anchor:
-         *     row    = 5
-         *     column = 10
-         *
-         * Reads:
-         *
-         * (2,10) (3,10) (4,10)
-         * (5,8) (5,9) (5,10)
-         * (6,9) (7,9)
-         *
-         * Expected:
-         *     01011010 = 0x5A
-         */
         {
-            BitMatrix matrix(20, 20);
-
-            const int coordinates[8][2] =
-            {
-                {2, 10},
-                {3, 10},
-                {4, 10},
-                {5, 8},
-                {5, 9},
-                {5, 10},
-                {6, 9},
-                {7, 9}
-            };
-
+            // 11010010
             const bool values[8] =
+                {true, true, false, true, false, false, true, false};
+            for (const bool background : {true, false})
             {
-                false, true, false, true,
-                true, false, true, false
-            };
-
-            setBits(matrix, coordinates, values);
-
-            const auto actual =
-                DataMatrixTraversal::readCorner3(matrix, 5, 10);
-
-            requireEqual("Corner 3", 0x5A, actual);
+                const BitMatrix matrix = makeCornerMatrix(
+                    kCorner3, kRows, kCols, values, background);
+                requireEqual(
+                    background ? "Corner 3 (bg=1)" : "Corner 3 (bg=0)",
+                    0xD2,
+                    DataMatrixTraversal::readCorner3(matrix, kRows, kCols));
+            }
         }
 
-        /*
-         * ------------------------------------------------------------
-         * Corner 4
-         * ------------------------------------------------------------
-         *
-         * numCols = 20
-         * row     = 10
-         *
-         * Reads:
-         *
-         * (9,0)
-         * (9,19)
-         * (0,17) (0,18) (0,19)
-         * (1,17) (1,18) (1,19)
-         *
-         * Expected:
-         *     11000011 = 0xC3
-         */
         {
-            BitMatrix matrix(20, 20);
-
-            const int coordinates[8][2] =
-            {
-                {9,  0},
-                {9, 19},
-                {0, 17},
-                {0, 18},
-                {0, 19},
-                {1, 17},
-                {1, 18},
-                {1, 19}
-            };
-
+            // 00101101
             const bool values[8] =
+                {false, false, true, false, true, true, false, true};
+            for (const bool background : {true, false})
             {
-                true, true, false, false,
-                false, false, true, true
-            };
-
-            setBits(matrix, coordinates, values);
-
-            const auto actual =
-                DataMatrixTraversal::readCorner4(matrix, 10, 20);
-
-            requireEqual("Corner 4", 0xC3, actual);
+                const BitMatrix matrix = makeCornerMatrix(
+                    kCorner4, kRows, kCols, values, background);
+                requireEqual(
+                    background ? "Corner 4 (bg=1)" : "Corner 4 (bg=0)",
+                    0x2D,
+                    DataMatrixTraversal::readCorner4(matrix, kRows, kCols));
+            }
         }
+
+        requireWalkingBits(
+            "Corner 1", kCorner1, DataMatrixTraversal::readCorner1,
+            kRows, kCols);
+        requireWalkingBits(
+            "Corner 2", kCorner2, DataMatrixTraversal::readCorner2,
+            kRows, kCols);
+        requireWalkingBits(
+            "Corner 3", kCorner3, DataMatrixTraversal::readCorner3,
+            kRows, kCols);
+        requireWalkingBits(
+            "Corner 4", kCorner4, DataMatrixTraversal::readCorner4,
+            kRows, kCols);
 
         std::cout << "\n========================================\n";
         std::cout << " ECC200 TRAVERSAL TEST PASSED\n";

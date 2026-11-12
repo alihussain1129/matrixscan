@@ -21,6 +21,20 @@ class JournalPage {
   final bool more;
 }
 
+class SyncConflictCase {
+  const SyncConflictCase({
+    required this.current,
+    required this.incoming,
+    this.resolution,
+  });
+
+  final SyncRecord current;
+  final SyncRecord incoming;
+  final String? resolution;
+
+  bool get resolved => resolution != null;
+}
+
 /// Append-only evidence journal plus a store for original image files.
 /// Records are never edited or deleted. If the same ID arrives with different
 /// content, both versions are kept (the second goes to the conflicts file).
@@ -31,15 +45,25 @@ class FileSyncStore {
   final List<JournalEntry> _entries = [];
   final Map<String, String> _hashes = {};
   final Set<String> _conflictKeys = {};
+  final Map<String, SyncRecord> _conflictRecords = {};
+  final Map<String, String> _conflictResolutions = {};
+  final List<SyncSessionEntry> _syncSessions = [];
   Future<void> _queue = Future<void>.value();
+  final StreamController<int> _changes = StreamController<int>.broadcast();
 
   String get _sep => Platform.pathSeparator;
   File get _journalFile => File('${dir.path}${_sep}link_journal.jsonl');
   File get _conflictFile => File('${dir.path}${_sep}link_conflicts.jsonl');
+  File get _resolutionFile =>
+      File('${dir.path}${_sep}link_conflict_resolutions.jsonl');
+  File get _syncSessionFile =>
+      File('${dir.path}${_sep}link_sync_sessions.jsonl');
   Directory get _blobDir => Directory('${dir.path}${_sep}link_blobs');
 
   int get lastSeq => _entries.isEmpty ? 0 : _entries.last.seq;
   int get length => _entries.length;
+  int get conflictCount => _conflictRecords.length;
+  Stream<int> get changes => _changes.stream;
 
   Future<void> open() async {
     await dir.create(recursive: true);
@@ -68,7 +92,36 @@ class FileSyncStore {
       )) {
         try {
           final rec = SyncRecord.fromJson(jsonDecode(line));
-          if (rec != null) _conflictKeys.add('${rec.id}:${rec.contentHash}');
+          if (rec != null) {
+            final key = '${rec.id}:${rec.contentHash}';
+            _conflictKeys.add(key);
+            _conflictRecords[key] = rec;
+          }
+        } catch (_) {}
+      }
+    }
+    if (await _resolutionFile.exists()) {
+      for (final line in const LineSplitter().convert(
+        await _resolutionFile.readAsString(),
+      )) {
+        try {
+          final event = jsonDecode(line) as Map;
+          final id = event['id'];
+          final hash = event['hash'];
+          final resolution = event['resolution'];
+          if (id is String && hash is String && resolution is String) {
+            _conflictResolutions['$id:$hash'] = resolution;
+          }
+        } catch (_) {}
+      }
+    }
+    if (await _syncSessionFile.exists()) {
+      for (final line in const LineSplitter().convert(
+        await _syncSessionFile.readAsString(),
+      )) {
+        try {
+          final session = SyncSessionEntry.fromJson(jsonDecode(line));
+          if (session != null) _syncSessions.add(session);
         } catch (_) {}
       }
     }
@@ -91,6 +144,7 @@ class FileSyncStore {
           mode: FileMode.append,
           flush: true,
         );
+        _conflictRecords[key] = r;
       }
       return IngestResult.conflict;
     }
@@ -102,6 +156,7 @@ class FileSyncStore {
     );
     _entries.add(JournalEntry(seq, r));
     _hashes[r.id] = r.contentHash;
+    _changes.add(seq);
     return IngestResult.added;
   }
 
@@ -117,6 +172,49 @@ class FileSyncStore {
       } catch (_) {}
     }
     return out;
+  }
+
+  Future<List<SyncConflictCase>> conflictCases() async {
+    final currentById = <String, SyncRecord>{
+      for (final entry in _entries) entry.rec.id: entry.rec,
+    };
+    return [
+      for (final alternate in _conflictRecords.values)
+        if (currentById[alternate.id] case final current?)
+          SyncConflictCase(
+            current: current,
+            incoming: alternate,
+            resolution:
+                _conflictResolutions['${alternate.id}:${alternate.contentHash}'],
+          ),
+    ];
+  }
+
+  /// Appends the user's conflict decision. Journal evidence remains immutable.
+  Future<void> resolveConflict(SyncRecord incoming, String resolution) async {
+    if (resolution != 'keep_current' && resolution != 'save_incoming_copy') {
+      throw ArgumentError.value(resolution, 'resolution');
+    }
+    final key = '${incoming.id}:${incoming.contentHash}';
+    if (_conflictResolutions.containsKey(key)) return;
+    await _resolutionFile.writeAsString(
+      '${jsonEncode({'id': incoming.id, 'hash': incoming.contentHash, 'resolution': resolution, 'resolvedAt': DateTime.now().toUtc().toIso8601String()})}\n',
+      mode: FileMode.append,
+      flush: true,
+    );
+    _conflictResolutions[key] = resolution;
+  }
+
+  List<SyncSessionEntry> get syncSessions =>
+      List<SyncSessionEntry>.unmodifiable(_syncSessions.reversed);
+
+  Future<void> recordSyncSession(SyncSessionEntry session) async {
+    await _syncSessionFile.writeAsString(
+      '${jsonEncode(session.toJson())}\n',
+      mode: FileMode.append,
+      flush: true,
+    );
+    _syncSessions.add(session);
   }
 
   List<SyncRecord> allRecords() => [for (final e in _entries) e.rec];

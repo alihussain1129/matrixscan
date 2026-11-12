@@ -1,14 +1,22 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.13)
 
-# Configure Clang to use the installed GCC 13 runtime when GCC 14 dev headers are absent
-if(EXISTS "/usr/lib/gcc/x86_64-linux-gnu/13/libstdc++.so")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13" CACHE STRING "" FORCE)
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13" CACHE STRING "" FORCE)
-  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13" CACHE STRING "" FORCE)
+# Clang 18 can select GCC 14, whose dev headers may be absent. Point clang at
+# the installed GCC 13 runtime. Clang only: GCC rejects --gcc-install-dir.
+# Plain set() (not CACHE FORCE) so repeated configures do not append again.
+if(EXISTS "/usr/lib/gcc/x86_64-linux-gnu/13/libstdc++.so" AND
+   ("$ENV{CXX}" MATCHES "clang" OR CMAKE_CXX_COMPILER MATCHES "clang"))
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13")
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13")
 endif()
 
 project(runner LANGUAGES CXX)
+
+# The Linux desktop release benchmark favored Skia for startup memory and
+# process-to-first-frame time. Keep Impeller available for target-specific A/B
+# validation where its rendering backend performs better.
+option(EXALTED_USE_IMPELLER "Use Impeller for Linux rendering" OFF)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
@@ -64,6 +72,9 @@ pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
 
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
+if(EXALTED_USE_IMPELLER)
+  target_compile_definitions(${BINARY_NAME} PRIVATE EXALTED_USE_IMPELLER=1)
+endif()
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)

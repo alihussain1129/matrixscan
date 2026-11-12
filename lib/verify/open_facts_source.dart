@@ -69,8 +69,21 @@ class OpenFactsSource implements VerificationSource {
       );
     }
     final hit = _cache[gtin];
-    if (hit != null && at.difference(hit.$2) < const Duration(minutes: 5)) {
-      return hit.$1;
+    if (hit != null) {
+      final age = at.difference(hit.$2);
+      if (age >= Duration.zero && age < const Duration(minutes: 5)) {
+        final result = hit.$1;
+        return SourceResult(
+          info: result.info,
+          checkedAt: at,
+          claims: result.claims,
+          fields: result.fields,
+          dataUpdatedAt: result.dataUpdatedAt,
+          cachedAt: hit.$2,
+          error: result.error,
+        );
+      }
+      _cache.remove(gtin);
     }
 
     final uri = Uri.https(host, '/api/v2/product/$gtin', {
@@ -78,7 +91,7 @@ class OpenFactsSource implements VerificationSource {
     });
     final HttpReply reply;
     try {
-      reply = await _fetch(uri);
+      reply = await fetchRespectingRetryAfter(_fetch, uri);
     } catch (e) {
       return SourceResult.unavailable(
         info,

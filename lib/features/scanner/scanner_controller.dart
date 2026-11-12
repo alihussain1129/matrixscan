@@ -20,6 +20,7 @@ import 'scan_feedback.dart';
 import 'detection_events.dart';
 import '../inspection/combined_inspector.dart';
 import 'captured_frame.dart';
+import '../../core/config/app_config.dart';
 import '../../core/config/config_controller.dart';
 
 enum CameraStatus {
@@ -155,6 +156,12 @@ class ScannerController extends Notifier<ScannerUiState> {
     // The analyzer belongs to the scanner provider graph. Wire its result
     // callback here so every native decode reaches the controller/UI.
     final analyzer = _analyzer;
+    void applyDecoderConfig(AppConfig config) {
+      analyzer.formatsMask = decoderFormatsMask(config.decoder.symbologies);
+    }
+
+    applyDecoderConfig(ref.read(configControllerProvider));
+    ref.listen(configControllerProvider, (_, next) => applyDecoderConfig(next));
     final pipeline = _pipeline;
     analyzer.onDecoded = _onDecoded;
     _gray.onGray = _onGray;

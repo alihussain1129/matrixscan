@@ -21,19 +21,19 @@ class AppDestination {
 const List<AppDestination> kDestinations = [
   AppDestination(
     index: kHomeTab,
-    label: 'Inspect',
-    icon: Icons.image_search_outlined,
-    activeIcon: Icons.image_search,
+    label: 'Dashboard',
+    icon: Icons.dashboard_outlined,
+    activeIcon: Icons.dashboard,
   ),
   AppDestination(
     index: kScanTab,
-    label: 'Decoder',
+    label: 'Scanner',
     icon: Icons.qr_code_scanner_outlined,
     activeIcon: Icons.qr_code_scanner,
   ),
   AppDestination(
     index: kOcrTab,
-    label: 'OCR',
+    label: 'Decode & OCR',
     icon: Icons.document_scanner_outlined,
     activeIcon: Icons.document_scanner,
   ),
@@ -50,12 +50,47 @@ const List<AppDestination> kDestinations = [
     activeIcon: Icons.router,
   ),
   AppDestination(
+    index: kLinkTab,
+    label: 'Synchronization',
+    icon: Icons.sync_alt_outlined,
+    activeIcon: Icons.sync_alt,
+  ),
+  AppDestination(
+    index: kVerificationTab,
+    label: 'Verification',
+    icon: Icons.fact_check_outlined,
+    activeIcon: Icons.fact_check,
+  ),
+  AppDestination(
+    index: kDiagnosticsTab,
+    label: 'Diagnostics',
+    icon: Icons.monitor_heart_outlined,
+    activeIcon: Icons.monitor_heart,
+  ),
+  AppDestination(
     index: kSettingsTab,
     label: 'Settings',
     icon: Icons.tune_outlined,
     activeIcon: Icons.tune,
   ),
+  AppDestination(
+    index: kInspectionTab,
+    label: 'Inspection',
+    icon: Icons.fact_check_outlined,
+    activeIcon: Icons.fact_check,
+  ),
 ];
 
 /// Compact layouts show this many in the bottom bar; the rest go under More.
 const int kBottomBarCount = 4;
+
+/// Desktop sidebar sections. The menu mirrors a clean industrial product flow and
+/// keeps the interface organized by purpose instead of implementation detail.
+const List<({String title, List<int> indexes})> kDestinationGroups = [
+  (
+    title: 'WORKSPACE',
+    indexes: [kHomeTab, kScanTab, kOcrTab, kInspectionTab, kVerificationTab],
+  ),
+  (title: 'OPERATIONS', indexes: [kHistoryTab, kDevicesTab, kLinkTab]),
+  (title: 'SYSTEM', indexes: [kDiagnosticsTab, kSettingsTab]),
+];

@@ -70,7 +70,9 @@ class AutoRestartCard extends ConsumerWidget {
               ],
               onChanged: supported
                   ? (v) {
-                      if (v != null) _save(context, ref, {'maxRestartsPerHour': v});
+                      if (v != null) {
+                        _save(context, ref, {'maxRestartsPerHour': v});
+                      }
                     }
                   : null,
             ),

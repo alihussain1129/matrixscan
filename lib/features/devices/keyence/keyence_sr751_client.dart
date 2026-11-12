@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/message_framer.dart';
+import '../core/reconnect_backoff.dart';
 
 /// Connection state of the Keyence SR-751 device.
 enum KeyenceConnectionStatus { disconnected, connecting, connected, error }
@@ -109,8 +111,14 @@ class KeyenceScanResult {
 /// configured on the reader to switch to strict framing.
 ///
 /// Connection recovery retries forever with exponential backoff
-/// ([reconnectBaseDelay] doubling up to [reconnectMaxDelay]) until
-/// [disconnect] or [dispose] is called.
+/// ([reconnectBaseDelay] doubling up to [reconnectMaxDelay], optionally
+/// shortened by up to [reconnectJitter]) until [disconnect] or [dispose] is
+/// called. A connection that drops again within [stableConnectionThreshold]
+/// does not reset the backoff, so a reader that accepts and immediately closes
+/// connections cannot cause a fast reconnect loop.
+///
+/// The timer, clock, socket opener and random source can be injected so the
+/// reconnect behaviour can be tested deterministically.
 class KeyenceSr751Client {
   KeyenceSr751Client({
     this.defaultHost = '192.168.100.100',
@@ -118,10 +126,29 @@ class KeyenceSr751Client {
     List<int>? receiveTerminator,
     this.reconnectBaseDelay = const Duration(seconds: 1),
     this.reconnectMaxDelay = const Duration(seconds: 16),
+    this.reconnectJitter = 0,
+    this.stableConnectionThreshold = const Duration(seconds: 10),
+    Random? random,
+    DateTime Function()? clock,
+    Timer Function(Duration delay, void Function() callback)? timerFactory,
+    Future<Socket> Function(String host, int port, Duration timeout)?
+    socketFactory,
   }) : host = defaultHost,
        port = defaultPort,
        _tolerantLineEndings = receiveTerminator == null,
-       _framer = MessageFramer(terminator: receiveTerminator ?? const [0x0D]);
+       _framer = MessageFramer(terminator: receiveTerminator ?? const [0x0D]),
+       _backoff = ReconnectBackoff(
+         baseDelay: reconnectBaseDelay,
+         maxDelay: reconnectMaxDelay,
+         jitter: reconnectJitter,
+         random: random,
+       ),
+       _clock = clock ?? DateTime.now,
+       _timerFactory = timerFactory ?? Timer.new,
+       _socketFactory =
+           socketFactory ??
+           ((host, port, timeout) =>
+               Socket.connect(host, port, timeout: timeout));
 
   String host;
   int port;
@@ -129,6 +156,21 @@ class KeyenceSr751Client {
   final int defaultPort;
   final Duration reconnectBaseDelay;
   final Duration reconnectMaxDelay;
+
+  /// Fraction (0..1) by which each reconnect delay may be randomly shortened.
+  final double reconnectJitter;
+
+  /// A connection must stay up this long before it counts as healthy and the
+  /// backoff penalty from earlier quick drops is forgotten.
+  final Duration stableConnectionThreshold;
+
+  final ReconnectBackoff _backoff;
+  final DateTime Function() _clock;
+  final Timer Function(Duration delay, void Function() callback) _timerFactory;
+  final Future<Socket> Function(String host, int port, Duration timeout)
+  _socketFactory;
+  DateTime? _connectedAt;
+  int _flapPenalty = 0;
 
   final bool _tolerantLineEndings;
   final MessageFramer _framer;
@@ -182,6 +224,8 @@ class KeyenceSr751Client {
 
   void _setStatus(KeyenceConnectionStatus s, [String? error]) {
     if (_disposed) return;
+    // Listeners are notified once per real change, not once per call.
+    if (s == _status && error == _lastError) return;
     _status = s;
     _lastError = error;
     _statusController.add(s);
@@ -206,7 +250,7 @@ class KeyenceSr751Client {
 
     final Socket socket;
     try {
-      socket = await Socket.connect(host, port, timeout: timeout);
+      socket = await _socketFactory(host, port, timeout);
     } catch (e) {
       if (gen != _connectGen) return false;
       debugPrint('[KEYENCE][TCP] Connection failed: $e');
@@ -227,6 +271,7 @@ class KeyenceSr751Client {
     _socket = socket;
     _framer.reset();
     _reconnectAttempts = 0;
+    _connectedAt = _clock();
     _setStatus(KeyenceConnectionStatus.connected);
 
     _socketSub = socket.listen(
@@ -248,6 +293,14 @@ class KeyenceSr751Client {
   /// replaced or closed are ignored, so one drop never starts two reconnects.
   void _onSocketLost(Socket socket, String? error) {
     if (!identical(socket, _socket)) return;
+    final connectedAt = _connectedAt;
+    _connectedAt = null;
+    if (connectedAt != null &&
+        _clock().difference(connectedAt) >= stableConnectionThreshold) {
+      _flapPenalty = 0;
+    } else {
+      _flapPenalty++;
+    }
     _setStatus(
       error != null
           ? KeyenceConnectionStatus.error
@@ -259,10 +312,9 @@ class KeyenceSr751Client {
   }
 
   Duration _nextReconnectDelay() {
-    final shift = _reconnectAttempts > 21 ? 20 : _reconnectAttempts - 1;
-    final micros = reconnectBaseDelay.inMicroseconds * (1 << shift);
-    final cap = reconnectMaxDelay.inMicroseconds;
-    return Duration(microseconds: micros > cap ? cap : micros);
+    // Quick drops after a successful connect keep growing the delay even
+    // though [_reconnectAttempts] was reset by that connect.
+    return _backoff.delayFor(_reconnectAttempts + _flapPenalty);
   }
 
   void _scheduleReconnect() {
@@ -273,7 +325,7 @@ class KeyenceSr751Client {
     debugPrint(
       '[KEYENCE][TCP] Reconnect attempt $_reconnectAttempts in ${delay.inMilliseconds} ms...',
     );
-    _reconnectTimer = Timer(delay, () {
+    _reconnectTimer = _timerFactory(delay, () {
       _reconnectTimer = null;
       if (_disposed ||
           _explicitDisconnect ||
@@ -315,6 +367,8 @@ class KeyenceSr751Client {
     _explicitDisconnect = true;
     _connectGen++;
     _cancelReconnectTimer();
+    _flapPenalty = 0;
+    _connectedAt = null;
     await _closeSocketOnly();
     if (_status != KeyenceConnectionStatus.disconnected) {
       _setStatus(KeyenceConnectionStatus.disconnected);

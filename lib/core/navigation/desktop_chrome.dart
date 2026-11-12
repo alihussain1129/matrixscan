@@ -71,24 +71,37 @@ String cameraStateLabel(ScannerUiState ui) {
 // ---------------------------------------------------------------- top bar
 
 class DesktopTopBar extends ConsumerWidget {
-  const DesktopTopBar({super.key, required this.title});
+  const DesktopTopBar({
+    super.key,
+    required this.title,
+    this.onOpenCommandPalette,
+    this.scannerActive = false,
+    this.devicesActive = false,
+  });
 
   final String title;
+  final VoidCallback? onOpenCommandPalette;
+  final bool scannerActive;
+  final bool devicesActive;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.exalted;
     final theme = Theme.of(context);
-    final ui = ref.watch(scannerControllerProvider);
-    final keyence = ref.watch(keyenceScannerCoordinatorProvider);
+    final ui = scannerActive ? ref.watch(scannerControllerProvider) : null;
+    final keyence = devicesActive
+        ? ref.watch(keyenceScannerCoordinatorProvider)
+        : null;
     final mode = ref.watch(themeModeProvider);
     final width = MediaQuery.sizeOf(context).width;
     final isCompact = width < 950;
-    final live = ui.status == CameraStatus.ready && ui.camera != null;
-    final processing = !live ? 'Idle' : (ui.paused ? 'Paused' : 'Scanning');
+    final live = ui?.status == CameraStatus.ready && ui?.camera != null;
+    final processing = !live
+        ? 'Idle'
+        : (ui?.paused == true ? 'Paused' : 'Scanning');
     final stateColor = live
         ? colors.valid
-        : (ui.status == CameraStatus.error
+        : (ui?.status == CameraStatus.error
               ? theme.colorScheme.error
               : colors.muted);
 
@@ -117,19 +130,25 @@ class DesktopTopBar extends ConsumerWidget {
             onTap: () => ref.read(navIndexProvider.notifier).set(kDevicesTab),
             borderRadius: BorderRadius.circular(AppRadius.chip),
             child: Tooltip(
-              message: keyence.isConnected
+              message: keyence == null
+                  ? 'Open Devices to check or connect an industrial scanner'
+                  : keyence.isConnected
                   ? 'KEYENCE ${keyence.model} Connected (${keyence.host}:${keyence.port}) — Click to Manage'
                   : 'KEYENCE Industrial Scanner: ${keyence.isDiscovering ? 'Discovering...' : 'Offline'} — Click to Connect',
               child: StatusBadge(
-                label: keyence.isConnected
+                label: keyence == null
+                    ? 'Devices'
+                    : keyence.isConnected
                     ? 'KEYENCE ${keyence.model}'
                     : (keyence.isDiscovering
                           ? 'Discovering...'
                           : 'Scanner Offline'),
-                sublabel: keyence.isConnected
-                    ? '${keyence.totalConnectionTimeMs}ms'
+                sublabel: keyence?.isConnected == true
+                    ? '${keyence!.totalConnectionTimeMs}ms'
                     : null,
-                variant: keyence.isConnected
+                variant: keyence == null
+                    ? StatusBadgeVariant.neutral
+                    : keyence.isConnected
                     ? StatusBadgeVariant.success
                     : (keyence.isDiscovering
                           ? StatusBadgeVariant.processing
@@ -139,14 +158,14 @@ class DesktopTopBar extends ConsumerWidget {
               ),
             ),
           ),
-          if (!isCompact) ...[
+          if (!isCompact && scannerActive) ...[
             const SizedBox(width: AppSpacing.md),
             Flexible(
               child: Tooltip(
-                message: ui.camera?.description.name ?? 'No camera open',
+                message: ui?.camera?.description.name ?? 'No camera open',
                 child: _StateChip(
                   icon: Icons.videocam_outlined,
-                  label: cameraStateLabel(ui),
+                  label: cameraStateLabel(ui!),
                   color: stateColor,
                 ),
               ),
@@ -156,11 +175,20 @@ class DesktopTopBar extends ConsumerWidget {
               child: _StateChip(
                 icon: Icons.qr_code_scanner,
                 label: processing,
-                color: live && !ui.paused ? colors.info : colors.muted,
+                color: live && ui.paused != true ? colors.info : colors.muted,
               ),
             ),
           ],
           const Spacer(),
+          if (onOpenCommandPalette != null && !isCompact)
+            Padding(
+              padding: const EdgeInsets.only(right: AppSpacing.sm),
+              child: OutlinedButton.icon(
+                onPressed: onOpenCommandPalette,
+                icon: const Icon(Icons.search, size: 16),
+                label: const Text('Go to  Ctrl+K'),
+              ),
+            ),
           SegmentedButton<ThemeMode>(
             segments: const [
               ButtonSegment<ThemeMode>(
@@ -243,7 +271,14 @@ class _StateChip extends StatelessWidget {
 
 /// Shows only what the app measured or checked. No readiness is assumed.
 class DesktopStatusBar extends ConsumerStatefulWidget {
-  const DesktopStatusBar({super.key});
+  const DesktopStatusBar({
+    super.key,
+    this.scannerActive = false,
+    this.devicesActive = false,
+  });
+
+  final bool scannerActive;
+  final bool devicesActive;
 
   @override
   ConsumerState<DesktopStatusBar> createState() => _DesktopStatusBarState();
@@ -259,6 +294,7 @@ class _DesktopStatusBarState extends ConsumerState<DesktopStatusBar> {
     super.initState();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
+      if (!widget.scannerActive) return;
       final frames = ref.read(scannerControllerProvider.notifier).cameraFrames;
       setState(() {
         _fps = _last < 0 ? 0 : (frames - _last).toDouble();
@@ -276,14 +312,19 @@ class _DesktopStatusBarState extends ConsumerState<DesktopStatusBar> {
   @override
   Widget build(BuildContext context) {
     final colors = context.exalted;
-    final ui = ref.watch(scannerControllerProvider);
-    final keyence = ref.watch(keyenceScannerCoordinatorProvider);
-    final ocr = ref.watch(ocrAvailabilityProvider);
-    final connected = keyence.isConnected;
-    final cam = ui.camera;
-    final live = ui.status == CameraStatus.ready && cam != null;
+    final ui = widget.scannerActive
+        ? ref.watch(scannerControllerProvider)
+        : null;
+    final keyence = widget.devicesActive
+        ? ref.watch(keyenceScannerCoordinatorProvider)
+        : null;
+    final connected = keyence?.isConnected ?? false;
+    final cam = ui?.camera;
+    final live = ui?.status == CameraStatus.ready && cam != null;
 
-    var cameraText = cameraStateLabel(ui);
+    var cameraText = ui == null
+        ? 'Camera: not initialized'
+        : cameraStateLabel(ui);
     if (live && cam.value.isInitialized) {
       final size = cam.value.previewSize;
       final res = size == null
@@ -295,16 +336,11 @@ class _DesktopStatusBarState extends ConsumerState<DesktopStatusBar> {
 
     final decoderText = !live
         ? 'Decoder: idle'
-        : (ui.paused
+        : (ui?.paused == true
               ? 'Decoder: paused'
+              : ui == null
+              ? 'Decoder: not initialized'
               : 'Decoder: scanning (${ui.continuous ? 'continuous' : 'single'})');
-
-    final ocrText = ocr.when(
-      data: (o) => o.label,
-      loading: () => 'OCR: checking…',
-      error: (_, _) => 'OCR: check failed',
-    );
-    final ocrOk = ocr.maybeWhen(data: (o) => o.ok, orElse: () => false);
 
     final platform = Platform.isLinux
         ? 'Linux x64'
@@ -313,7 +349,9 @@ class _DesktopStatusBarState extends ConsumerState<DesktopStatusBar> {
         : Platform.operatingSystem;
 
     String keyenceText;
-    if (connected) {
+    if (keyence == null) {
+      keyenceText = 'KEYENCE: open Devices for status';
+    } else if (connected) {
       keyenceText =
           'KEYENCE ${keyence.model} connected · ${keyence.host}:${keyence.port} (${keyence.totalConnectionTimeMs}ms)';
     } else if (keyence.isDiscovering) {
@@ -342,13 +380,13 @@ class _DesktopStatusBarState extends ConsumerState<DesktopStatusBar> {
           _StatusItem(
             icon: Icons.qr_code_scanner,
             text: decoderText,
-            color: live && !ui.paused ? colors.valid : colors.muted,
+            color: live && ui?.paused != true ? colors.valid : colors.muted,
           ),
           const SizedBox(width: AppSpacing.lg),
-          _StatusItem(
+          const _StatusItem(
             icon: Icons.text_fields_outlined,
-            text: ocrText,
-            color: ocrOk ? colors.valid : colors.muted,
+            text: 'OCR: open workspace for status',
+            color: Colors.grey,
           ),
           const SizedBox(width: AppSpacing.lg),
           _StatusItem(
@@ -356,7 +394,7 @@ class _DesktopStatusBarState extends ConsumerState<DesktopStatusBar> {
             text: keyenceText,
             color: connected
                 ? colors.valid
-                : (keyence.isDiscovering ? colors.aqua : colors.muted),
+                : (keyence?.isDiscovering == true ? colors.aqua : colors.muted),
           ),
           if (MediaQuery.sizeOf(context).width > 1200) ...[
             const SizedBox(width: AppSpacing.lg),

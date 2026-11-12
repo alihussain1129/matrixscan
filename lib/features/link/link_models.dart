@@ -126,6 +126,7 @@ class LinkedDevice {
     required this.secretB64,
     this.lastSeen,
     this.lastSync,
+    this.remoteControlAuthorized = false,
     this.revoked = false,
   });
 
@@ -138,6 +139,7 @@ class LinkedDevice {
   DateTime? lastSeen;
   DateTime? lastSync;
   bool revoked;
+  bool remoteControlAuthorized;
 
   Map<String, Object?> toJson() => {
     'id': id,
@@ -149,6 +151,7 @@ class LinkedDevice {
     'lastSeen': lastSeen?.toIso8601String(),
     'lastSync': lastSync?.toIso8601String(),
     'revoked': revoked,
+    'remoteControlAuthorized': remoteControlAuthorized,
   };
 
   static LinkedDevice? fromJson(Object? j) {
@@ -167,6 +170,7 @@ class LinkedDevice {
       lastSeen: _dt(j['lastSeen']),
       lastSync: _dt(j['lastSync']),
       revoked: j['revoked'] == true,
+      remoteControlAuthorized: j['remoteControlAuthorized'] == true,
     );
   }
 }
@@ -183,6 +187,7 @@ class PeerDesktop {
     required this.pairedAt,
     this.pushCursor = 0,
     this.pullCursor = 0,
+    this.eventCursor = 0,
     this.lastSync,
   });
 
@@ -197,6 +202,7 @@ class PeerDesktop {
   final DateTime pairedAt;
   int pushCursor;
   int pullCursor;
+  int eventCursor;
   DateTime? lastSync;
 
   Map<String, Object?> toJson() => {
@@ -209,6 +215,7 @@ class PeerDesktop {
     'pairedAt': pairedAt.toIso8601String(),
     'pushCursor': pushCursor,
     'pullCursor': pullCursor,
+    'eventCursor': eventCursor,
     'lastSync': lastSync?.toIso8601String(),
   };
 
@@ -233,6 +240,7 @@ class PeerDesktop {
       pairedAt: paired,
       pushCursor: (j['pushCursor'] as int?) ?? 0,
       pullCursor: (j['pullCursor'] as int?) ?? 0,
+      eventCursor: (j['eventCursor'] as int?) ?? 0,
       lastSync: _dt(j['lastSync']),
     );
   }
@@ -243,6 +251,301 @@ class SyncProgress {
   final String phase;
   final int done;
   final int total;
+}
+
+/// Structured desktop state returned only to an authenticated paired client.
+/// Timestamps remain server supplied so the phone can label stale snapshots.
+class CompanionActivityEvent {
+  const CompanionActivityEvent({
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.detail,
+    required this.sourceDeviceId,
+    required this.createdAt,
+    this.sourceDeviceName,
+    this.status,
+  });
+
+  final String id;
+  final String type;
+  final String title;
+  final String detail;
+  final String sourceDeviceId;
+  final DateTime createdAt;
+  final String? sourceDeviceName;
+  final String? status;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'type': type,
+    'title': title,
+    'detail': detail,
+    'sourceDeviceId': sourceDeviceId,
+    if (sourceDeviceName != null) 'sourceDeviceName': sourceDeviceName,
+    'createdAt': createdAt.toUtc().toIso8601String(),
+    if (status != null) 'status': status,
+  };
+
+  static CompanionActivityEvent? fromJson(Object? value) {
+    if (value is! Map) return null;
+    final id = value['id'];
+    final type = value['type'];
+    final title = value['title'];
+    final detail = value['detail'];
+    final source = value['sourceDeviceId'];
+    final createdAt = _dt(value['createdAt']);
+    if (id is! String ||
+        type is! String ||
+        title is! String ||
+        detail is! String ||
+        source is! String ||
+        createdAt == null) {
+      return null;
+    }
+    return CompanionActivityEvent(
+      id: id,
+      type: type,
+      title: title,
+      detail: detail,
+      sourceDeviceId: source,
+      createdAt: createdAt,
+      sourceDeviceName: value['sourceDeviceName'] is String
+          ? value['sourceDeviceName'] as String
+          : null,
+      status: value['status'] is String ? value['status'] as String : null,
+    );
+  }
+}
+
+/// Authenticated WebSocket frame. Cursor messages let the client persist
+/// ordering and recover missed events after a reconnect.
+class CompanionStreamMessage {
+  const CompanionStreamMessage({
+    required this.kind,
+    required this.cursor,
+    this.event,
+    this.serverTime,
+  });
+
+  final String kind;
+  final int cursor;
+  final CompanionActivityEvent? event;
+  final DateTime? serverTime;
+
+  static CompanionStreamMessage? fromJson(Object? value) {
+    if (value is! Map || value['kind'] is! String || value['cursor'] is! int) {
+      return null;
+    }
+    final kind = value['kind'] as String;
+    final serverTime = _dt(value['serverTime']);
+    if (kind == 'event') {
+      final event = CompanionActivityEvent.fromJson(value['event']);
+      if (event == null || value['eventId'] != event.id) return null;
+      return CompanionStreamMessage(
+        kind: kind,
+        cursor: value['cursor'] as int,
+        event: event,
+        serverTime: serverTime,
+      );
+    }
+    if ((kind == 'ready' || kind == 'heartbeat') && serverTime != null) {
+      return CompanionStreamMessage(
+        kind: kind,
+        cursor: value['cursor'] as int,
+        serverTime: serverTime,
+      );
+    }
+    return null;
+  }
+}
+
+class RemoteCommandResult {
+  const RemoteCommandResult({
+    required this.commandId,
+    required this.action,
+    required this.state,
+    required this.message,
+  });
+
+  final String commandId;
+  final String action;
+  final String state;
+  final String message;
+
+  bool get completed => state == 'completed';
+  bool get terminal =>
+      const {'completed', 'rejected', 'failed', 'timed_out'}.contains(state);
+}
+
+/// A live, authenticated snapshot. The phone refreshes this periodically and
+/// keeps the last successful copy marked stale when the desktop is unreachable.
+class CompanionSnapshot {
+  const CompanionSnapshot({
+    required this.deviceId,
+    required this.name,
+    required this.platform,
+    required this.serverTime,
+    required this.todayScans,
+    required this.todayOcr,
+    required this.todayInspections,
+    required this.passedInspections,
+    required this.failedInspections,
+    required this.reviewInspections,
+    required this.activeLinkedDevices,
+    required this.hardware,
+    required this.events,
+  });
+
+  final String deviceId;
+  final String name;
+  final String platform;
+  final DateTime serverTime;
+  final int todayScans;
+  final int todayOcr;
+  final int todayInspections;
+  final int passedInspections;
+  final int failedInspections;
+  final int reviewInspections;
+  final int activeLinkedDevices;
+  final Map<String, Object?> hardware;
+  final List<CompanionActivityEvent> events;
+
+  CompanionSnapshot copyWith({
+    List<CompanionActivityEvent>? events,
+    DateTime? serverTime,
+  }) => CompanionSnapshot(
+    deviceId: deviceId,
+    name: name,
+    platform: platform,
+    serverTime: serverTime ?? this.serverTime,
+    todayScans: todayScans,
+    todayOcr: todayOcr,
+    todayInspections: todayInspections,
+    passedInspections: passedInspections,
+    failedInspections: failedInspections,
+    reviewInspections: reviewInspections,
+    activeLinkedDevices: activeLinkedDevices,
+    hardware: hardware,
+    events: List.unmodifiable(events ?? this.events),
+  );
+
+  static CompanionSnapshot? fromJson(Object? value) {
+    if (value is! Map) return null;
+    final deviceId = value['deviceId'];
+    final name = value['name'];
+    final platform = value['platform'];
+    final serverTime = _dt(value['serverTime']);
+    final rawEvents = value['events'];
+    if (deviceId is! String ||
+        name is! String ||
+        platform is! String ||
+        serverTime == null ||
+        rawEvents is! List) {
+      return null;
+    }
+    int number(String key) => (value[key] as num?)?.toInt() ?? 0;
+    final hardware = value['hardware'] is Map
+        ? Map<String, Object?>.from(value['hardware'] as Map)
+        : const <String, Object?>{};
+    final events = <CompanionActivityEvent>[];
+    for (final item in rawEvents.take(100)) {
+      final event = CompanionActivityEvent.fromJson(item);
+      if (event != null) events.add(event);
+    }
+    events.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return CompanionSnapshot(
+      deviceId: deviceId,
+      name: name,
+      platform: platform,
+      serverTime: serverTime,
+      todayScans: number('todayScans'),
+      todayOcr: number('todayOcr'),
+      todayInspections: number('todayInspections'),
+      passedInspections: number('passedInspections'),
+      failedInspections: number('failedInspections'),
+      reviewInspections: number('reviewInspections'),
+      activeLinkedDevices: number('activeLinkedDevices'),
+      hardware: hardware,
+      events: List.unmodifiable(events),
+    );
+  }
+}
+
+class SyncSessionEntry {
+  const SyncSessionEntry({
+    required this.peerId,
+    required this.peerName,
+    required this.startedAt,
+    required this.finishedAt,
+    required this.succeeded,
+    this.pushed = 0,
+    this.pulled = 0,
+    this.duplicates = 0,
+    this.conflicts = 0,
+    this.blobsUp = 0,
+    this.blobsDown = 0,
+    this.error,
+  });
+
+  final String peerId;
+  final String peerName;
+  final DateTime startedAt;
+  final DateTime finishedAt;
+  final bool succeeded;
+  final int pushed;
+  final int pulled;
+  final int duplicates;
+  final int conflicts;
+  final int blobsUp;
+  final int blobsDown;
+  final String? error;
+
+  Map<String, Object?> toJson() => {
+    'peerId': peerId,
+    'peerName': peerName,
+    'startedAt': startedAt.toUtc().toIso8601String(),
+    'finishedAt': finishedAt.toUtc().toIso8601String(),
+    'succeeded': succeeded,
+    'pushed': pushed,
+    'pulled': pulled,
+    'duplicates': duplicates,
+    'conflicts': conflicts,
+    'blobsUp': blobsUp,
+    'blobsDown': blobsDown,
+    if (error != null) 'error': error,
+  };
+
+  static SyncSessionEntry? fromJson(Object? value) {
+    if (value is! Map) return null;
+    final peerId = value['peerId'];
+    final peerName = value['peerName'];
+    final started = _dt(value['startedAt']);
+    final finished = _dt(value['finishedAt']);
+    final succeeded = value['succeeded'];
+    if (peerId is! String ||
+        peerName is! String ||
+        started == null ||
+        finished == null ||
+        succeeded is! bool) {
+      return null;
+    }
+    int number(String key) => (value[key] as num?)?.toInt() ?? 0;
+    return SyncSessionEntry(
+      peerId: peerId,
+      peerName: peerName,
+      startedAt: started,
+      finishedAt: finished,
+      succeeded: succeeded,
+      pushed: number('pushed'),
+      pulled: number('pulled'),
+      duplicates: number('duplicates'),
+      conflicts: number('conflicts'),
+      blobsUp: number('blobsUp'),
+      blobsDown: number('blobsDown'),
+      error: value['error'] as String?,
+    );
+  }
 }
 
 class SyncSummary {

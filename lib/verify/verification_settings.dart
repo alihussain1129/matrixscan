@@ -62,9 +62,8 @@ class VerificationSettingsStore {
 }
 
 final verificationStoreProvider = Provider<VerificationSettingsStore>(
-  (ref) => VerificationSettingsStore(
-    directory: ref.watch(dataDirectoryProvider),
-  ),
+  (ref) =>
+      VerificationSettingsStore(directory: ref.watch(dataDirectoryProvider)),
 );
 
 final verificationEngineProvider = Provider<VerificationEngine>(

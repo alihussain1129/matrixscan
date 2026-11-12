@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../design/exalted_page_transitions.dart';
 import 'app_colors.dart';
 import 'app_spacing.dart';
 import 'app_typography.dart';
@@ -117,6 +118,71 @@ class AppTheme {
           textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
         ),
       ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: scheme.primary,
+          foregroundColor: scheme.onPrimary,
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg,
+            vertical: AppSpacing.md,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.button),
+          ),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: scheme.primary,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.button),
+          ),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+        ),
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: colors.surfaceRaised,
+        side: BorderSide(color: colors.outline),
+        labelStyle: text.labelMedium?.copyWith(color: scheme.onSurface),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.chip),
+        ),
+      ),
+      appBarTheme: AppBarTheme(
+        backgroundColor: scheme.surface,
+        foregroundColor: scheme.onSurface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: false,
+        titleTextStyle: text.titleMedium?.copyWith(
+          color: scheme.onSurface,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: scheme.surface,
+        modalBackgroundColor: scheme.surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(AppRadius.card),
+          ),
+        ),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: scheme.surface,
+        surfaceTintColor: Colors.transparent,
+        indicatorColor: scheme.primary.withAlpha(36),
+        labelTextStyle: WidgetStatePropertyAll(
+          text.labelSmall?.copyWith(fontWeight: FontWeight.w600),
+        ),
+      ),
+      navigationRailTheme: NavigationRailThemeData(
+        backgroundColor: colors.sidebar,
+        indicatorColor: scheme.primary.withAlpha(36),
+      ),
       focusColor: scheme.primary.withAlpha(50),
       hoverColor: colors.hover,
       tooltipTheme: TooltipThemeData(
@@ -147,6 +213,7 @@ class AppTheme {
           side: BorderSide(color: colors.outline),
         ),
       ),
+      pageTransitionsTheme: kExaltedPageTransitions,
       extensions: [colors],
     );
   }

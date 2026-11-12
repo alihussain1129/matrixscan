@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -17,13 +18,18 @@ class _Node {
   final FileSyncStore journal;
 }
 
+final _vaults = <String, InMemoryLinkSecretStore>{};
+
 Future<_Node> _makeNode(
   Directory root,
   String name, {
   bool identity = false,
 }) async {
   final dir = Directory('${root.path}${Platform.pathSeparator}$name');
-  final store = LinkStore(dir)..deviceName = name;
+  final store = LinkStore(
+    dir,
+    secretStore: _vaults.putIfAbsent(dir.path, InMemoryLinkSecretStore.new),
+  )..deviceName = name;
   await store.load();
   if (identity) await store.ensureIdentity();
   final journal = FileSyncStore(dir);
@@ -37,11 +43,12 @@ SyncRecord _rec(
   Map<String, Object?>? payload,
   List<String> blobs = const [],
   SyncKind kind = SyncKind.ocr,
+  DateTime? createdAt,
 }) => SyncRecord(
   id: '$origin:$id',
   kind: kind,
   originDeviceId: origin,
-  createdAt: DateTime.utc(2026, 11, 4, 12),
+  createdAt: createdAt ?? DateTime.utc(2026, 11, 4, 12),
   payload: payload ?? {'text': 'hello $id'},
   blobs: blobs,
 );
@@ -132,6 +139,61 @@ void main() {
       expect(n.journal.length, 1);
       expect((await n.journal.conflicts()).length, 1);
     });
+    test('conflict decisions are recorded and survive a restart', () async {
+      final n = await _makeNode(root, 'n');
+      final current = _rec('peer', 'shared', payload: {'text': 'current'});
+      final incoming = _rec('peer', 'shared', payload: {'text': 'incoming'});
+      await n.journal.add(current);
+      expect(await n.journal.add(incoming), IngestResult.conflict);
+
+      var cases = await n.journal.conflictCases();
+      expect(cases, hasLength(1));
+      expect(cases.single.current.payload['text'], 'current');
+      expect(cases.single.incoming.payload['text'], 'incoming');
+      expect(cases.single.resolved, isFalse);
+
+      await n.journal.resolveConflict(incoming, 'keep_current');
+      await n.journal.resolveConflict(incoming, 'save_incoming_copy');
+      cases = await n.journal.conflictCases();
+      expect(cases.single.resolution, 'keep_current');
+
+      final again = await _makeNode(root, 'n');
+      final persisted = await again.journal.conflictCases();
+      expect(persisted.single.resolution, 'keep_current');
+      expect(persisted.single.current.payload['text'], 'current');
+      expect(persisted.single.incoming.payload['text'], 'incoming');
+    });
+    test('sync session history is durable and newest first', () async {
+      final n = await _makeNode(root, 'n');
+      final started = DateTime.utc(2026, 11, 11, 10);
+      final completed = started.add(const Duration(seconds: 2));
+      await n.journal.recordSyncSession(
+        SyncSessionEntry(
+          peerId: 'peer-id',
+          peerName: 'Line 4',
+          startedAt: started,
+          finishedAt: completed,
+          succeeded: false,
+          pushed: 1,
+          error: 'Connection timed out',
+        ),
+      );
+      await n.journal.recordSyncSession(
+        SyncSessionEntry(
+          peerId: 'peer-id',
+          peerName: 'Line 4',
+          startedAt: completed,
+          finishedAt: completed.add(const Duration(seconds: 1)),
+          succeeded: true,
+          pulled: 2,
+        ),
+      );
+
+      final again = await _makeNode(root, 'n');
+      expect(again.journal.syncSessions, hasLength(2));
+      expect(again.journal.syncSessions.first.succeeded, isTrue);
+      expect(again.journal.syncSessions.last.error, 'Connection timed out');
+    });
     test('journal survives a restart', () async {
       final n = await _makeNode(root, 'n');
       await n.journal.add(_rec('a', '1'));
@@ -174,6 +236,7 @@ void main() {
     late LinkClient c1;
     late LinkClient c2;
     var approveNext = true;
+    var remoteExecutions = 0;
     PeerDesktop? peer1;
     PeerDesktop? peer2;
 
@@ -200,6 +263,14 @@ void main() {
         journal: desk.journal,
         pairing: pairing,
         approve: (_) async => approveNext,
+        readHardwareStatus: () => const {
+          'available': true,
+          'keyence': {'status': 'connected', 'model': 'SR-751'},
+        },
+        executeRemoteCommand: (action) async {
+          remoteExecutions++;
+          return {'success': true, 'message': 'confirmed $action'};
+        },
       );
       await server.start(preferredPort: 0);
       c1 = LinkClient(store: phone1.store, journal: phone1.journal);
@@ -274,11 +345,25 @@ void main() {
             kind: SyncKind.inspection,
           ),
         );
-        final s1 = await c1.syncNow(peer1!);
+        final progress = <SyncProgress>[];
+        final s1 = await c1.syncNow(peer1!, onProgress: progress.add);
         expect(s1.pushed, 1);
         expect(s1.blobsUp, 1);
         expect(desk.journal.length, 1);
         expect(await desk.journal.getBlob(sha), bytes);
+        expect(
+          progress,
+          containsAll([
+            predicate<SyncProgress>(
+              (p) =>
+                  p.phase == 'Uploading images' && p.done == 1 && p.total == 0,
+            ),
+            predicate<SyncProgress>(
+              (p) =>
+                  p.phase == 'Uploading records' && p.done == 1 && p.total == 0,
+            ),
+          ]),
+        );
         final s2 = await c1.syncNow(peer1!);
         expect(s2.pushed, 0);
         expect(s2.blobsUp, 0);
@@ -297,16 +382,145 @@ void main() {
     });
 
     test(
+      'companion snapshot is authenticated and reflects saved records',
+      () async {
+        await desk.journal.add(
+          _rec(
+            desk.store.deviceId,
+            'live-companion-scan',
+            kind: SyncKind.decoder,
+            createdAt: DateTime.now(),
+            payload: {'text': 'LIVE-123', 'format': 'Data Matrix'},
+          ),
+        );
+        final snapshot = await c1.fetchCompanionSnapshot(peer1!);
+        expect(snapshot.deviceId, desk.store.deviceId);
+        expect(snapshot.name, 'desktop');
+        expect(snapshot.hardware['available'], isTrue);
+        expect((snapshot.hardware['keyence'] as Map)['model'], 'SR-751');
+        expect(snapshot.todayScans, 1);
+        expect(snapshot.activeLinkedDevices, greaterThanOrEqualTo(1));
+        expect(
+          snapshot.events.any(
+            (event) =>
+                event.id.endsWith('live-companion-scan') &&
+                event.title == 'Data Matrix' &&
+                event.detail == 'LIVE-123',
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'authenticated event stream delivers new desktop records live',
+      () async {
+        final received = Completer<CompanionStreamMessage>();
+        final subscription = c1
+            .watchCompanionEvents(peer1!, after: peer1!.eventCursor)
+            .listen((message) {
+              if (message.event?.id.endsWith('streamed-live-scan') == true &&
+                  !received.isCompleted) {
+                received.complete(message);
+              }
+            });
+        try {
+          await desk.journal.add(
+            _rec(
+              desk.store.deviceId,
+              'streamed-live-scan',
+              kind: SyncKind.decoder,
+              payload: {'text': 'STREAM-42', 'format': 'Data Matrix'},
+              createdAt: DateTime.now(),
+            ),
+          );
+          final message = await received.future.timeout(
+            const Duration(seconds: 5),
+          );
+          expect(message.kind, 'event');
+          expect(message.event!.detail, 'STREAM-42');
+          expect(message.cursor, greaterThan(peer1!.eventCursor));
+        } finally {
+          await subscription.cancel();
+        }
+      },
+    );
+
+    test('remote commands require host opt-in and replay IDs execute once', () async {
+      const commandId = 'remote-command-test-0001';
+      final before = remoteExecutions;
+      await expectLater(
+        c1.remoteScannerCommand(peer1!, 'start', commandId: commandId),
+        _code('remote_control_disabled'),
+      );
+      await desk.store.setRemoteControlAuthorization(
+        phone1.store.deviceId,
+        true,
+      );
+      final first = await c1.remoteScannerCommand(
+        peer1!,
+        'start',
+        commandId: commandId,
+      );
+      expect(first.state, 'completed');
+      expect(first.message, 'confirmed start');
+      final replay = await c1.remoteScannerCommand(
+        peer1!,
+        'start',
+        commandId: commandId,
+      );
+      expect(replay.state, 'completed');
+      expect(remoteExecutions, before + 1);
+      final oldPort = server.port;
+      await server.stop();
+      server = LinkServer(
+        store: desk.store,
+        journal: desk.journal,
+        pairing: pairing,
+        approve: (_) async => approveNext,
+        executeRemoteCommand: (action) async {
+          remoteExecutions++;
+          return {'success': true, 'message': 'confirmed $action'};
+        },
+      );
+      await server.start(preferredPort: oldPort);
+      final afterRestart = await c1.remoteScannerCommand(
+        peer1!,
+        'start',
+        commandId: commandId,
+      );
+      expect(afterRestart.state, 'completed');
+      expect(remoteExecutions, before + 1);
+      await expectLater(
+        c1.remoteScannerCommand(peer1!, 'stop', commandId: commandId),
+        _code('command_id_conflict'),
+      );
+      await desk.store.revoke(phone1.store.deviceId);
+      await expectLater(
+        c1.remoteScannerCommand(peer1!, 'pause'),
+        _code('unauthorized'),
+      );
+      desk.store.deviceById(phone1.store.deviceId)!.revoked = false;
+      await desk.store.save();
+      final log = File(
+        '${desk.store.dir.path}${Platform.pathSeparator}remote_commands.jsonl',
+      );
+      expect(await log.readAsString(), contains('confirmed start'));
+    });
+
+    test(
       'a second phone gets the first phone\'s data and not its own',
       () async {
         peer2 = await c2.pair(offer(), platform: 'android', appVersion: '1');
         await phone2.journal.add(_rec(phone2.store.deviceId, 'p2scan'));
         final s = await c2.syncNow(peer2!);
         expect(s.pushed, 1);
-        expect(s.pulled, 2);
+        expect(s.pulled, 4);
         final ids = phone2.journal.allRecords().map((r) => r.id).toSet();
         expect(ids, contains('${phone1.store.deviceId}:scan1'));
         expect(ids, contains('${desk.store.deviceId}:deskscan'));
+        expect(ids, contains('${desk.store.deviceId}:live-companion-scan'));
+        expect(ids, contains('${desk.store.deviceId}:streamed-live-scan'));
         await c1.syncNow(peer1!);
         final ids1 = phone1.journal.allRecords().map((r) => r.id).toSet();
         expect(ids1, contains('${phone2.store.deviceId}:p2scan'));

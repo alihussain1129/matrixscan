@@ -143,6 +143,23 @@ class HistoryRepository {
     await _write(<HistoryEntry>[]);
   });
 
+  /// Adds a record received from a linked device. It keeps its own ID, is
+  /// skipped when that ID is already stored, and ignores the repeat filter.
+  /// Returns true when it was stored.
+  Future<bool> addImported(HistoryEntry entry) => _serialized<bool>(() async {
+    try {
+      final entries = await _read();
+      if (entries.any((e) => e.id == entry.id)) return false;
+      var at = entries.indexWhere((e) => e.createdAt.isBefore(entry.createdAt));
+      if (at < 0) at = entries.length;
+      entries.insert(at, entry);
+      await _write(_trim(entries));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  });
+
   Future<void> delete(String id) => _serialized<void>(() async {
     final entries = await _read();
     entries.removeWhere((e) => e.id == id);

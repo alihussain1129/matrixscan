@@ -67,7 +67,9 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
   Future<void> _startFtpServer() async {
     final scannerConfig = ref.read(configControllerProvider).scanner;
     if (!scannerConfig.ftpReceiverEnabled) {
-      debugPrint('[KEYENCE][FTP] Startup skipped: receiver is disabled in settings.');
+      debugPrint(
+        '[KEYENCE][FTP] Startup skipped: receiver is disabled in settings.',
+      );
       return;
     }
     final ftp = ref.read(keyenceFtpReceiverProvider);
@@ -88,7 +90,8 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
         password: password,
       );
       final port =
-          int.tryParse(_ftpPortController.text) ?? scannerConfig.ftpReceiverPort;
+          int.tryParse(_ftpPortController.text) ??
+          scannerConfig.ftpReceiverPort;
       final started = await ftp.start(listenPort: port);
       if (!started) {
         debugPrint(

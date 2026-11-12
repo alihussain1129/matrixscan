@@ -11,7 +11,9 @@ void main() {
   });
 
   test('big text is decoded in the background with the same result', () async {
-    final data = [for (var i = 0; i < 5000; i++) {'id': i, 'name': 'entry $i'}];
+    final data = [
+      for (var i = 0; i < 5000; i++) {'id': i, 'name': 'entry $i'},
+    ];
     final text = jsonEncode(data);
     expect(text.length, greaterThan(64 * 1024));
     expect(await decodeJsonOffThread(text), data);

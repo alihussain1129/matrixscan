@@ -3,6 +3,7 @@ import 'dart:io' show Directory, Platform;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show FrameTiming;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -20,6 +21,7 @@ import 'features/devices/camera/controller_camera_port.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final startupClock = Stopwatch()..start();
   // Fonts ship in assets/google_fonts so every platform looks the same offline.
   GoogleFonts.config.allowRuntimeFetching = false;
   if (Platform.isAndroid) {
@@ -29,9 +31,11 @@ Future<void> main() async {
   }
   // The mobile scanner is portrait-only for now; desktop is free to resize.
   if (Platform.isAndroid || Platform.isIOS) {
-    await SystemChrome.setPreferredOrientations(const [
-      DeviceOrientation.portraitUp,
-    ]);
+    unawaited(
+      SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.portraitUp,
+      ]).catchError((Object _) {}),
+    );
   }
   ConfigStore? configStore;
   Directory? supportDir;
@@ -39,9 +43,17 @@ Future<void> main() async {
     supportDir = await getApplicationSupportDirectory();
     configStore = ConfigStore(supportDir);
   } catch (_) {}
+  debugPrint(
+    '[EXALTED][STARTUP] support directory ready at '
+    '${startupClock.elapsedMilliseconds}ms',
+  );
   final startup = await loadStartupConfig(
     dir: configStore?.dir,
     store: configStore,
+  );
+  debugPrint(
+    '[EXALTED][STARTUP] configuration loaded at '
+    '${startupClock.elapsedMilliseconds}ms',
   );
   for (final n in startup.notes) {
     debugPrint('[CONFIG] $n');
@@ -49,7 +61,8 @@ Future<void> main() async {
   if (supportDir != null) {
     final dir = supportDir;
     final sc = startup.config.startup;
-    final restarter = (sc.autoRestart && (Platform.isLinux || Platform.isWindows))
+    final restarter =
+        (sc.autoRestart && (Platform.isLinux || Platform.isWindows))
         ? AutoRestarter(
             policy: RestartPolicy(
               enabled: true,
@@ -66,6 +79,18 @@ Future<void> main() async {
           : () => unawaited(restarter.handleFatal()),
     );
   }
+  void onFrameTimings(List<FrameTiming> timings) {
+    if (timings.isEmpty) return;
+    WidgetsBinding.instance.removeTimingsCallback(onFrameTimings);
+    final first = timings.first;
+    debugPrint(
+      '[EXALTED][STARTUP] first frame build '
+      '${first.buildDuration.inMicroseconds}µs, raster '
+      '${first.rasterDuration.inMicroseconds}µs',
+    );
+  }
+
+  WidgetsBinding.instance.addTimingsCallback(onFrameTimings);
   runApp(
     ProviderScope(
       overrides: [
@@ -76,4 +101,11 @@ Future<void> main() async {
       child: const ExaltedApp(),
     ),
   );
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    final dartStartupMicros = startupClock.elapsedMicroseconds;
+    debugPrint(
+      '[EXALTED][STARTUP] first frame after Dart entry in '
+      '$dartStartupMicrosµs (${dartStartupMicros / 1000}ms)',
+    );
+  });
 }

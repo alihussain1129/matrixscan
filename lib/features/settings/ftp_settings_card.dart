@@ -119,12 +119,16 @@ class _FtpSettingsCardState extends ConsumerState<FtpSettingsCard> {
       if (!result.applied) {
         _say(result.issues.map((i) => '$i').join('\n'), error: true);
       } else if (result.saveError != null) {
-        _say('Applied, but could not be saved: ${result.saveError}',
-            error: true);
+        _say(
+          'Applied, but could not be saved: ${result.saveError}',
+          error: true,
+        );
       } else {
         _pass.clear();
-        _say('Saved. Restart the app for the receiver to pick this up.',
-            error: false);
+        _say(
+          'Saved. Restart the app for the receiver to pick this up.',
+          error: false,
+        );
       }
       await _loadHasPassword();
     } catch (e) {
@@ -141,9 +145,9 @@ class _FtpSettingsCardState extends ConsumerState<FtpSettingsCard> {
       await ref
           .read(secretStoreProvider)
           .delete(ScannerConfig.ftpPasswordSecretKey);
-      await ref
-          .read(configControllerProvider.notifier)
-          .patch({'scanner': {'ftpReceiverEnabled': false}});
+      await ref.read(configControllerProvider.notifier).patch({
+        'scanner': {'ftpReceiverEnabled': false},
+      });
       if (!mounted) return;
       setState(() => _enabled = false);
       await _loadHasPassword();

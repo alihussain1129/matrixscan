@@ -82,6 +82,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
 
   void _startLineAnimation() {
     if (!mounted || _kNoScanLine) return;
+    if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) {
+      _line.value = 0.5; // reduced motion: static line, no loop
+      return;
+    }
     if (!_line.isAnimating) {
       _line.repeat(reverse: true);
     }

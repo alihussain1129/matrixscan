@@ -32,8 +32,11 @@ void main() {
   test('rejects restart limits outside 1 to 20', () {
     for (final bad in [0, 21, 99]) {
       final c = AppConfig(startup: StartupConfig(maxRestartsPerHour: bad));
-      expect(c.validate().any((i) => '$i'.contains('maxRestartsPerHour')),
-          isTrue, reason: '$bad');
+      expect(
+        c.validate().any((i) => '$i'.contains('maxRestartsPerHour')),
+        isTrue,
+        reason: '$bad',
+      );
     }
   });
 }

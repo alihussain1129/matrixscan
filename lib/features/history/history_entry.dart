@@ -16,6 +16,7 @@ class HistoryEntry {
     this.pinned = false,
     this.imagePath,
     this.processingDurationMs,
+    this.originDeviceId,
   });
 
   final String id;
@@ -34,6 +35,10 @@ class HistoryEntry {
   /// Processing time in milliseconds, if recorded.
   final double? processingDurationMs;
 
+  /// Stable origin ID for imported synchronized records. Null means this
+  /// record was created on the current device.
+  final String? originDeviceId;
+
   HistoryEntry copyWith({
     bool? pinned,
     String? imagePath,
@@ -48,6 +53,7 @@ class HistoryEntry {
     pinned: pinned ?? this.pinned,
     imagePath: imagePath ?? this.imagePath,
     processingDurationMs: processingDurationMs ?? this.processingDurationMs,
+    originDeviceId: originDeviceId,
   );
 
   Map<String, Object?> toJson() => {
@@ -60,6 +66,7 @@ class HistoryEntry {
     'pinned': pinned,
     'imagePath': imagePath,
     'processingDurationMs': processingDurationMs,
+    if (originDeviceId != null) 'originDeviceId': originDeviceId,
   };
 
   static HistoryEntry? fromJson(Object? json) {
@@ -95,6 +102,9 @@ class HistoryEntry {
       pinned: json['pinned'] == true,
       imagePath: imagePath,
       processingDurationMs: duration,
+      originDeviceId: json['originDeviceId'] is String
+          ? json['originDeviceId'] as String
+          : null,
     );
   }
 }

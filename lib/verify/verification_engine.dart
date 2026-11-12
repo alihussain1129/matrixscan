@@ -100,6 +100,7 @@ class VerificationEngine {
       checkedAt: r.checkedAt,
       fields: r.fields,
       dataUpdatedAt: r.dataUpdatedAt,
+      cachedAt: r.cachedAt,
       error: r.error,
       claims: [
         for (final c in r.claims)
@@ -224,16 +225,29 @@ Interpretation applyVerification(
         warnings.add('${c.aspect}: ${c.status.label} (${r.info.name}).');
       }
     }
+    final cacheAge = r.cachedAt == null
+        ? null
+        : r.checkedAt.difference(r.cachedAt!);
+    final cacheAgeLabel = cacheAge == null
+        ? null
+        : cacheAge.inSeconds < 60
+        ? '< 1 minute'
+        : cacheAge.inMinutes == 1
+        ? '1 minute'
+        : '${cacheAge.inMinutes} minutes';
     provenance.add(
       ScanField(
         id: 'source.${r.info.id}',
         label: r.info.name,
         value: r.error == null
-            ? 'Checked ${_iso(r.checkedAt)}'
+            ? r.isCached
+                  ? 'Cached response · $cacheAgeLabel old'
+                  : 'Checked ${_iso(r.checkedAt)}'
             : 'Source unavailable',
         origin: external ? FieldOrigin.external : FieldOrigin.calculated,
         note:
             '${r.info.kind.label}. '
+            '${r.isCached ? 'Originally fetched ${_iso(r.cachedAt!)}. ' : ''}'
             '${r.info.authoritative ? 'Authoritative source.' : 'Not an authoritative source.'} '
             '${r.info.requirement}',
         warning: r.error,

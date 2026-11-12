@@ -108,8 +108,7 @@ class ScannerConfig {
   ftpReceiverEnabled; // false: the user starts it from the device screen today
   final int ftpReceiverPort; // [APP-VALUE] 2121, keyence_ftp_receiver.dart:44
   final String ftpBindAddress; // [APP-VALUE] 0.0.0.0 (InternetAddress.anyIPv4)
-  final String?
-  ftpUsername; // required, with the vault password, for the FTP receiver to start
+  final String? ftpUsername; // required, with the vault password, for the FTP receiver to start
   final int? ftpMaxUploadBytes; // null = receiver built-in kMaxUploadBytes
   final String? imageDir; // null = app storage default
   final String deviceLabel; // display name only
@@ -332,6 +331,9 @@ class DecoderConfig {
     'upcA',
     'upcE',
     'microQr',
+    'rmQr',
+    'dxFilmEdge',
+    'dataBarLimited',
   ];
 
   /// Empty = pass formatsMask 0, as decoder_service.dart does by default.

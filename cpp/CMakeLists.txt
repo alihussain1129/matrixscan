@@ -42,6 +42,7 @@ target_include_directories(exalted_core
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+target_link_libraries(exalted_core PUBLIC ZXing::ZXing)
 
 # ---- Shared library loaded by Flutter through dart:ffi ---------------------
 # Android: libexalted_ffi.so
@@ -88,6 +89,7 @@ if(NOT ANDROID)
 
     target_link_libraries(exalted_decode_test
         PRIVATE
+            exalted_core
             ZXing::ZXing
     )
 
@@ -109,6 +111,7 @@ if(NOT ANDROID)
 
     target_link_libraries(exalted_dotpeen_test
         PRIVATE
+            exalted_core
             ZXing::ZXing
     )
 

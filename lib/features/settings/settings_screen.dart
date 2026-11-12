@@ -1,5 +1,7 @@
 import 'ftp_settings_card.dart';
 import 'auto_restart_card.dart';
+
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,13 +9,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/backup/backup_recovery_service.dart';
+import '../../core/config/app_config.dart';
+import '../../core/config/config_controller.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/exalted_card.dart';
 import '../devices/keyence/keyence_sr751_client.dart';
+import '../scanner/live_ocr_analyzer.dart';
+import '../scanner/scan_feedback.dart';
 import '../scanner/scanner_controller.dart';
-import '../../verify/verification_settings.dart';
+import '../link/companion_notifications.dart';
+import '../../ffi/decode_result.dart';
+import '../../core/router/app_router.dart';
 import 'about_screen.dart';
 import 'settings_controller.dart';
 
@@ -28,6 +36,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Map<String, dynamic>? _storageHealth;
   bool _isCheckingHealth = false;
+  int _cat = 0;
 
   Future<void> _checkStorageHealth() async {
     setState(() => _isCheckingHealth = true);
@@ -62,6 +71,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  Future<void> _setSymbology(String name, bool enabled) async {
+    const all = DecoderConfig.knownSymbologies;
+    final current = ref.read(configControllerProvider).decoder.symbologies;
+    final selected = current.isEmpty ? all.toSet() : current.toSet();
+    if (enabled) {
+      selected.add(name);
+    } else {
+      selected.remove(name);
+    }
+    final next = selected.length == all.length ? <String>[] : selected.toList();
+    final result = await ref.read(configControllerProvider.notifier).patch({
+      'decoder': {'symbologies': next},
+    });
+    if (result.saveError != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Decoder settings were not saved: ${result.saveError}'),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -70,7 +101,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final text = theme.textTheme;
 
     final mode = ref.watch(themeModeProvider);
-    final allowed = ref.watch(allowedSourcesProvider);
+    final decoder = ref.watch(configControllerProvider).decoder;
     final ui = ref.watch(scannerControllerProvider);
     final scanner = ref.read(scannerControllerProvider.notifier);
     final keyence = ref.watch(keyenceSr751ClientProvider);
@@ -90,286 +121,414 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Row(
             children: [
               Expanded(child: Text('Settings', style: text.displaySmall)),
-              IconButton(
-                tooltip: 'About EXALTED',
-                icon: const Icon(Icons.info_outline_rounded),
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const AboutScreen()),
-                ),
-              ),
             ],
           ),
           const SizedBox(height: AppSpacing.xl),
 
-          // ---- SCANNING & DECODER ENGINE ----------------------------------
-          Text('SCANNING & DECODER ENGINE', style: text.labelSmall),
-          const SizedBox(height: AppSpacing.md),
-          ExaltedCard(
-            child: Column(
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
               children: [
-                _SwitchRow(
-                  title: 'Auto scan',
-                  subtitle: 'Detect and decode as soon as a code is in view',
-                  value: ui.autoScan,
-                  onChanged: (_) => scanner.toggleAuto(),
-                ),
-                Divider(color: colors.outline, height: AppSpacing.xl),
-                _SwitchRow(
-                  title: 'Continuous scanning',
-                  subtitle: 'Keep scanning several codes without stopping',
-                  value: ui.continuous,
-                  onChanged: (_) => scanner.toggleContinuous(),
-                ),
-                Divider(color: colors.outline, height: AppSpacing.xl),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Camera quality', style: text.bodyLarge),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Balanced is smoother on older devices. '
-                        'High reads small Data Matrix and dot-peen codes better.',
-                        style: text.bodySmall,
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      SizedBox(
-                        width: double.infinity,
-                        child: SegmentedButton<CameraQuality>(
-                          showSelectedIcon: false,
-                          segments: [
-                            for (final q in CameraQuality.values)
-                              ButtonSegment(value: q, label: Text(q.label)),
-                          ],
-                          selected: {ui.quality},
-                          onSelectionChanged: (s) =>
-                              scanner.setQuality(s.first),
-                          style: SegmentedButton.styleFrom(
-                            selectedBackgroundColor: scheme.primary,
-                            selectedForegroundColor: scheme.onPrimary,
-                          ),
-                        ),
-                      ),
-                    ],
+                for (final e in const [
+                  'General',
+                  'Appearance',
+                  'Scanning',
+                  'Decoder',
+                  'OCR',
+                  'Verification',
+                  'Devices & Sync',
+                  'Network & FTP',
+                  'Notifications & Feedback',
+                  'Advanced',
+                  'About',
+                ].asMap().entries)
+                  Padding(
+                    padding: const EdgeInsets.only(right: AppSpacing.xs),
+                    child: ChoiceChip(
+                      label: Text(e.value),
+                      selected: _cat == e.key,
+                      onSelected: (_) => setState(() => _cat = e.key),
+                    ),
                   ),
-                ),
               ],
             ),
           ),
-
           const SizedBox(height: AppSpacing.xl),
-
-          // ---- INDUSTRIAL HARDWARE & VISION -------------------------------
-          Text('INDUSTRIAL HARDWARE & NETWORKING', style: text.labelSmall),
-          const SizedBox(height: AppSpacing.md),
-          ExaltedCard(
-            child: Column(
-              children: [
-                _InfoRow(
-                  label: 'Keyence SR-751 Target',
-                  value: '${keyence.host}:${keyence.port}',
-                ),
-                Divider(color: colors.outline, height: AppSpacing.xl),
-                _InfoRow(
-                  label: 'Keyence Connection',
-                  value: keyence.status == KeyenceConnectionStatus.connected
-                      ? 'ONLINE / READY'
-                      : 'STANDBY',
-                ),
-                Divider(color: colors.outline, height: AppSpacing.xl),
-                _SwitchRow(
-                  title: 'Auto Reconnect',
-                  subtitle: 'Automatically recover connection on socket drops',
-                  value: keyence.autoReconnect,
-                  onChanged: (v) {
-                    setState(() {
-                      keyence.autoReconnect = v;
-                    });
-                  },
-                ),
-                Divider(color: colors.outline, height: AppSpacing.xl),
-                _InfoRow(
-                  label: 'OCR Engine Core',
-                  value: Platform.isAndroid
-                      ? 'Google ML Kit'
-                      : 'Tesseract 5.3 TSV',
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: AppSpacing.xl),
-
-          // ---- DATA STORAGE, BACKUP & INTEGRITY ---------------------------
-          Text('DATA STORAGE, BACKUP & TRACEABILITY', style: text.labelSmall),
-          const SizedBox(height: AppSpacing.md),
-          ExaltedCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Offline Image & Traceability Repository',
-                  style: text.bodyLarge!.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Original scanned frames and OCR document images are preserved '
-                  'permanently on local disk under exalted_media/.',
-                  style: text.bodySmall,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.verified_outlined, size: 16),
-                        label: const Text('Check Integrity'),
-                        onPressed: _isCheckingHealth
-                            ? null
-                            : _checkStorageHealth,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.archive_outlined, size: 16),
-                        label: const Text('Export Backup'),
-                        onPressed: _createBackup,
-                      ),
-                    ),
-                  ],
-                ),
-                if (_storageHealth != null) ...[
-                  const SizedBox(height: AppSpacing.md),
-                  Container(
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    decoration: BoxDecoration(
-                      color: (_storageHealth!['isHealthy'] as bool)
-                          ? const Color(0xFF22C55E).withAlpha(20)
-                          : Colors.orange.withAlpha(20),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: (_storageHealth!['isHealthy'] as bool)
-                            ? const Color(0xFF22C55E)
-                            : Colors.orange,
-                      ),
-                    ),
+          if (_cat == 2) ...[
+            // ---- SCANNING ---------------------------------------------------
+            Text('SCANNING & DECODER ENGINE', style: text.labelSmall),
+            const SizedBox(height: AppSpacing.md),
+            ExaltedCard(
+              child: Column(
+                children: [
+                  _SwitchRow(
+                    title: 'Auto scan',
+                    subtitle: 'Detect and decode as soon as a code is in view',
+                    value: ui.autoScan,
+                    onChanged: (_) => scanner.toggleAuto(),
+                  ),
+                  Divider(color: colors.outline, height: AppSpacing.xl),
+                  _SwitchRow(
+                    title: 'Continuous scanning',
+                    subtitle: 'Keep scanning several codes without stopping',
+                    value: ui.continuous,
+                    onChanged: (_) => scanner.toggleContinuous(),
+                  ),
+                  Divider(color: colors.outline, height: AppSpacing.xl),
+                  Align(
+                    alignment: Alignment.centerLeft,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Text('Camera quality', style: text.bodyLarge),
+                        const SizedBox(height: 2),
                         Text(
-                          'Storage Health: ${(_storageHealth!['isHealthy'] as bool) ? '100% HEALTHY' : 'WARNINGS FOUND'}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                            color: (_storageHealth!['isHealthy'] as bool)
-                                ? const Color(0xFF22C55E)
-                                : Colors.orange,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Tracked Media: ${_storageHealth!['validImages']} / ${_storageHealth!['totalImagesTracked']} valid '
-                          '(${((_storageHealth!['totalStorageBytes'] as int) / (1024 * 1024)).toStringAsFixed(2)} MB on disk)',
+                          'Balanced is smoother on older devices. '
+                          'High reads small Data Matrix and dot-peen codes better.',
                           style: text.bodySmall,
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        SizedBox(
+                          width: double.infinity,
+                          child: SegmentedButton<CameraQuality>(
+                            showSelectedIcon: false,
+                            segments: [
+                              for (final q in CameraQuality.values)
+                                ButtonSegment(value: q, label: Text(q.label)),
+                            ],
+                            selected: {ui.quality},
+                            onSelectionChanged: (s) =>
+                                scanner.setQuality(s.first),
+                            style: SegmentedButton.styleFrom(
+                              selectedBackgroundColor: scheme.primary,
+                              selectedForegroundColor: scheme.onPrimary,
+                            ),
+                          ),
                         ),
                       ],
                     ),
                   ),
                 ],
-              ],
-            ),
-          ),
-
-          const SizedBox(height: AppSpacing.xl),
-
-          // ---- APPEARANCE -------------------------------------------------
-          Text('APPEARANCE', style: text.labelSmall),
-          const SizedBox(height: AppSpacing.md),
-          ExaltedCard(
-            child: SizedBox(
-              width: double.infinity,
-              child: SegmentedButton<ThemeMode>(
-                showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment(value: ThemeMode.system, label: Text('System')),
-                  ButtonSegment(value: ThemeMode.light, label: Text('Light')),
-                  ButtonSegment(value: ThemeMode.dark, label: Text('Dark')),
-                ],
-                selected: {mode},
-                onSelectionChanged: (s) =>
-                    ref.read(themeModeProvider.notifier).set(s.first),
-                style: SegmentedButton.styleFrom(
-                  selectedBackgroundColor: scheme.primary,
-                  selectedForegroundColor: scheme.onPrimary,
-                ),
               ),
             ),
-          ),
-
-          const SizedBox(height: AppSpacing.xl),
-
-          // ---- KEYENCE FTP RECEIVER ---------------------------------------
-          Text('KEYENCE FTP RECEIVER', style: text.labelSmall),
-          const SizedBox(height: AppSpacing.md),
-          const ExaltedCard(child: FtpSettingsCard()),
-
-          const SizedBox(height: AppSpacing.xl),
-
-          // ---- AUTO-RESTART AFTER CRASH -----------------------------------
-          Text('AUTO-RESTART AFTER CRASH', style: text.labelSmall),
-          const SizedBox(height: AppSpacing.md),
-          const ExaltedCard(child: AutoRestartCard()),
-
-          const SizedBox(height: AppSpacing.xl),
-
-          // ---- ONLINE LOOKUPS ---------------------------------------------
-          Text('OPTIONAL ONLINE LOOKUPS', style: text.labelSmall),
-          const SizedBox(height: AppSpacing.md),
-          for (final s in onlineSourceChoices) ...[
+          ],
+          if (_cat == 6) ...[
+            // ---- INDUSTRIAL HARDWARE & VISION -------------------------------
+            Text('INDUSTRIAL HARDWARE & NETWORKING', style: text.labelSmall),
+            const SizedBox(height: AppSpacing.md),
             ExaltedCard(
-              child: _SwitchRow(
-                title: 'Allow ${s.name} lookup',
-                subtitle: s.subtitle,
-                value: allowed.contains(s.id),
-                onChanged: (v) => ref
-                    .read(allowedSourcesProvider.notifier)
-                    .setAllowed(s.id, v),
+              child: Column(
+                children: [
+                  _InfoRow(
+                    label: 'Keyence SR-751 Target',
+                    value: '${keyence.host}:${keyence.port}',
+                  ),
+                  Divider(color: colors.outline, height: AppSpacing.xl),
+                  _InfoRow(
+                    label: 'Keyence Connection',
+                    value: keyence.status == KeyenceConnectionStatus.connected
+                        ? 'ONLINE / READY'
+                        : 'STANDBY',
+                  ),
+                  Divider(color: colors.outline, height: AppSpacing.xl),
+                  _SwitchRow(
+                    title: 'Auto Reconnect',
+                    subtitle:
+                        'Automatically recover connection on socket drops',
+                    value: keyence.autoReconnect,
+                    onChanged: (v) {
+                      setState(() {
+                        keyence.autoReconnect = v;
+                      });
+                    },
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: AppSpacing.md),
-          ],
-
-          const SizedBox(height: AppSpacing.xl),
-
-          // ---- SYSTEM ARCHITECTURE & DIAGNOSTICS --------------------------
-          Text('SYSTEM ARCHITECTURE & DIAGNOSTICS', style: text.labelSmall),
-          const SizedBox(height: AppSpacing.md),
-          ExaltedCard(
-            child: Column(
-              children: [
-                const _InfoRow(
-                  label: 'Platform Architecture',
-                  value: 'Unified Core (Dart + C++20)',
-                ),
-                Divider(color: colors.outline, height: AppSpacing.xl),
-                _InfoRow(label: 'Operating System', value: platformDesc),
-                Divider(color: colors.outline, height: AppSpacing.xl),
-                const _InfoRow(
-                  label: 'Native Decoder',
-                  value: 'C++20 (ZXing + DotPeen ECC200)',
-                ),
-                Divider(color: colors.outline, height: AppSpacing.xl),
-                _InfoRow(
-                  label: 'Offline Privacy',
-                  value: allowed.isEmpty
-                      ? 'Strict Offline (Zero Leaks)'
-                      : 'Lookups Enabled',
-                ),
-              ],
+            OutlinedButton.icon(
+              onPressed: () =>
+                  ref.read(navIndexProvider.notifier).set(kDevicesTab),
+              icon: const Icon(Icons.router_outlined),
+              label: const Text('Open device management'),
             ),
-          ),
+            OutlinedButton.icon(
+              onPressed: () =>
+                  ref.read(navIndexProvider.notifier).set(kLinkTab),
+              icon: const Icon(Icons.sync_alt),
+              label: const Text('Open linked devices and sync'),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+          if (_cat == 9) ...[
+            // ---- ADVANCED DATA & RECOVERY ----------------------------------
+            Text('DATA STORAGE, BACKUP & TRACEABILITY', style: text.labelSmall),
+            const SizedBox(height: AppSpacing.md),
+            ExaltedCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Offline Image & Traceability Repository',
+                    style: text.bodyLarge!.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Original scanned frames and OCR document images are preserved '
+                    'permanently on local disk under exalted_media/.',
+                    style: text.bodySmall,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.verified_outlined, size: 16),
+                          label: const Text('Check Integrity'),
+                          onPressed: _isCheckingHealth
+                              ? null
+                              : _checkStorageHealth,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.archive_outlined, size: 16),
+                          label: const Text('Export Backup'),
+                          onPressed: _createBackup,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_storageHealth != null) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    Container(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        color: (_storageHealth!['isHealthy'] as bool)
+                            ? const Color(0xFF22C55E).withAlpha(20)
+                            : Colors.orange.withAlpha(20),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: (_storageHealth!['isHealthy'] as bool)
+                              ? const Color(0xFF22C55E)
+                              : Colors.orange,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Storage Health: ${(_storageHealth!['isHealthy'] as bool) ? '100% HEALTHY' : 'WARNINGS FOUND'}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              color: (_storageHealth!['isHealthy'] as bool)
+                                  ? const Color(0xFF22C55E)
+                                  : Colors.orange,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Tracked Media: ${_storageHealth!['validImages']} / ${_storageHealth!['totalImagesTracked']} valid '
+                            '(${((_storageHealth!['totalStorageBytes'] as int) / (1024 * 1024)).toStringAsFixed(2)} MB on disk)',
+                            style: text.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: AppSpacing.xl),
+          ],
+          if (_cat == 1) ...[
+            // ---- APPEARANCE -------------------------------------------------
+            Text('APPEARANCE', style: text.labelSmall),
+            const SizedBox(height: AppSpacing.md),
+            ExaltedCard(
+              child: SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<ThemeMode>(
+                  showSelectedIcon: false,
+                  segments: const [
+                    ButtonSegment(
+                      value: ThemeMode.system,
+                      label: Text('System'),
+                    ),
+                    ButtonSegment(value: ThemeMode.light, label: Text('Light')),
+                    ButtonSegment(value: ThemeMode.dark, label: Text('Dark')),
+                  ],
+                  selected: {mode},
+                  onSelectionChanged: (s) =>
+                      ref.read(themeModeProvider.notifier).set(s.first),
+                  style: SegmentedButton.styleFrom(
+                    selectedBackgroundColor: scheme.primary,
+                    selectedForegroundColor: scheme.onPrimary,
+                  ),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: AppSpacing.xl),
+          ],
+          if (_cat == 3) ...[
+            Text('ENABLED SYMBOLOGIES', style: text.labelSmall),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'Limit live decoding to selected formats. Selecting every format restores the default all-formats mode.',
+              style: text.bodySmall,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            ExaltedCard(
+              child: Column(
+                children: [
+                  for (final kind in BarcodeKind.values)
+                    if (kind != BarcodeKind.unknown)
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(kind.label),
+                        value:
+                            decoder.symbologies.isEmpty ||
+                            decoder.symbologies.contains(kind.name),
+                        onChanged: (enabled) {
+                          if (enabled != null) {
+                            unawaited(_setSymbology(kind.name, enabled));
+                          }
+                        },
+                      ),
+                ],
+              ),
+            ),
+          ],
+          if (_cat == 7) ...[
+            // ---- KEYENCE FTP RECEIVER ---------------------------------------
+            Text('KEYENCE FTP RECEIVER', style: text.labelSmall),
+            const SizedBox(height: AppSpacing.md),
+            const ExaltedCard(child: FtpSettingsCard()),
+
+            const SizedBox(height: AppSpacing.xl),
+          ],
+          if (_cat == 9) ...[
+            // ---- AUTO-RESTART AFTER CRASH -----------------------------------
+            Text('AUTO-RESTART AFTER CRASH', style: text.labelSmall),
+            const SizedBox(height: AppSpacing.md),
+            const ExaltedCard(child: AutoRestartCard()),
+
+            const SizedBox(height: AppSpacing.xl),
+          ],
+          if (_cat == 0) ...[
+            // ---- SYSTEM ARCHITECTURE & DIAGNOSTICS --------------------------
+            Text('SYSTEM ARCHITECTURE & DIAGNOSTICS', style: text.labelSmall),
+            const SizedBox(height: AppSpacing.md),
+            ExaltedCard(
+              child: Column(
+                children: [
+                  const _InfoRow(
+                    label: 'Platform Architecture',
+                    value: 'Unified Core (Dart + C++20)',
+                  ),
+                  Divider(color: colors.outline, height: AppSpacing.xl),
+                  _InfoRow(label: 'Operating System', value: platformDesc),
+                  Divider(color: colors.outline, height: AppSpacing.xl),
+                  const _InfoRow(
+                    label: 'Native Decoder',
+                    value: 'C++20 (ZXing + DotPeen ECC200)',
+                  ),
+                  Divider(color: colors.outline, height: AppSpacing.xl),
+                  const _InfoRow(
+                    label: 'Offline Privacy',
+                    value: 'Online sources are opt-in under Verification',
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (_cat == 4) ...[
+            Text('OCR ENGINE', style: text.labelSmall),
+            const SizedBox(height: AppSpacing.md),
+            ExaltedCard(
+              child: Column(
+                children: [
+                  _InfoRow(
+                    label: 'Engine',
+                    value: Platform.isAndroid
+                        ? 'Google ML Kit · on-device'
+                        : 'Tesseract · local',
+                  ),
+                  const Divider(height: AppSpacing.xl),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: ref
+                        .read(liveOcrAnalyzerProvider)
+                        .enabledListenable,
+                    builder: (context, on, _) => _SwitchRow(
+                      title: 'Live text reading',
+                      subtitle: 'Read printed text in the camera view. Turning it off reduces processing load.',
+                      value: on,
+                      onChanged: (value) =>
+                          ref.read(liveOcrAnalyzerProvider).setEnabled(value),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (_cat == 5) ...[
+            Text('VERIFICATION', style: text.labelSmall),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'Configure on-device checks and optional external sources on the Verification screen.',
+              style: text.bodyMedium,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            FilledButton.icon(
+              onPressed: () =>
+                  ref.read(navIndexProvider.notifier).set(kVerificationTab),
+              icon: const Icon(Icons.fact_check_outlined),
+              label: const Text('Open verification settings'),
+            ),
+          ],
+          if (_cat == 8) ...[
+            Text('COMPANION NOTIFICATIONS', style: text.labelSmall),
+            const SizedBox(height: AppSpacing.md),
+            if (Platform.isAndroid)
+              ExaltedCard(child: const CompanionNotificationSettings())
+            else
+              Text(
+                'Companion notifications are delivered on paired Android devices.',
+                style: text.bodyMedium,
+              ),
+            const SizedBox(height: AppSpacing.xl),
+            Text('SCAN FEEDBACK', style: text.labelSmall),
+            const SizedBox(height: AppSpacing.md),
+            ExaltedCard(
+              child: ValueListenableBuilder<bool>(
+                valueListenable: ScanFeedback.enabledListenable,
+                builder: (context, on, _) => _SwitchRow(
+                  title: 'Scan sounds',
+                  subtitle: 'Plays a native beep on Android. Desktop support is not available yet.',
+                  value: on,
+                  onChanged: ScanFeedback.setEnabled,
+                ),
+              ),
+            ),
+          ],
+          if (_cat == 10) ...[
+            Text('ABOUT EXALTED', style: text.labelSmall),
+            const SizedBox(height: AppSpacing.md),
+            FilledButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const AboutScreen()),
+              ),
+              icon: const Icon(Icons.info_outline),
+              label: const Text('View product information'),
+            ),
+          ],
         ],
       ),
     );
@@ -421,18 +580,43 @@ class _InfoRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final valueStyle = AppTypography.mono(
+      size: 13,
+      color: theme.colorScheme.onSurface,
+    );
 
-    return Row(
-      children: [
-        Expanded(child: Text(label, style: theme.textTheme.bodyLarge)),
-        Text(
-          value,
-          style: AppTypography.mono(
-            size: 13,
-            color: theme.colorScheme.onSurface,
-          ),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 520) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(label, style: theme.textTheme.bodyLarge),
+              const SizedBox(height: AppSpacing.xs),
+              Text(value, style: valueStyle),
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: Text(label, style: theme.textTheme.bodyLarge),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              flex: 3,
+              child: Text(
+                value,
+                textAlign: TextAlign.end,
+                softWrap: true,
+                style: valueStyle,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

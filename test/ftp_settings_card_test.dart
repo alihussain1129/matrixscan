@@ -11,7 +11,10 @@ import 'package:exalted/features/settings/ftp_settings_card.dart';
 
 import 'support/in_memory_secret_store.dart';
 
-Future<ProviderContainer> pump(WidgetTester t, InMemorySecretStore store) async {
+Future<ProviderContainer> pump(
+  WidgetTester t,
+  InMemorySecretStore store,
+) async {
   await t.pumpWidget(
     ProviderScope(
       overrides: [secretStoreProvider.overrideWithValue(store)],
@@ -32,7 +35,10 @@ void main() {
     await t.tap(find.byKey(const Key('ftp-save')));
     await t.pumpAndSettle();
     expect(find.text('Enter a username to enable FTP.'), findsOneWidget);
-    expect(c.read(configControllerProvider).scanner.ftpReceiverEnabled, isFalse);
+    expect(
+      c.read(configControllerProvider).scanner.ftpReceiverEnabled,
+      isFalse,
+    );
     expect(store.values, isEmpty);
   });
 
@@ -44,7 +50,10 @@ void main() {
     await t.tap(find.byKey(const Key('ftp-save')));
     await t.pumpAndSettle();
     expect(find.text('Enter a password to enable FTP.'), findsOneWidget);
-    expect(c.read(configControllerProvider).scanner.ftpReceiverEnabled, isFalse);
+    expect(
+      c.read(configControllerProvider).scanner.ftpReceiverEnabled,
+      isFalse,
+    );
   });
 
   testWidgets('password goes to the vault, never into config', (t) async {

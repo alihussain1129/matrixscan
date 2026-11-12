@@ -15,6 +15,36 @@
 #endif
 
 #include "ReadBarcode.h"
+#include "exalted/datamatrix_decoder.h"
+
+// The Dart side and exalted/ffi_api.h pass format masks as plain bit flags and
+// toFormats() casts them straight to ZXing::BarcodeFormat. That is only valid
+// while ZXing keeps these exact single-bit values. Fail the build, rather than
+// silently decode the wrong symbologies, if a ZXing upgrade ever changes them.
+#define EXALTED_ASSERT_FMT(exalted, zxing) \
+    static_assert(static_cast<int>(ZXing::BarcodeFormat::zxing) == (exalted), \
+                  "EXALTED_FMT_* no longer matches ZXing::BarcodeFormat::" #zxing)
+EXALTED_ASSERT_FMT(EXALTED_FMT_AZTEC, Aztec);
+EXALTED_ASSERT_FMT(EXALTED_FMT_CODABAR, Codabar);
+EXALTED_ASSERT_FMT(EXALTED_FMT_CODE39, Code39);
+EXALTED_ASSERT_FMT(EXALTED_FMT_CODE93, Code93);
+EXALTED_ASSERT_FMT(EXALTED_FMT_CODE128, Code128);
+EXALTED_ASSERT_FMT(EXALTED_FMT_DATABAR, DataBar);
+EXALTED_ASSERT_FMT(EXALTED_FMT_DATABAR_EXP, DataBarExpanded);
+EXALTED_ASSERT_FMT(EXALTED_FMT_DATAMATRIX, DataMatrix);
+EXALTED_ASSERT_FMT(EXALTED_FMT_EAN8, EAN8);
+EXALTED_ASSERT_FMT(EXALTED_FMT_EAN13, EAN13);
+EXALTED_ASSERT_FMT(EXALTED_FMT_ITF, ITF);
+EXALTED_ASSERT_FMT(EXALTED_FMT_MAXICODE, MaxiCode);
+EXALTED_ASSERT_FMT(EXALTED_FMT_PDF417, PDF417);
+EXALTED_ASSERT_FMT(EXALTED_FMT_QRCODE, QRCode);
+EXALTED_ASSERT_FMT(EXALTED_FMT_UPCA, UPCA);
+EXALTED_ASSERT_FMT(EXALTED_FMT_UPCE, UPCE);
+EXALTED_ASSERT_FMT(EXALTED_FMT_MICROQR, MicroQRCode);
+EXALTED_ASSERT_FMT(EXALTED_FMT_RMQR, RMQRCode);
+EXALTED_ASSERT_FMT(EXALTED_FMT_DX_FILM_EDGE, DXFilmEdge);
+EXALTED_ASSERT_FMT(EXALTED_FMT_DATABAR_LIMITED, DataBarLimited);
+#undef EXALTED_ASSERT_FMT
 
 namespace
 {
@@ -214,6 +244,21 @@ int32_t exalted_decode(
             options.setBinarizer(ZXing::Binarizer::GlobalHistogram);
         }
         options.setMaxNumberOfSymbols(1);
+
+        if (formatsMask == EXALTED_FMT_DATAMATRIX)
+        {
+            exalted::DataMatrixDecoder decoder;
+            const auto decoded = decoder.decode({src, width, height, srcStride, tryHarder});
+            info[11] = static_cast<int32_t>(decoded.decodeTimeMs * 1000.0);
+            if (!decoded.success) return 0;
+            info[0] = EXALTED_FMT_DATAMATRIX;
+            info[1] = static_cast<int32_t>(decoded.text.size());
+            for (int i = 0; i < 8; ++i) info[i + 2] = decoded.corners[i];
+            info[10] = 1;
+            if (static_cast<int64_t>(decoded.text.size()) > textCap) return -5;
+            std::memcpy(textOut, decoded.text.data(), decoded.text.size());
+            return 1;
+        }
 
         const ZXing::Barcode barcode = ZXing::ReadBarcode(image, options);
 

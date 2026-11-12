@@ -118,8 +118,9 @@ class PairingPayload {
     }
     if (port is! int || port < 1 || port > 65535) throw bad();
     if (fp is! String || !isSha256Hex(fp)) throw bad();
-    if (token is! String || token.length < 16 || token.length > 128)
+    if (token is! String || token.length < 16 || token.length > 128) {
       throw bad();
+    }
     if (exp is! int) throw bad();
     return PairingPayload(
       hosts: hostList,

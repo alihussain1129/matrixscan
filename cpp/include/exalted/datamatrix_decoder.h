@@ -9,7 +9,7 @@ public:
     DataMatrixDecoder() = default;
     ~DataMatrixDecoder() override = default;
 
-    DecodeResult decode() override;
+    DecodeResult decode(const DecodeInput& input) override;
 };
 
 } // namespace exalted

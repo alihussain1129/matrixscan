@@ -27,9 +27,13 @@ class HistoryScreen extends ConsumerStatefulWidget {
 
 class _HistoryScreenState extends ConsumerState<HistoryScreen>
     with SingleTickerProviderStateMixin {
+  static const _pageSize = 100;
   late TabController _tabController;
   final TextEditingController _search = TextEditingController();
   String _query = '';
+  int _decoderLimit = _pageSize;
+  int _ocrLimit = _pageSize;
+  Future<List<OcrRecord>>? _ocrFuture;
 
   @override
   void initState() {
@@ -42,6 +46,14 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
     _tabController.dispose();
     _search.dispose();
     super.dispose();
+  }
+
+  void _refreshOcrHistory() {
+    final repo = ref.read(ocrHistoryRepositoryProvider);
+    setState(() {
+      _ocrFuture = repo.loadAll();
+      _ocrLimit = _pageSize;
+    });
   }
 
   Future<void> _confirmClearDecoder() async {
@@ -69,7 +81,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
     await ref.read(historyControllerProvider.notifier).clearAll();
     if (!mounted) return;
     _search.clear();
-    setState(() => _query = '');
+    setState(() {
+      _query = '';
+      _decoderLimit = _pageSize;
+    });
   }
 
   Future<void> _confirmClearOcr() async {
@@ -96,8 +111,12 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
     if (confirmed != true) return;
     await ref.read(ocrHistoryRepositoryProvider).clearAll(deleteImages: true);
     if (!mounted) return;
+    _ocrFuture = ref.read(ocrHistoryRepositoryProvider).loadAll();
     _search.clear();
-    setState(() => _query = '');
+    setState(() {
+      _query = '';
+      _ocrLimit = _pageSize;
+    });
   }
 
   Future<void> _export(List<HistoryEntry> shown) async {
@@ -113,16 +132,29 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
     }
   }
 
-  Widget _decoderList(List<HistoryEntry> entries) {
-    final shown = filterHistory(entries, _query);
+  Widget _decoderList(List<HistoryEntry> shown) {
     if (shown.isEmpty) {
       return Center(child: Text('No scans match "${_query.trim()}"'));
     }
+    final visibleCount = shown.length < _decoderLimit
+        ? shown.length
+        : _decoderLimit;
+    final hasMore = visibleCount < shown.length;
     return ListView.separated(
       padding: const EdgeInsets.only(top: AppSpacing.md),
-      itemCount: shown.length,
+      itemCount: visibleCount + (hasMore ? 1 : 0),
       separatorBuilder: (context, index) => const Divider(height: 1),
       itemBuilder: (context, index) {
+        if (index == visibleCount) {
+          return Center(
+            child: TextButton(
+              onPressed: () => setState(() => _decoderLimit += _pageSize),
+              child: Text(
+                'Load next $_pageSize (${shown.length - visibleCount} remaining)',
+              ),
+            ),
+          );
+        }
         final entry = shown[index];
         return HistoryItemTile(
           entry: entry,
@@ -136,16 +168,27 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
     );
   }
 
-  Widget _ocrList(List<OcrRecord> records, OcrHistoryRepository repo) {
-    final shown = repo.filter(records, _query);
+  Widget _ocrList(List<OcrRecord> shown, OcrHistoryRepository repo) {
     if (shown.isEmpty) {
       return Center(child: Text('No OCR records match "${_query.trim()}"'));
     }
+    final visibleCount = shown.length < _ocrLimit ? shown.length : _ocrLimit;
+    final hasMore = visibleCount < shown.length;
     return ListView.separated(
       padding: const EdgeInsets.only(top: AppSpacing.md),
-      itemCount: shown.length,
+      itemCount: visibleCount + (hasMore ? 1 : 0),
       separatorBuilder: (context, index) => const Divider(height: 1),
       itemBuilder: (context, index) {
+        if (index == visibleCount) {
+          return Center(
+            child: TextButton(
+              onPressed: () => setState(() => _ocrLimit += _pageSize),
+              child: Text(
+                'Load next $_pageSize (${shown.length - visibleCount} remaining)',
+              ),
+            ),
+          );
+        }
         final item = shown[index];
         final hasImage =
             item.imagePath.isNotEmpty && cachedFileExists(item.imagePath);
@@ -161,7 +204,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
                 builder: (_) => OcrHistoryDetailScreen(record: item),
               ),
             );
-            if (mounted) setState(() {});
+            if (mounted) _refreshOcrHistory();
           },
           leading: hasImage
               ? ClipRRect(
@@ -196,6 +239,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
             padding: const EdgeInsets.only(top: 2),
             child: Text(
               '${item.engine} • ${formatHistoryTime(item.createdAt, DateTime.now())}'
+              '${item.metadata.containsKey('originDevice') ? ' • Linked device' : ''}'
               '${item.ocvPassed != null ? (item.ocvPassed! ? ' • PASS' : ' • FAIL') : ''}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
@@ -204,7 +248,11 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
             icon: const Icon(Icons.delete_outline, size: 20),
             onPressed: () async {
               await repo.deleteRecord(item.id);
-              setState(() {});
+              if (!mounted) return;
+              setState(() {
+                _ocrFuture = repo.loadAll();
+                _ocrLimit = _pageSize;
+              });
             },
           ),
         );
@@ -222,6 +270,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
     final shownDecoder = filterHistory(allDecoder, _query);
 
     final ocrRepo = ref.watch(ocrHistoryRepositoryProvider);
+    _ocrFuture ??= ocrRepo.loadAll();
 
     return SafeArea(
       child: Padding(
@@ -262,6 +311,9 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
 
             TabBar(
               controller: _tabController,
+              onTap: (index) {
+                if (index == 1) _refreshOcrHistory();
+              },
               labelColor: theme.colorScheme.primary,
               unselectedLabelColor: theme.textTheme.bodyMedium?.color
                   ?.withAlpha(160),
@@ -276,7 +328,11 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
             TextField(
               controller: _search,
               textInputAction: TextInputAction.search,
-              onChanged: (value) => setState(() => _query = value),
+              onChanged: (value) => setState(() {
+                _query = value;
+                _decoderLimit = _pageSize;
+                _ocrLimit = _pageSize;
+              }),
               decoration: InputDecoration(
                 hintText: 'Search history records...',
                 prefixIcon: const Icon(Icons.search),
@@ -288,7 +344,11 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
                         icon: const Icon(Icons.close),
                         onPressed: () {
                           _search.clear();
-                          setState(() => _query = '');
+                          setState(() {
+                            _query = '';
+                            _decoderLimit = _pageSize;
+                            _ocrLimit = _pageSize;
+                          });
                         },
                       ),
               ),
@@ -314,14 +374,14 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
                               ref.read(navIndexProvider.notifier).set(kScanTab),
                         );
                       }
-                      return _decoderList(entries);
+                      return _decoderList(shownDecoder);
                     },
                     loading: () {
                       final previous = history.value;
                       if (previous == null) {
                         return const Center(child: CircularProgressIndicator());
                       }
-                      return _decoderList(previous);
+                      return _decoderList(filterHistory(previous, _query));
                     },
                     error: (error, stack) =>
                         const Center(child: Text('Could not load history.')),
@@ -329,7 +389,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
 
                   // Tab 1: OCR Records
                   FutureBuilder<List<OcrRecord>>(
-                    future: ocrRepo.loadAll(),
+                    future: _ocrFuture,
                     builder: (context, snapshot) {
                       if (!snapshot.hasData) {
                         return const Center(child: CircularProgressIndicator());
@@ -344,7 +404,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen>
                               'will appear here.',
                         );
                       }
-                      return _ocrList(ocrRecords, ocrRepo);
+                      return _ocrList(
+                        ocrRepo.filter(ocrRecords, _query),
+                        ocrRepo,
+                      );
                     },
                   ),
                 ],
