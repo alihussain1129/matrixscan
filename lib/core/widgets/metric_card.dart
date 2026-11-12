@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
+import '../../design/exalted_press_scale.dart';
 
 /// Reusable metric card displaying real operational statistics.
 class MetricCard extends StatelessWidget {
@@ -30,15 +31,14 @@ class MetricCard extends StatelessWidget {
     final theme = Theme.of(context);
     final text = theme.textTheme;
 
-    return Card(
-      color: colors.surfaceRaised,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        side: BorderSide(color: colors.outline),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadius.card),
+    return ExaltedPressScale(
+      onTap: onTap,
+      child: Card(
+        color: colors.surfaceRaised,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          side: BorderSide(color: colors.outline),
+        ),
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),
           child: Column(
