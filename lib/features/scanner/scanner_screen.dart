@@ -1,3 +1,5 @@
+import '../../design/exalted_spring_up.dart';
+import '../../design/exalted_success_burst.dart';
 import '../ocr/services/ocr_history_repository.dart';
 import '../ocr/models/ocr_record.dart';
 import '../../core/storage/image_storage_service.dart';
@@ -54,6 +56,7 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
 
   Offset? _focusTap;
   int _focusId = 0;
+  int _burst = 0;
 
   @override
   void initState() {
@@ -359,6 +362,10 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
       (previous, hasResult) {
         if (hasResult) {
           _stopLineAnimation();
+          HapticFeedback.mediumImpact();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() => _burst++);
+          });
         } else if (ref.read(navIndexProvider) == kScanTab) {
           _startLineAnimation();
         }
@@ -501,6 +508,19 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                                   },
                                 ),
                               ),
+                            ),
+                          ),
+                        ),
+
+                      // Success burst on every good decode.
+                      if (!showPanel)
+                        Positioned.fromRect(
+                          rect: scanRect,
+                          child: Center(
+                            child: ExaltedSuccessBurst(
+                              trigger: _burst,
+                              color: scheme.primary,
+                              size: side * 0.9,
                             ),
                           ),
                         ),
@@ -695,23 +715,25 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
                           bottom:
                               AppSpacing.lg +
                               MediaQuery.of(context).padding.bottom,
-                          child: ConnectedScanResultCard(
-                            barcode: ui.result!,
-                            onCopy: () {
-                              Clipboard.setData(
-                                ClipboardData(text: ui.result!.text),
-                              );
-                              HapticFeedback.selectionClick();
-                              _snack('Copied');
-                            },
-                            onScanAgain: ctrl.resumeScanning,
-                            onConnectWifi: () {
-                              final wifi = parseWifiQr(ui.result!.text);
-                              if (wifi != null) _connectWifi(wifi);
-                            },
-                            onOpenLink: linkUri(ui.result!.text) == null
-                                ? null
-                                : () => _openLink(linkUri(ui.result!.text)!),
+                          child: ExaltedSpringUp(
+                            child: ConnectedScanResultCard(
+                              barcode: ui.result!,
+                              onCopy: () {
+                                Clipboard.setData(
+                                  ClipboardData(text: ui.result!.text),
+                                );
+                                HapticFeedback.selectionClick();
+                                _snack('Copied');
+                              },
+                              onScanAgain: ctrl.resumeScanning,
+                              onConnectWifi: () {
+                                final wifi = parseWifiQr(ui.result!.text);
+                                if (wifi != null) _connectWifi(wifi);
+                              },
+                              onOpenLink: linkUri(ui.result!.text) == null
+                                  ? null
+                                  : () => _openLink(linkUri(ui.result!.text)!),
+                            ),
                           ),
                         ),
                     ],

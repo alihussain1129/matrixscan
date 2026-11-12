@@ -1,5 +1,7 @@
+import '../../design/exalted_shimmer.dart';
 import '../../design/exalted_hero_card.dart';
 import '../../design/exalted_stagger.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -185,12 +187,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const SizedBox(height: AppSpacing.xl),
 
               // KPI Metric Cards (Real Database Data)
-              _buildMetricCardsGrid(
-                keyence,
-                ocrAsync,
-                isDesktop,
-                isTablet,
-                _telemetryReady,
+              ExaltedStagger(
+                index: 1,
+                child: _buildMetricCardsGrid(
+                  keyence,
+                  ocrAsync,
+                  isDesktop,
+                  isTablet,
+                  _telemetryReady,
+                ),
               ),
               const SizedBox(height: AppSpacing.xl),
 
@@ -544,6 +549,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildWorkspacesSection(ExaltedColors colors, TextTheme text) {
+    return ExaltedStagger(index: 2, child: _workspacesBody(colors, text));
+  }
+
+  Widget _workspacesBody(ExaltedColors colors, TextTheme text) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -579,6 +588,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildRecentActivityFeed(ExaltedColors colors, TextTheme text) {
+    return ExaltedStagger(index: 3, child: _recentBody(colors, text));
+  }
+
+  Widget _recentBody(ExaltedColors colors, TextTheme text) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -594,14 +607,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           future: _dashboardFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Padding(
-                padding: EdgeInsets.all(AppSpacing.xl),
-                child: Center(
-                  child: SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
+              return ExaltedShimmer(
+                child: Column(
+                  children: [
+                    for (var i = 0; i < 4; i++)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: AppSpacing.sm),
+                        child: ExaltedSkeletonBox(
+                          height: 52,
+                          radius: AppRadius.card,
+                        ),
+                      ),
+                  ],
                 ),
               );
             }
