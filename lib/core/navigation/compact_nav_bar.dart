@@ -1,3 +1,5 @@
+import '../../design/exalted_press_scale.dart';
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
@@ -112,9 +114,9 @@ class _NavBarItem extends StatelessWidget {
       label: label,
       onTap: onTap,
       child: ExcludeSemantics(
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
+        child: ExaltedPressScale(
           onTap: onTap,
+          scale: 0.9,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -129,7 +131,12 @@ class _NavBarItem extends StatelessWidget {
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(AppRadius.pill),
                 ),
-                child: Icon(icon, color: color, size: AppSizes.iconLg),
+                child: ExaltedBounceIcon(
+                  icon: icon,
+                  color: color,
+                  size: AppSizes.iconLg,
+                  selected: selected,
+                ),
               ),
               const SizedBox(height: 2),
               Text(

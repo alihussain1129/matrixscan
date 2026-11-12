@@ -1,3 +1,5 @@
+import '../../design/exalted_hero_card.dart';
+import '../../design/exalted_stagger.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -161,6 +163,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             children: [
               // Top Brand and System Status Header
               _buildHeader(colors, text, keyence, _telemetryReady),
+              const SizedBox(height: AppSpacing.xl),
+              ExaltedStagger(
+                index: 0,
+                child: FutureBuilder<_DashboardData>(
+                  future: _dashboardFuture,
+                  builder: (context, snap) {
+                    final d = snap.data;
+                    return ExaltedHeroCard(
+                      title: 'Total scans',
+                      value: d?.totalScans ?? 0,
+                      loading: d == null,
+                      footnote: d == null
+                          ? null
+                          : '${d.totalInspections} inspections logged',
+                      onTap: () => _navigateTo(kHistoryTab),
+                    );
+                  },
+                ),
+              ),
               const SizedBox(height: AppSpacing.xl),
 
               // KPI Metric Cards (Real Database Data)
