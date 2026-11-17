@@ -103,6 +103,56 @@ class KeyenceScanResult {
       'KeyenceScanResult(data: $data, isError: $isError, time: $timestamp)';
 }
 
+/// Turns a low-level connect failure into a message that names the real
+/// transport (TCP over Ethernet, not a serial COM port) and the likely cause.
+///
+/// Error numbers: Linux/macOS (errno) and Windows (WSA) are both covered.
+String describeKeyenceConnectionError(Object error, String host, int port) {
+  final target = '$host:$port';
+  if (error is TimeoutException) {
+    return 'TCP connection to $target timed out. Check that the Ethernet '
+        'cable is plugged in, the PC is on the same subnet as the reader, '
+        'and the IP address is correct.';
+  }
+  if (error is SocketException) {
+    final code = error.osError?.errorCode;
+    switch (code) {
+      case 111: // ECONNREFUSED (Linux)
+      case 61: // ECONNREFUSED (macOS)
+      case 10061: // WSAECONNREFUSED
+        return 'The reader at $target refused the TCP connection. The IP is '
+            'reachable, but nothing is listening on port $port. Check the '
+            'reader\'s Ethernet communication setting and port number.';
+      case 110: // ETIMEDOUT (Linux)
+      case 60: // ETIMEDOUT (macOS)
+      case 10060: // WSAETIMEDOUT
+        return 'TCP connection to $target timed out. Check that the Ethernet '
+            'cable is plugged in, the PC is on the same subnet as the '
+            'reader, and the IP address is correct.';
+      case 113: // EHOSTUNREACH (Linux)
+      case 65: // EHOSTUNREACH (macOS)
+      case 10065: // WSAEHOSTUNREACH
+        return 'No route to $host. Check the Ethernet cable and give this '
+            'PC an IP address on the reader\'s subnet.';
+      case 101: // ENETUNREACH (Linux)
+      case 51: // ENETUNREACH (macOS)
+      case 10051: // WSAENETUNREACH
+        return 'Network unreachable for $host. The Ethernet link is down or '
+            'this PC has no address on the reader\'s subnet.';
+      case 104: // ECONNRESET (Linux)
+      case 54: // ECONNRESET (macOS)
+      case 10054: // WSAECONNRESET
+        return 'The reader at $target reset the connection. Another client '
+            'may already be connected to it.';
+    }
+    return 'TCP connection to $target failed: ${error.message}'
+        '${error.osError == null ? '' : ' (${error.osError})'}';
+  }
+  return 'TCP connection to $target failed: $error';
+}
+
+final RegExp _keyenceModelPattern = RegExp(r'SR-\d{3,4}\w*');
+
 /// TCP/IP client interface for communicating with the KEYENCE SR-751 series
 /// industrial code reader over Ethernet.
 ///
@@ -123,6 +173,7 @@ class KeyenceSr751Client {
   KeyenceSr751Client({
     this.defaultHost = '192.168.100.100',
     this.defaultPort = 9004,
+    this.handshakeCommand = 'KEYENCE',
     List<int>? receiveTerminator,
     this.reconnectBaseDelay = const Duration(seconds: 1),
     this.reconnectMaxDelay = const Duration(seconds: 16),
@@ -154,6 +205,11 @@ class KeyenceSr751Client {
   int port;
   final String defaultHost;
   final int defaultPort;
+
+  /// Command sent to check that the other end speaks the reader protocol.
+  /// Not verified against the SR-750 series manual: change it here, without
+  /// touching the rest of the client, once the documented command is known.
+  final String handshakeCommand;
   final Duration reconnectBaseDelay;
   final Duration reconnectMaxDelay;
 
@@ -222,6 +278,14 @@ class KeyenceSr751Client {
   bool _disposed = false;
   int _connectGen = 0;
 
+  /// True between "TCP socket open" and "reader answered the handshake". The
+  /// public status stays `connecting` during this time.
+  bool _awaitingVerification = false;
+
+  bool get _canSend =>
+      _socket != null &&
+      (_status == KeyenceConnectionStatus.connected || _awaitingVerification);
+
   void _setStatus(KeyenceConnectionStatus s, [String? error]) {
     if (_disposed) return;
     // Listeners are notified once per real change, not once per call.
@@ -232,12 +296,18 @@ class KeyenceSr751Client {
   }
 
   /// Connects to the Keyence SR-751 reader over TCP.
+  ///
+  /// With [verifyPending] the status is left at `connecting` after the socket
+  /// opens, so callers only see `connected` once [connectAndVerify] has
+  /// confirmed that the reader answers.
   Future<bool> connect({
     String? targetHost,
     int? targetPort,
     Duration timeout = const Duration(seconds: 4),
+    bool verifyPending = false,
   }) async {
     if (_disposed) return false;
+    _awaitingVerification = false;
     if (targetHost != null) host = targetHost;
     if (targetPort != null) port = targetPort;
 
@@ -254,7 +324,10 @@ class KeyenceSr751Client {
     } catch (e) {
       if (gen != _connectGen) return false;
       debugPrint('[KEYENCE][TCP] Connection failed: $e');
-      _setStatus(KeyenceConnectionStatus.error, e.toString());
+      _setStatus(
+        KeyenceConnectionStatus.error,
+        describeKeyenceConnectionError(e, host, port),
+      );
       _scheduleReconnect();
       return false;
     }
@@ -272,7 +345,8 @@ class KeyenceSr751Client {
     _framer.reset();
     _reconnectAttempts = 0;
     _connectedAt = _clock();
-    _setStatus(KeyenceConnectionStatus.connected);
+    _awaitingVerification = verifyPending;
+    if (!verifyPending) _setStatus(KeyenceConnectionStatus.connected);
 
     _socketSub = socket.listen(
       _onDataReceived,
@@ -293,6 +367,7 @@ class KeyenceSr751Client {
   /// replaced or closed are ignored, so one drop never starts two reconnects.
   void _onSocketLost(Socket socket, String? error) {
     if (!identical(socket, _socket)) return;
+    _awaitingVerification = false;
     final connectedAt = _connectedAt;
     _connectedAt = null;
     if (connectedAt != null &&
@@ -379,7 +454,7 @@ class KeyenceSr751Client {
   /// by the Keyence protocol.
   Future<bool> sendCommand(String command) async {
     final socket = _socket;
-    if (socket == null || _status != KeyenceConnectionStatus.connected) {
+    if (socket == null || !_canSend) {
       return false;
     }
 
@@ -424,7 +499,7 @@ class KeyenceSr751Client {
   Future<bool> beep() => sendCommand('BEEP');
 
   /// Queries the reader model and firmware information.
-  Future<bool> queryModel() => sendCommand('KEYENCE');
+  Future<bool> queryModel() => sendCommand(handshakeCommand);
 
   /// Connects to the Keyence reader and verifies communication with a KEYENCE handshake query.
   /// Measures elapsed time for TCP connection, handshake, and total readiness.
@@ -438,6 +513,7 @@ class KeyenceSr751Client {
       targetHost: targetHost,
       targetPort: targetPort,
       timeout: timeout,
+      verifyPending: true,
     );
     final connectTime = sw.elapsedMilliseconds;
     _lastConnectTimeMs = connectTime;
@@ -445,7 +521,13 @@ class KeyenceSr751Client {
     if (!connected) {
       _lastTotalConnectionTimeMs = sw.elapsedMilliseconds;
       return KeyenceHandshakeResult.failure(
-        errorMessage: _lastError ?? 'TCP connection failed to $host:$port',
+        errorMessage:
+            _lastError ??
+            describeKeyenceConnectionError(
+              const SocketException('connection failed'),
+              host,
+              port,
+            ),
         connectTimeMs: connectTime,
         totalTimeMs: _lastTotalConnectionTimeMs,
       );
@@ -461,6 +543,7 @@ class KeyenceSr751Client {
 
     if (!info.success) {
       debugPrint('[KEYENCE][HANDSHAKE] Handshake failed: ${info.errorMessage}');
+      _awaitingVerification = false;
       await disconnect();
       _setStatus(KeyenceConnectionStatus.error, info.errorMessage);
       return info.copyWith(
@@ -470,6 +553,9 @@ class KeyenceSr751Client {
       );
     }
 
+    // Only now, with the reader's reply in hand, is the link "connected".
+    _awaitingVerification = false;
+    if (_socket != null) _setStatus(KeyenceConnectionStatus.connected);
     return info.copyWith(
       connectTimeMs: connectTime,
       handshakeTimeMs: handshakeTime,
@@ -482,7 +568,7 @@ class KeyenceSr751Client {
     Duration timeout = const Duration(seconds: 2),
   }) async {
     final socket = _socket;
-    if (socket == null || _status != KeyenceConnectionStatus.connected) {
+    if (socket == null || !_canSend) {
       return KeyenceHandshakeResult.failure(
         errorMessage: 'Scanner is not connected',
       );
@@ -491,11 +577,11 @@ class KeyenceSr751Client {
     final completer = Completer<String>();
     _pendingQueryCompleter = completer;
 
-    final sent = await sendCommand('KEYENCE');
+    final sent = await sendCommand(handshakeCommand);
     if (!sent) {
       _pendingQueryCompleter = null;
       return KeyenceHandshakeResult.failure(
-        errorMessage: 'Failed to transmit KEYENCE query',
+        errorMessage: 'Failed to transmit $handshakeCommand query',
       );
     }
 
@@ -505,7 +591,11 @@ class KeyenceSr751Client {
     } catch (e) {
       _pendingQueryCompleter = null;
       return KeyenceHandshakeResult.failure(
-        errorMessage: 'Handshake timeout awaiting KEYENCE response: $e',
+        errorMessage:
+            'TCP connected to $host:$port, but the reader gave no reply to '
+            '"$handshakeCommand" within ${timeout.inMilliseconds} ms. Check '
+            'the port number and that the reader\'s Ethernet communication '
+            'setting is enabled.',
       );
     }
 
@@ -514,28 +604,42 @@ class KeyenceSr751Client {
         !trimmed.toUpperCase().contains('KEYENCE') &&
         !trimmed.toUpperCase().contains('SR-7')) {
       return KeyenceHandshakeResult.failure(
-        errorMessage: 'Unexpected device signature: "$trimmed"',
+        errorMessage:
+            'Unexpected device signature: "$trimmed". Something is listening '
+            'on $host:$port, but it did not answer like a KEYENCE reader.',
       );
     }
 
-    var model = 'SR-751';
+    // An error reply such as "ER,KEYENCE,00" means the reader rejected the
+    // handshake command, so it must not be reported as a successful handshake.
+    if (trimmed.toUpperCase().startsWith('ER,')) {
+      return KeyenceHandshakeResult.failure(
+        errorMessage:
+            'The reader at $host:$port answered "$trimmed", which is an error '
+            'reply. TCP works, but the handshake command '
+            '"$handshakeCommand" was rejected.',
+      );
+    }
+
+    var model = _keyenceModelPattern.firstMatch(trimmed)?.group(0) ?? '';
     String? fw;
     String? sn;
 
     if (trimmed.contains(',')) {
       final parts = trimmed.split(',');
-      if (parts.isNotEmpty && parts[0].trim().isNotEmpty) {
+      if (_keyenceModelPattern.hasMatch(parts[0])) {
         model = parts[0].trim();
+        if (parts.length > 1 && parts[1].trim().isNotEmpty) {
+          fw = parts[1].trim();
+        }
+        if (parts.length > 2 && parts[2].trim().isNotEmpty) {
+          sn = parts[2].trim();
+        }
       }
-      if (parts.length > 1 && parts[1].trim().isNotEmpty) {
-        fw = parts[1].trim();
-      }
-      if (parts.length > 2 && parts[2].trim().isNotEmpty) {
-        sn = parts[2].trim();
-      }
-    } else {
+    } else if (model.isEmpty) {
       model = trimmed;
     }
+    if (model.isEmpty) model = 'KEYENCE reader';
 
     _detectedModel = model;
     _detectedFirmware = fw;

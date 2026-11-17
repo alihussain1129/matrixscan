@@ -356,7 +356,7 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
         break;
       case KeyenceConnectionStatus.error:
         badgeVariant = StatusBadgeVariant.error;
-        statusText = 'COMM ERROR';
+        statusText = 'CONNECTION ERROR';
         statusIcon = Icons.error_outline;
         break;
       case KeyenceConnectionStatus.disconnected:
