@@ -60,6 +60,7 @@ class DiscoveredKeyenceScanner {
 class KeyenceScannerDiscoveryService implements DeviceDiscoverySource {
   KeyenceScannerDiscoveryService({
     this.defaultPort = 9004,
+    this.probeEnabled = true,
     this.probeTimeout = const Duration(milliseconds: 350),
     this.handshakeTimeout = const Duration(milliseconds: 600),
     List<String>? initialCandidateHosts,
@@ -68,6 +69,10 @@ class KeyenceScannerDiscoveryService implements DeviceDiscoverySource {
        );
 
   final int defaultPort;
+
+  /// When false nothing is connected to or sent: the probe writes a command,
+  /// which listen-only mode does not allow.
+  bool probeEnabled;
   final Duration probeTimeout;
   final Duration handshakeTimeout;
   final List<String> _extraCandidateHosts;
@@ -329,6 +334,7 @@ class KeyenceScannerDiscoveryService implements DeviceDiscoverySource {
     _TargetEndpoint target,
   ) async {
     final sw = Stopwatch()..start();
+    if (!probeEnabled) return null;
     Socket? socket;
     try {
       socket = await Socket.connect(

@@ -220,6 +220,12 @@ class KeyenceSr751Client {
   /// Names of commands refused by [allowedCommands] (first 50), for diagnostics.
   final List<String> blockedCommands = <String>[];
 
+  /// True when the handshake command may be sent (no allow-list, or the
+  /// handshake command is on it). False means: connect and listen only.
+  bool get canHandshake =>
+      allowedCommands == null ||
+      allowedCommands!.contains(_commandName(handshakeCommand));
+
   static String _commandName(String command) =>
       command.trim().split(',').first.trim().toUpperCase();
   final Duration reconnectBaseDelay;
@@ -758,8 +764,18 @@ class KeyenceSr751Client {
   }
 }
 
+/// Commands the app-wide client may send. The empty set means listen-only:
+/// connect, receive, send nothing. Replace it with command names only after
+/// each one is confirmed from the KEYENCE SR-750 series manual.
+/// null = no restriction (tests only).
+final keyenceAllowedCommandsProvider = Provider<Set<String>?>(
+  (ref) => const <String>{},
+);
+
 final keyenceSr751ClientProvider = Provider<KeyenceSr751Client>((ref) {
-  final client = KeyenceSr751Client();
+  final client = KeyenceSr751Client(
+    allowedCommands: ref.read(keyenceAllowedCommandsProvider),
+  );
   ref.onDispose(client.dispose);
   return client;
 });

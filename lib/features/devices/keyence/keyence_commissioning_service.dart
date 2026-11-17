@@ -65,6 +65,8 @@ class KeyenceCommissioningService {
     KeyenceSr751Client? existingClient,
     KeyenceFtpReceiver? ftpReceiver,
     Duration timeout = const Duration(seconds: 3),
+    bool sendCommands = true,
+    Set<String>? allowedCommands,
   }) async {
     final sw = Stopwatch()..start();
     final steps = <CommissioningStep>[];
@@ -118,11 +120,21 @@ class KeyenceCommissioningService {
 
     // 3. Command Channel & Model Handshake
     var handshakeOk = false;
-    final client = existingClient ?? KeyenceSr751Client();
+    final client =
+        existingClient ?? KeyenceSr751Client(allowedCommands: allowedCommands);
     final shouldDisposeClient = existingClient == null;
 
     try {
-      if (socketOpen) {
+      if (socketOpen && !sendCommands) {
+        steps.add(
+          const CommissioningStep(
+            name: 'Command Channel Handshake',
+            passed: false,
+            details: 'Not checked: listen-only mode sends no commands to the reader.',
+            remediation: 'Allow the handshake command only after it is confirmed from the reader manual.',
+          ),
+        );
+      } else if (socketOpen) {
         final handshake = await client.connectAndVerify(
           targetHost: host,
           targetPort: port,
@@ -151,7 +163,7 @@ class KeyenceCommissioningService {
                 const CommissioningStep(
                   name: 'Reader Health Status',
                   passed: true,
-                  details: 'STAT query acknowledged (Normal operating status)',
+                  details: 'STAT command was sent; the reply was not checked',
                 ),
               );
             }
@@ -164,8 +176,8 @@ class KeyenceCommissioningService {
               name: 'Barcode Control Channel',
               passed: loffOk,
               details: loffOk
-                  ? 'Trigger and control command channel active'
-                  : 'Control command was not acknowledged',
+                  ? 'LOFF command was sent; the reply was not checked'
+                  : 'LOFF command was not sent (blocked or no connection)',
             ),
           );
         } else {

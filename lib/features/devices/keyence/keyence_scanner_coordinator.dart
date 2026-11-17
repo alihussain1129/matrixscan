@@ -268,6 +268,17 @@ class KeyenceScannerCoordinator extends Notifier<KeyenceCoordinatorState> {
   Future<List<DiscoveredKeyenceScanner>> discoverScanners({
     bool deepSweep = false,
   }) async {
+    if (!_client.canHandshake) {
+      state = state.copyWith(
+        discoveryStatus: DiscoveryStatus.completed,
+        discoveryMessage:
+            'Discovery is off in listen-only mode because it sends a probe '
+            'command to every address it tries. Enter the reader IP and port.',
+        discoveryProgress: 1.0,
+      );
+      return const [];
+    }
+
     state = state.copyWith(
       discoveryStatus: DiscoveryStatus.discovering,
       discoveryMessage: 'Initiating scanner discovery...',
@@ -320,6 +331,19 @@ class KeyenceScannerCoordinator extends Notifier<KeyenceCoordinatorState> {
     debugPrint(
       '[KEYENCE][COORDINATOR] Connecting to $host:$port (timeout: ${timeout.inSeconds}s)...',
     );
+
+    if (!_client.canHandshake) {
+      // Listen-only: open the TCP connection and send nothing. The reader is
+      // not verified, so this endpoint is not saved as a verified profile.
+      debugPrint(
+        '[KEYENCE][COORDINATOR] Listen-only: no commands are sent to $host:$port',
+      );
+      return _client.connect(
+        targetHost: host,
+        targetPort: port,
+        timeout: timeout,
+      );
+    }
 
     final handshake = await _client.connectAndVerify(
       targetHost: host,
@@ -415,6 +439,8 @@ class KeyenceScannerCoordinator extends Notifier<KeyenceCoordinatorState> {
       port: port,
       existingClient: state.isConnected ? _client : null,
       ftpReceiver: ftp,
+      sendCommands: _client.canHandshake,
+      allowedCommands: _client.allowedCommands,
     );
 
     state = state.copyWith(commissioningReport: report);
@@ -457,7 +483,9 @@ final keyenceScannerCoordinatorProvider =
 
 final keyenceScannerDiscoveryServiceProvider =
     Provider<KeyenceScannerDiscoveryService>((ref) {
-      final service = KeyenceScannerDiscoveryService();
+      final service = KeyenceScannerDiscoveryService(
+        probeEnabled: ref.read(keyenceSr751ClientProvider).canHandshake,
+      );
       ref.onDispose(service.dispose);
       return service;
     });
