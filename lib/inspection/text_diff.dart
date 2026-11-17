@@ -100,4 +100,5 @@ String describeDiff(FieldDiff d) => switch (d.kind) {
   DiffKind.extra => 'extra "${d.actualChar}" at position ${d.actualIndex + 1}',
 };
 
-String describeDiffs(List<FieldDiff> diffs) => diffs.map(describeDiff).join('; ');
+String describeDiffs(List<FieldDiff> diffs) =>
+    diffs.map(describeDiff).join('; ');

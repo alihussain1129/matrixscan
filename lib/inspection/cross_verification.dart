@@ -164,7 +164,17 @@ String _norm(String s, InspectionPolicy p) {
   return v;
 }
 
-String _fold(String s) => s.split('').map((c) => _lookAlikes[c] ?? c).join();
+String _trimmed(String s, InspectionPolicy p) =>
+    p.trimWhitespace ? s.trim() : s;
+
+/// Folds look-alike characters. When matching is case-insensitive, letters
+/// are folded regardless of case so "o" and "0" are still recognized.
+String _fold(String s, bool caseSensitive) => s.split('').map((c) {
+  if (c == 'l') return '1';
+  if (caseSensitive) return _lookAlikes[c] ?? c;
+  final u = c.toUpperCase();
+  return _lookAlikes[u] ?? u;
+}).join();
 
 String _iso(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-'
@@ -192,7 +202,9 @@ Comparison compareText({
         : const Comparison(Verdict.match, 'match');
   }
   final diffs = diffStrings(e, a);
-  if (policy.confusablesNeedReview && _fold(e) == _fold(a)) {
+  if (policy.confusablesNeedReview &&
+      _fold(_trimmed(expected, policy), policy.caseSensitive) ==
+          _fold(_trimmed(actual, policy), policy.caseSensitive)) {
     return Comparison(
       Verdict.review,
       'differs only by look-alike characters',
@@ -343,7 +355,9 @@ InspectionResult verifyInspection({
           bVsE = compareText(expected: e, actual: b, policy: policy);
           note(f, 'barcode vs expected:', bVsE);
         } else {
-          reasons.add('${f.name}: barcode does not carry it, but it is expected');
+          reasons.add(
+            '${f.name}: barcode does not carry it, but it is expected',
+          );
           hardFail = true;
         }
       }
@@ -384,6 +398,13 @@ InspectionResult verifyInspection({
         barcodeVsOcr: bVsO,
       ),
     );
+  }
+
+  if (gs1 == null && hasBarcode && exp.isEmpty && !hasOcr) {
+    reasons.add(
+      'Barcode was read but not verified: it is not GS1 and there is nothing to compare it against',
+    );
+    needsReview = true;
   }
 
   final outcome = hardFail
