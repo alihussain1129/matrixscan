@@ -43,37 +43,43 @@ void main() {
     expect(can(<String>{'KEYENCE'}), isTrue);
   });
 
-  test('the app default is listen-only', () {
+  test('the app default allows only documented safe commands', () {
     final c = ProviderContainer();
     addTearDown(c.dispose);
     final client = c.read(keyenceSr751ClientProvider);
-    expect(client.allowedCommands, isEmpty);
-    expect(client.canHandshake, isFalse);
+    expect(client.allowedCommands, containsAll(['KEYENCE', 'ERRSTAT', 'LON', 'LOFF']));
+    expect(client.allowedCommands, isNot(contains('RESET')));
+    expect(client.allowedCommands, isNot(contains('DFLT')));
+    expect(client.canHandshake, isTrue);
+    expect(c.read(keyenceScannerDiscoveryServiceProvider).probeEnabled, isTrue);
   });
 
   test(
-    'discovery built by the app connects to nothing and sends nothing',
+    'listen-only discovery opens TCP but sends no application bytes',
     () async {
       final c = ProviderContainer();
       addTearDown(c.dispose);
-      final service = c.read(keyenceScannerDiscoveryServiceProvider);
+      final service = KeyenceScannerDiscoveryService(probeEnabled: false);
+      addTearDown(service.dispose);
       expect(service.probeEnabled, isFalse);
       final found = await service.verifyEndpoint('127.0.0.1', server.port);
       await settle();
-      expect(found, isNull);
-      expect(connections, 0);
+      expect(found, isNotNull);
+      expect(found!.identity.manufacturer, 'Unverified');
+      expect(found.identity.model, contains('unverified'));
+      expect(connections, 1);
       expect(received, isEmpty);
     },
   );
 
-  test('control: an unrestricted discovery service does probe', () async {
+  test('documented discovery probe sends KEYENCE with CRLF', () async {
     final service = KeyenceScannerDiscoveryService();
     addTearDown(service.dispose);
     try {
       await service.verifyEndpoint('127.0.0.1', server.port);
     } catch (_) {}
     await settle();
-    expect(utf8.decode(received), 'KEYENCE\r');
+    expect(utf8.decode(received), 'KEYENCE\r\n');
   });
 
   test('commissioning without commands sends nothing', () async {

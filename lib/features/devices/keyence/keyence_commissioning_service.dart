@@ -131,7 +131,7 @@ class KeyenceCommissioningService {
             name: 'Command Channel Handshake',
             passed: false,
             details: 'Not checked: listen-only mode sends no commands to the reader.',
-            remediation: 'Allow the handshake command only after it is confirmed from the reader manual.',
+            remediation: 'Enable the documented KEYENCE identity command in the app allow-list, or keep this endpoint in connect-only mode.',
           ),
         );
       } else if (socketOpen) {
@@ -155,29 +155,28 @@ class KeyenceCommissioningService {
             ),
           );
 
-          // 4. Status Check (STAT)
+          // 4. Reader error-status check (ERRSTAT)
           try {
-            final statReply = await client.sendCommand('STAT');
+            final statReply = await client.sendCommand('ERRSTAT');
             if (statReply) {
               steps.add(
                 const CommissioningStep(
                   name: 'Reader Health Status',
                   passed: true,
-                  details: 'STAT command was sent; the reply was not checked',
+                  details: 'ERRSTAT command was sent; the reply was not checked',
                 ),
               );
             }
           } catch (_) {}
 
-          // 5. Test Illumination / Trigger Channel (LOFF safe command)
-          final loffOk = await client.stopRead();
+          // Do not send LON/LOFF during automatic commissioning: these are
+          // operational controls and could interrupt an active production read.
           steps.add(
-            CommissioningStep(
-              name: 'Barcode Control Channel',
-              passed: loffOk,
-              details: loffOk
-                  ? 'LOFF command was sent; the reply was not checked'
-                  : 'LOFF command was not sent (blocked or no connection)',
+            const CommissioningStep(
+              name: 'Barcode Trigger Control',
+              passed: false,
+              details: 'Not exercised automatically; use the operator trigger controls during a safe machine state.',
+              remediation: 'Verify trigger behavior with the line stopped and an operator present.',
             ),
           );
         } else {

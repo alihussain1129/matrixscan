@@ -207,9 +207,8 @@ class KeyenceSr751Client {
   final String defaultHost;
   final int defaultPort;
 
-  /// Command sent to check that the other end speaks the reader protocol.
-  /// Not verified against the SR-750 series manual: change it here, without
-  /// touching the rest of the client, once the documented command is known.
+  /// Documented SR-750/SR-751 model-identification command.
+  /// The manual specifies the response as `OK, KEYENCE, SR-***, version`.
   final String handshakeCommand;
 
   /// Command names this client may send (upper case, without arguments).
@@ -478,8 +477,9 @@ class KeyenceSr751Client {
     }
   }
 
-  /// Sends a raw command string to the Keyence reader, appending '\r' as required
-  /// by the Keyence protocol.
+  /// Sends an ASCII command using the SR-750 protocol framing. The manual
+  /// specifies CR as the command terminator with LF appended; responses end
+  /// with CR (no LF).
   Future<bool> sendCommand(String command) async {
     final allowed = allowedCommands;
     if (allowed != null && !allowed.contains(_commandName(command))) {
@@ -495,7 +495,11 @@ class KeyenceSr751Client {
     }
 
     try {
-      final formatted = command.endsWith('\r') ? command : '$command\r';
+      final formatted = command.endsWith('\r\n')
+          ? command
+          : command.endsWith('\r')
+          ? '$command\n'
+          : '$command\r\n';
       socket.write(formatted);
       await socket.flush();
       debugPrint('[KEYENCE][TX] $command');
@@ -650,46 +654,33 @@ class KeyenceSr751Client {
     }
 
     final trimmed = raw.trim();
-    if (!trimmed.startsWith('SR-') &&
-        !trimmed.toUpperCase().contains('KEYENCE') &&
-        !trimmed.toUpperCase().contains('SR-7')) {
+    final parts = trimmed.split(',').map((part) => part.trim()).toList();
+    if (parts.isNotEmpty && parts.first.toUpperCase().startsWith('ER')) {
       return KeyenceHandshakeResult.failure(
         errorMessage:
-            'Unexpected device signature: "$trimmed". Something is listening '
-            'on $host:$port, but it did not answer like a KEYENCE reader.',
+            'The reader at $host:$port rejected the $handshakeCommand query: $trimmed',
       );
     }
 
-    // An error reply such as "ER,KEYENCE,00" means the reader rejected the
-    // handshake command, so it must not be reported as a successful handshake.
-    if (trimmed.toUpperCase().startsWith('ER,')) {
+    // The SR-750 manual documents KEYENCE as an identity command and gives
+    // this response shape: OK, KEYENCE, SR-***, main-unit-system-version.
+    // Do not accept a generic TCP greeting or a bare occurrence of KEYENCE.
+    final isDocumentedIdentityReply =
+        parts.length >= 4 &&
+        parts[0].toUpperCase() == 'OK' &&
+        parts[1].toUpperCase() == 'KEYENCE' &&
+        _keyenceModelPattern.hasMatch(parts[2]);
+    if (!isDocumentedIdentityReply) {
       return KeyenceHandshakeResult.failure(
         errorMessage:
-            'The reader at $host:$port answered "$trimmed", which is an error '
-            'reply. TCP works, but the handshake command '
-            '"$handshakeCommand" was rejected.',
+            'Unexpected device signature: "$trimmed". The endpoint did not return the documented KEYENCE identity response.',
       );
     }
 
-    var model = _keyenceModelPattern.firstMatch(trimmed)?.group(0) ?? '';
-    String? fw;
-    String? sn;
-
-    if (trimmed.contains(',')) {
-      final parts = trimmed.split(',');
-      if (_keyenceModelPattern.hasMatch(parts[0])) {
-        model = parts[0].trim();
-        if (parts.length > 1 && parts[1].trim().isNotEmpty) {
-          fw = parts[1].trim();
-        }
-        if (parts.length > 2 && parts[2].trim().isNotEmpty) {
-          sn = parts[2].trim();
-        }
-      }
-    } else if (model.isEmpty) {
-      model = trimmed;
-    }
-    if (model.isEmpty) model = 'KEYENCE reader';
+    final model = _keyenceModelPattern.firstMatch(parts[2])!.group(0)!;
+    final fw = parts[3].isEmpty ? null : parts[3];
+    // The documented KEYENCE response does not include a serial number.
+    const String? sn = null;
 
     _detectedModel = model;
     _detectedFirmware = fw;
@@ -733,10 +724,12 @@ class KeyenceSr751Client {
 
     if (_scanController.isClosed) return;
 
-    // NOTE: every non-error line is still treated as a scan. Command replies
-    // (OK, model string, ...) need the official reply formats before they can
-    // be separated from barcode data.
-    final isErr = response.startsWith('ERROR') || response == 'NG';
+    // Preserve raw protocol lines for the adapter/coordinator classifier.
+    // KEYENCE `ER,...` replies are protocol errors, not decoded barcode data.
+    final isErr =
+        response.startsWith('ERROR') ||
+        response == 'NG' ||
+        response.toUpperCase().startsWith('ER,');
     final result = KeyenceScanResult(
       data: isErr ? '' : response,
       timestamp: DateTime.now(),
@@ -764,12 +757,12 @@ class KeyenceSr751Client {
   }
 }
 
-/// Commands the app-wide client may send. The empty set means listen-only:
-/// connect, receive, send nothing. Replace it with command names only after
-/// each one is confirmed from the KEYENCE SR-750 series manual.
+/// Commands the app-wide client may send. These are the documented,
+/// non-destructive identity/error queries and the user-invoked read trigger
+/// controls. Configuration-changing and unverified commands remain blocked.
 /// null = no restriction (tests only).
 final keyenceAllowedCommandsProvider = Provider<Set<String>?>(
-  (ref) => const <String>{},
+  (ref) => const <String>{'KEYENCE', 'ERRSTAT', 'LON', 'LOFF'},
 );
 
 final keyenceSr751ClientProvider = Provider<KeyenceSr751Client>((ref) {

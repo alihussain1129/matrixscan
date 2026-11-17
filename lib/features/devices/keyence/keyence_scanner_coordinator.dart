@@ -128,7 +128,7 @@ class KeyenceCoordinatorState {
 class KeyenceScannerCoordinator extends Notifier<KeyenceCoordinatorState> {
   KeyenceSr751Client get _client => ref.read(keyenceSr751ClientProvider);
   final KeyenceScannerDiscoveryService _discoveryService =
-      KeyenceScannerDiscoveryService();
+      KeyenceScannerDiscoveryService(probeEnabled: false);
   final KeyenceCommissioningService _commissioning =
       const KeyenceCommissioningService();
 
@@ -175,7 +175,12 @@ class KeyenceScannerCoordinator extends Notifier<KeyenceCoordinatorState> {
       final autoReconnect = sc.autoReconnect;
 
       _client.autoReconnect = autoReconnect;
-      _discoveryService.addCandidateHost(savedHost);
+      // The app allow-list contains the documented read-only KEYENCE identity
+      // command, so discovery can verify candidates rather than trusting an
+      // open TCP port. An explicitly empty allow-list keeps listen-only mode.
+      _discoveryService.probeEnabled = _client.canHandshake;
+      _discoveryService.setDefaultPort(savedPort);
+      _discoveryService.addCandidateHost(savedHost, port: savedPort);
 
       state = state.copyWith(
         host: savedHost,
@@ -185,22 +190,26 @@ class KeyenceScannerCoordinator extends Notifier<KeyenceCoordinatorState> {
         autoReconnect: autoReconnect,
       );
 
-      // Attempt fast automatic connection only if a saved host was persisted
-      if (autoConnect &&
-          hasSavedHost &&
-          !state.isConnected &&
-          !state.isConnecting) {
+      if (!autoConnect || state.isConnected || state.isConnecting) return;
+
+      // First verify the user's saved endpoint with the documented read-only
+      // identity query. If absent/unreachable, search the local Ethernet link.
+      if (hasSavedHost) {
         debugPrint(
-          '[KEYENCE][COORDINATOR] Auto-connecting to saved scanner at $savedHost:$savedPort...',
+          '[KEYENCE][COORDINATOR] Auto-connecting to saved endpoint $savedHost:$savedPort with documented KEYENCE identity verification...',
         );
-        unawaited(
-          connect(
-            targetHost: savedHost,
-            targetPort: savedPort,
-            timeout: const Duration(seconds: 3),
-          ),
+        final connected = await connect(
+          targetHost: savedHost,
+          targetPort: savedPort,
+          timeout: const Duration(seconds: 3),
         );
+        if (connected || !ref.mounted) return;
       }
+
+      debugPrint(
+        '[KEYENCE][COORDINATOR] No saved endpoint verified; starting automatic KEYENCE protocol discovery...',
+      );
+      await discoverScanners();
     } catch (e) {
       debugPrint('[KEYENCE][COORDINATOR] Error loading preferences: $e');
     }
@@ -268,17 +277,9 @@ class KeyenceScannerCoordinator extends Notifier<KeyenceCoordinatorState> {
   Future<List<DiscoveredKeyenceScanner>> discoverScanners({
     bool deepSweep = false,
   }) async {
-    if (!_client.canHandshake) {
-      state = state.copyWith(
-        discoveryStatus: DiscoveryStatus.completed,
-        discoveryMessage:
-            'Discovery is off in listen-only mode because it sends a probe '
-            'command to every address it tries. Enter the reader IP and port.',
-        discoveryProgress: 1.0,
-      );
-      return const [];
-    }
-
+    // Keep discovery mode aligned with the active client's allow-list even
+    // when the user starts discovery before persisted settings finish loading.
+    _discoveryService.probeEnabled = _client.canHandshake;
     state = state.copyWith(
       discoveryStatus: DiscoveryStatus.discovering,
       discoveryMessage: 'Initiating scanner discovery...',
@@ -286,7 +287,9 @@ class KeyenceScannerCoordinator extends Notifier<KeyenceCoordinatorState> {
     );
 
     final results = await _discoveryService.scanForScanners(
-      includeSubnetSweep: deepSweep,
+      // Direct Ethernet connections often have no ARP entry until the first
+      // packet. Always include the Ethernet subnet candidate sweep.
+      includeSubnetSweep: true,
     );
 
     state = state.copyWith(
@@ -297,16 +300,33 @@ class KeyenceScannerCoordinator extends Notifier<KeyenceCoordinatorState> {
       discoveryProgress: 1.0,
     );
 
-    // If an undiscovered scanner was found and we are currently disconnected, select it
-    if (results.isNotEmpty && !state.isConnected) {
+    // Automatically connect to the first candidate that passed the exact
+    // documented KEYENCE identity response check (or connect-only when the
+    // app is explicitly configured with an empty command allow-list).
+    if (results.isNotEmpty && !state.isConnected && !state.isConnecting) {
       final first = results.first;
-      state = state.copyWith(
-        host: first.identity.ipAddress ?? state.host,
-        port: first.identity.port ?? state.port,
-        model: first.identity.model,
-        firmware: first.identity.firmwareVersion,
-        serialNumber: first.identity.serialNumber,
-      );
+      final host = first.identity.ipAddress;
+      final port = first.identity.port;
+      if (host != null && port != null) {
+        state = state.copyWith(
+          host: host,
+          port: port,
+          model: first.identity.model,
+          firmware: first.identity.firmwareVersion,
+          serialNumber: first.identity.serialNumber,
+        );
+        final connected = await connect(
+          targetHost: host,
+          targetPort: port,
+          timeout: const Duration(seconds: 3),
+        );
+        if (connected && !_client.canHandshake) {
+          state = state.copyWith(
+            discoveryMessage:
+                'TCP connected to $host:$port. Device identity is unverified; no commands were sent.',
+          );
+        }
+      }
     }
 
     return results;
@@ -419,8 +439,8 @@ class KeyenceScannerCoordinator extends Notifier<KeyenceCoordinatorState> {
   /// Triggers buzzer beep ('BEEP').
   Future<bool> beep() => _client.beep();
 
-  /// Hardware status check ('STAT').
-  Future<bool> queryStatus() => _client.sendCommand('STAT');
+  /// Read-only reader error-status query documented by KEYENCE.
+  Future<bool> queryStatus() => _client.sendCommand('ERRSTAT');
 
   /// Requests FTP image upload ('FTPOUT').
   Future<bool> requestFtpImage() => _client.requestFtpImage();
