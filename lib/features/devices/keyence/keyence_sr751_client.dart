@@ -174,6 +174,7 @@ class KeyenceSr751Client {
     this.defaultHost = '192.168.100.100',
     this.defaultPort = 9004,
     this.handshakeCommand = 'KEYENCE',
+    this.allowedCommands,
     List<int>? receiveTerminator,
     this.reconnectBaseDelay = const Duration(seconds: 1),
     this.reconnectMaxDelay = const Duration(seconds: 16),
@@ -210,6 +211,17 @@ class KeyenceSr751Client {
   /// Not verified against the SR-750 series manual: change it here, without
   /// touching the rest of the client, once the documented command is known.
   final String handshakeCommand;
+
+  /// Command names this client may send (upper case, without arguments).
+  /// null = no restriction. An empty set sends nothing (listen-only).
+  /// Allowing "PRG" allows every program number.
+  final Set<String>? allowedCommands;
+
+  /// Names of commands refused by [allowedCommands] (first 50), for diagnostics.
+  final List<String> blockedCommands = <String>[];
+
+  static String _commandName(String command) =>
+      command.trim().split(',').first.trim().toUpperCase();
   final Duration reconnectBaseDelay;
   final Duration reconnectMaxDelay;
 
@@ -412,9 +424,7 @@ class KeyenceSr751Client {
         return;
       }
       if (_verificationRequired) {
-        unawaited(
-          connectAndVerify(targetHost: host, targetPort: port),
-        );
+        unawaited(connectAndVerify(targetHost: host, targetPort: port));
       } else {
         unawaited(connect());
       }
@@ -465,6 +475,14 @@ class KeyenceSr751Client {
   /// Sends a raw command string to the Keyence reader, appending '\r' as required
   /// by the Keyence protocol.
   Future<bool> sendCommand(String command) async {
+    final allowed = allowedCommands;
+    if (allowed != null && !allowed.contains(_commandName(command))) {
+      debugPrint('[KEYENCE][TX] BLOCKED, not in the allowed list: $command');
+      if (blockedCommands.length < 50) {
+        blockedCommands.add(_commandName(command));
+      }
+      return false;
+    }
     final socket = _socket;
     if (socket == null || !_canSend) {
       return false;
