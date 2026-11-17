@@ -112,7 +112,9 @@ void main() {
 
     test('century window around 2026', () {
       expect(parseGs1Date('270924', now: _now)!.year, 2027);
-      expect(parseGs1Date('760101', now: _now)!.year, 1976);
+      // GS1 documents: 49 years back to 50 years ahead.
+      expect(parseGs1Date('760101', now: _now)!.year, 2076);
+      expect(parseGs1Date('770101', now: _now)!.year, 1977);
       expect(parseGs1Date('750101', now: _now)!.year, 2075);
     });
 

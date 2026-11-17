@@ -88,9 +88,9 @@ int _daysIn(int year, int month) => DateTime(year, month + 1, 0).day;
 
 /// Parses YYMMDD. Returns null when it is not a real date.
 ///
-/// UNVERIFIED against the GS1 General Specifications (written from memory):
-/// day 00 = end of month, and the century is chosen so the year lies within
-/// 50 years back or 49 years ahead of [now].
+/// Day 00 = end of month (GS1 General Specifications). The century is chosen
+/// so the year lies within 49 years back or 50 years ahead of [now], the range
+/// GS1 documents state. Section 7.12 itself has not been read line by line.
 Gs1Date? parseGs1Date(String yymmdd, {DateTime? now}) {
   if (yymmdd.length != 6 || !RegExp(r'^[0-9]{6}$').hasMatch(yymmdd)) {
     return null;
@@ -101,9 +101,9 @@ Gs1Date? parseGs1Date(String yymmdd, {DateTime? now}) {
   final day = int.parse(yymmdd.substring(4, 6));
 
   var year = today.year ~/ 100 * 100 + yy;
-  if (year - today.year > 49) {
+  if (year - today.year > 50) {
     year -= 100;
-  } else if (today.year - year > 50) {
+  } else if (today.year - year > 49) {
     year += 100;
   }
 
