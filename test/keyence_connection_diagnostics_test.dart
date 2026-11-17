@@ -91,6 +91,7 @@ void main() {
         targetHost: '127.0.0.1',
         targetPort: silent.port,
         timeout: const Duration(seconds: 1),
+        handshakeTimeout: const Duration(milliseconds: 120),
       );
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
@@ -148,6 +149,36 @@ void main() {
           KeyenceConnectionStatus.connected,
         ]),
       );
+    });
+
+    test('re-verifies the reader after an established socket drops', () async {
+      final sim = await KeyenceSr751Simulator.start();
+      addTearDown(sim.close);
+      final reconnecting = KeyenceSr751Client(
+        reconnectBaseDelay: const Duration(milliseconds: 20),
+        reconnectMaxDelay: const Duration(milliseconds: 40),
+      );
+      addTearDown(reconnecting.dispose);
+
+      final first = await reconnecting.connectAndVerify(
+        targetHost: sim.address.address,
+        targetPort: sim.port,
+        timeout: const Duration(seconds: 1),
+      );
+      expect(first.success, isTrue);
+      expect(sim.receivedCommands.where((c) => c == 'KEYENCE').length, 1);
+
+      sim.disconnectClients();
+      final deadline = DateTime.now().add(const Duration(seconds: 2));
+      while (DateTime.now().isBefore(deadline) &&
+          (sim.receivedCommands.where((c) => c == 'KEYENCE').length < 2 ||
+              reconnecting.status != KeyenceConnectionStatus.connected)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(sim.receivedCommands.where((c) => c == 'KEYENCE').length, 2);
+      expect(reconnecting.status, KeyenceConnectionStatus.connected);
+      expect(reconnecting.detectedModel, 'SR-751');
     });
 
     test('an error reply is not a successful handshake', () async {

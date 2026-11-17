@@ -276,6 +276,7 @@ class KeyenceSr751Client {
   Timer? _reconnectTimer;
   bool _explicitDisconnect = false;
   bool _disposed = false;
+  bool _verificationRequired = false;
   int _connectGen = 0;
 
   /// True between "TCP socket open" and "reader answered the handshake". The
@@ -345,8 +346,11 @@ class KeyenceSr751Client {
     _framer.reset();
     _reconnectAttempts = 0;
     _connectedAt = _clock();
-    _awaitingVerification = verifyPending;
-    if (!verifyPending) _setStatus(KeyenceConnectionStatus.connected);
+    final pendingVerification = verifyPending || _verificationRequired;
+    _awaitingVerification = pendingVerification;
+    if (!pendingVerification) {
+      _setStatus(KeyenceConnectionStatus.connected);
+    }
 
     _socketSub = socket.listen(
       _onDataReceived,
@@ -407,7 +411,13 @@ class KeyenceSr751Client {
           _status == KeyenceConnectionStatus.connected) {
         return;
       }
-      unawaited(connect());
+      if (_verificationRequired) {
+        unawaited(
+          connectAndVerify(targetHost: host, targetPort: port),
+        );
+      } else {
+        unawaited(connect());
+      }
     });
   }
 
@@ -440,6 +450,8 @@ class KeyenceSr751Client {
   /// Disconnects from the reader and stops automatic reconnection.
   Future<void> disconnect() async {
     _explicitDisconnect = true;
+    _verificationRequired = false;
+    _awaitingVerification = false;
     _connectGen++;
     _cancelReconnectTimer();
     _flapPenalty = 0;
@@ -507,7 +519,9 @@ class KeyenceSr751Client {
     String? targetHost,
     int? targetPort,
     Duration timeout = const Duration(seconds: 4),
+    Duration handshakeTimeout = const Duration(milliseconds: 1500),
   }) async {
+    _verificationRequired = true;
     final sw = Stopwatch()..start();
     final connected = await connect(
       targetHost: targetHost,
@@ -534,9 +548,7 @@ class KeyenceSr751Client {
     }
 
     final handshakeSw = Stopwatch()..start();
-    final info = await queryDeviceInfo(
-      timeout: const Duration(milliseconds: 1500),
-    );
+    final info = await queryDeviceInfo(timeout: handshakeTimeout);
     final handshakeTime = handshakeSw.elapsedMilliseconds;
     _lastHandshakeTimeMs = handshakeTime;
     _lastTotalConnectionTimeMs = sw.elapsedMilliseconds;
@@ -574,12 +586,24 @@ class KeyenceSr751Client {
       );
     }
 
+    if (_pendingQueryCompleter != null) {
+      return KeyenceHandshakeResult.failure(
+        errorMessage: 'Another reader query is already waiting for a response.',
+      );
+    }
+
     final completer = Completer<String>();
+    // Socket teardown may complete this with an error while sendCommand is
+    // still flushing. Attach an error observer immediately; the original
+    // future remains awaitable below and still propagates the failure.
+    unawaited(completer.future.catchError((Object _) => ''));
     _pendingQueryCompleter = completer;
 
     final sent = await sendCommand(handshakeCommand);
     if (!sent) {
-      _pendingQueryCompleter = null;
+      if (identical(_pendingQueryCompleter, completer)) {
+        _pendingQueryCompleter = null;
+      }
       return KeyenceHandshakeResult.failure(
         errorMessage: 'Failed to transmit $handshakeCommand query',
       );
@@ -588,14 +612,16 @@ class KeyenceSr751Client {
     final String raw;
     try {
       raw = await completer.future.timeout(timeout);
-    } catch (e) {
-      _pendingQueryCompleter = null;
+    } catch (_) {
+      if (identical(_pendingQueryCompleter, completer)) {
+        _pendingQueryCompleter = null;
+      }
       return KeyenceHandshakeResult.failure(
         errorMessage:
             'TCP connected to $host:$port, but the reader gave no reply to '
             '"$handshakeCommand" within ${timeout.inMilliseconds} ms. Check '
-            'the port number and that the reader\'s Ethernet communication '
-            'setting is enabled.',
+            'the command-port interface, port number, and documented reader '
+            'command protocol.',
       );
     }
 
