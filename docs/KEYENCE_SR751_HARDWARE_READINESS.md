@@ -1,82 +1,115 @@
 # KEYENCE SR-751 hardware readiness
 
-Labels: [REPO] read from Exalted's code. [GUIDE] claimed by
-docs/KEYENCE_SR751_GUIDE.md, not checked against the official manual.
-[CONFIRM] must be read from the SR-750 series manual or the reader itself.
-[ASSUMED] a reasonable guess, unverified. Nothing here has been tested on a
-physical reader.
+Labels: [CODE] read from this Exalted source snapshot. [MANUAL] supported by the
+SR-750 Series User's Manual (Rev. 8.0; applies to SR-751). [VERIFY] must be
+confirmed on the actual reader because its current configuration is unknown.
+Nothing in this document claims a physical SR-751 test has passed.
 
 ## First-contact rules
-- Read-only. No reset, no IP change, no mode change, no program (PRG) change,
-  no "Send Configuration", no overwriting of settings.
-- Send no command to the reader until its exact form is confirmed from the manual.
-- Back up the reader's current configuration before anyone changes anything.
+- Do not reset the reader, change its IP, change operating mode, alter banks,
+  send configuration, or overwrite reader settings automatically.
+- Discovery may send only the documented read-only `KEYENCE` identity query.
+- `LON` and `LOFF` are documented operational controls, but are sent only after
+  an explicit operator action. Automatic commissioning must not trigger or
+  stop a production read.
+- Back up the reader's current configuration before any user-approved change.
 
 ## 1. Power and Ethernet
-- [GUIDE] 24 VDC (+/-10%) through the I/O cable. [CONFIRM] supply current, I/O
-  cable pinout and part number. Use a regulated supply, not a PC port.
-- [GUIDE] M12 D-coded Ethernet. [CONFIRM] connector type and link speed.
-- [ASSUMED] A direct PC-to-reader cable works; a small unmanaged switch on an
-  isolated network is the safer first setup.
+- [MANUAL] SR-751 supports 10BASE-T/100BASE-TX and PoE Type A/B. The control
+  port can alternatively be powered at 24 VDC ±10%; do not apply both power
+  methods simultaneously.
+- [MANUAL] Ethernet defaults: `192.168.100.100`, subnet
+  `255.255.255.0` (`/24`), gateway `0.0.0.0`.
+- [MANUAL] Holding TUNE for at least 5 seconds enters temporary IP-address
+  setting mode.
+- [VERIFY] Confirm the unit's actual power method, link LEDs, IP and subnet.
+  Do not change the PC's main network configuration automatically.
 
-## 2. Finding the reader's IP address (read-only)
-1. [CONFIRM] Read it from the unit's label, display, or the person who set it up.
-2. Watch passively while the cable is plugged in:
-   `sudo tcpdump -i <interface> -n arp`, then `ip neigh`.
-3. [CONFIRM] Open KEYENCE's configuration software and only view the settings.
-4. [GUIDE] The guide names 192.168.100.100 as a default. [CONFIRM] before relying on it.
-5. Do not port-scan. Do not change the PC's main address. If the PC must share
-   the reader's subnet, add a temporary secondary address on the PC only
-   (`sudo ip addr add <addr>/<mask> dev <interface>`, undo with `ip addr del`).
+## 2. TCP command and barcode-data link
+- [MANUAL] Socket communication uses TCP.
+- [MANUAL] Command Port and Data Port 1 have factory-default port `9004`.
+  They can share the port when configured that way, or be assigned different
+  ports. Command Port is server-only; Data Port 1 supports server/client mode.
+- [MANUAL] Important: Command Port and Data Port 1 interfaces default to
+  RS-232C. Ethernet must be selected in Communication 2 before TCP command or
+  barcode-data communication can work.
+- [MANUAL] `KEYENCE` is the read-only model/version identity command. Expected
+  response: `OK, KEYENCE, SR-***, <main-unit-system-version>`. This response
+  does not include a serial number.
+- [MANUAL] The default command header/terminator is no header / CR. Responses
+  use the same framing as the command. Exalted sends CR-only commands and
+  accepts CR, LF or CRLF response line endings. Default read-data header is none and
+  default read-data terminator is CR.
+- [MANUAL] `LON` / `LOFF` are timing ON/OFF controls. `ERRSTAT` obtains the
+  reader error status. `SAVE`, `WN`, and `RN` are documented configuration
+  commands; Exalted does not send configuration commands automatically.
+- [CODE] Default app allow-list permits only `KEYENCE`, `ERRSTAT`, `LON`, and
+  `LOFF`. `LON`/`LOFF` are available only through explicit operator controls.
+  Unverified commands remain blocked; CR/LF injection is rejected.
+- [CODE] Command Port and Data Port 1 are now separate settings. When the ports
+  differ, Exalted opens a second listen-only TCP connection to Data Port 1 and
+  routes barcode messages from that connection. When they match, one connection
+  is reused. No commands are sent on the data connection.
+- [CODE] The supported Data Port 1 topology is reader-as-server (Exalted
+  connects to the reader). Reader-as-client mode is not implemented.
+- [CODE] Discovery checks saved endpoints, the documented default address,
+  ARP neighbours, and private IPv4 Ethernet `/24` candidates on the configured
+  command port. It verifies candidates using the exact `KEYENCE` response
+  shape. An explicitly empty allow-list retains connect-only mode.
+- [VERIFY] The actual command/data port, interface mode, data output format,
+  header/terminator and whether both channels share one port must be checked
+  on the reader.
+- [LIMIT] The current automatic sweep assumes `/24` and recognises Ethernet
+  interfaces by common interface-name prefixes. It may miss non-`/24` networks
+  or interfaces with unusual names. Windows and Linux physical discovery still
+  need runtime validation.
 
-## 3. TCP command and barcode-data link
-- [REPO] Exalted is the TCP client. Host and port come from the device
-  identity; there is no built-in default. 9004 is only a suggestion.
-- [GUIDE] Reader is a TCP server on 9004 with a CR delimiter.
-- [CONFIRM] Server or client mode, port, delimiter, header/footer, whether
-  data and commands share one port, the command list and every reply format.
-- [REPO] `receiveTerminator` (CR, LF, CRLF) is a device setting; unset accepts
-  all three.
-- [REPO] Commands present in code but unverified: LON, LOFF, T1, T2, PRG,
-  FTPOUT, BEEP, KEYENCE, STAT, RESET.
-- [REPO] Replies are classified by `Sr751ReplyProfile`. The default profile
-  treats every non-error line as barcode data; command replies cannot be
-  separated until real reply formats are configured.
+## 3. FTP image transfer: implementation corrected; hardware still unverified
+- [MANUAL] The SR-750 supports FTP client and FTP server operation. Its FTP
+  service port is listed as `21`; active FTP data uses port `20`. Passive mode
+  is a configurable reader setting and defaults to disabled.
+- [MANUAL] The reader's FTP client defaults to username/password `admin` /
+  `admin`. FTP server mode on the reader is documented as anonymous, with up
+  to two simultaneous connections.
+- [CODE] Exalted's embedded receiver supports authenticated `USER`/`PASS`,
+  binary `TYPE I`, `PORT` active-mode negotiation, `PASV`, and `STOR`. Active
+  mode only accepts the control peer's IP and an ephemeral advertised client
+  data port. The outgoing active data socket requests local source port `20`.
+- [CODE] The default FTP control/listener port is now `21`, matching the manual.
+  The listener port is configurable in Settings > FTP Receiver. The reader's
+  default remote directory (`image`) is accepted as a safe virtual FTP folder;
+  uploaded files still go to Exalted-managed media storage.
+- [VERIFY] Image upload is still NOT hardware-ready. Verify that the OS permits
+  binding local ports 20 and 21, that the scanner is configured with the PC's
+  correct FTP destination address and credentials, and that a real image upload
+  succeeds. On Linux, privileged-port binding may require a narrowly scoped
+  `CAP_NET_BIND_SERVICE`; do not run Exalted as root. Android app sandbox
+  restrictions may prevent this configuration. The receiver refuses to start
+  without configured credentials.
+- [CODE] Image/barcode pairing by arrival order is not a verified transaction
+  correlation mechanism. A stable device-side identifier or timing protocol
+  is still required for reliable production traceability.
 
-## 4. FTP image transfer
-- [REPO] The receiver listens on 2121 on all IPv4 interfaces. It supports
-  USER/PASS, PASV, STOR, TYPE, QUIT. PORT is not implemented, although the
-  guide lists it. Allowed extensions: jpg, jpeg, png, bmp, tif, tiff. Upload
-  cap is 20 MB. Data connections must come from the control client's IP.
-- [REPO] The default provider sets no credentials, so any login is accepted.
-  Credential storage needs a decision (secure-storage dependency).
-- [REPO] Passive data ports are chosen by the OS, so a firewall rule needs a
-  fixed port range (not implemented).
-- [GUIDE] The reader logs in as exalted/exalted, directory "/".
-- [CONFIRM] Passive or active mode, file naming, when it sends (on read, on
-  failure), image format, and whether any field links an image to its read.
-  Without such a link, pairing a barcode with an image by arrival time is a guess.
+## 4. Configuration software
+- KEYENCE's official SR-750 support portal lists the User's Manual, Additional
+  Function Manual, Script Reference and Instruction Manual. AutoID Network
+  Navigator may be used for initial configuration, but it is not required as
+  an Exalted runtime dependency.
+- Use the configuration software to inspect and export current settings first.
+  Do not transmit changed settings until they have been reviewed and backed up.
 
-## 5. Configuration software
-- [GUIDE] "AutoID Navigator". [CONFIRM] exact product name, version, and
-  operating system support for the SR-750 series. [ASSUMED] it is
-  Windows-only, so a Windows machine on the reader's network may be needed.
-- Use it to view and export the current configuration first.
+## 5. Test ladder
+- G0 Offline: simulator tests only. This is not physical hardware evidence.
+- G1 Power/link: confirm power method and Ethernet link LEDs.
+- G2 Network: confirm actual reader IP/subnet and same-subnet PC route.
+- G3 Identity: verify TCP connection and the documented `KEYENCE` response.
+- G4 Data: configure Data Port 1 as Ethernet and verify a real barcode arrives
+  with the configured header/terminator.
+- G5 Controls: test `LON` and `LOFF` only in a safe machine state with an
+  operator present.
+- G6 FTP: first resolve active/passive mode and port compatibility, then test
+  one real image upload and inspect its bytes/file format.
+- G7 Pipeline: verify barcode/image correlation, OCR/OCV and durable history.
 
-## 6. RS-232C (later, design only)
-- Add a small transport interface (open, close, write bytes, bytes stream).
-  The TCP client becomes one implementation, serial another.
-- Reuse `MessageFramer`, `Sr751MessageClassifier` and the adapter unchanged.
-- [CONFIRM] baud rate, data bits, parity, stop bits, flow control, delimiter.
-- A serial package is a new dependency and needs approval first.
-
-## 7. Test ladder
-- G0 Offline: simulated loopback tests only (done; not hardware evidence).
-- G1 Power and link light only. Nothing sent.
-- G2 IP discovery (section 2).
-- G3 Connect-only capture: connect, send nothing, log timestamped bytes
-  (hex and text). Trigger reads with the reader's own trigger.
-- G4 First command, only after it is confirmed from the manual, one at a time.
-- G5 FTP image transfer, after the reader's FTP settings are set by the user
-  in the configuration software.
-- G6 Full pipeline.
+Physical SR-751 connection, barcode delivery, reconnect, and image transfer
+remain unverified until the above steps are completed on the actual unit.

@@ -31,7 +31,7 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
     with SingleTickerProviderStateMixin {
   final TextEditingController _hostController = TextEditingController();
   final TextEditingController _portController = TextEditingController();
-  final TextEditingController _ftpPortController = TextEditingController();
+  final TextEditingController _dataPortController = TextEditingController();
   final TextEditingController _ocvPatternController = TextEditingController(
     text: r'LOT-[A-Z0-9]+',
   );
@@ -46,7 +46,7 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
     final sc = ref.read(configControllerProvider).scanner;
     _hostController.text = sc.host;
     _portController.text = sc.port.toString();
-    _ftpPortController.text = sc.ftpReceiverPort.toString();
+    _dataPortController.text = sc.dataPort?.toString() ?? '';
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _startFtpServer();
       final coord = ref.read(keyenceScannerCoordinatorProvider);
@@ -59,7 +59,7 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
   void dispose() {
     _hostController.dispose();
     _portController.dispose();
-    _ftpPortController.dispose();
+    _dataPortController.dispose();
     _ocvPatternController.dispose();
     super.dispose();
   }
@@ -89,14 +89,20 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
         username: scannerConfig.ftpUsername,
         password: password,
       );
-      final port =
-          int.tryParse(_ftpPortController.text) ??
-          scannerConfig.ftpReceiverPort;
-      final started = await ftp.start(listenPort: port);
+      final started = await ftp.start(
+        listenPort: scannerConfig.ftpReceiverPort,
+      );
       if (!started) {
-        debugPrint(
-          '[KEYENCE][FTP] Receiver not started. Set a username and password in Settings.',
-        );
+        final reason = ftp.lastStartError ?? 'Unknown FTP startup error';
+        debugPrint('[KEYENCE][FTP] Receiver not started: $reason');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('FTP receiver could not start: $reason'),
+              backgroundColor: AppColors.errorRed,
+            ),
+          );
+        }
       }
     }
   }
@@ -109,11 +115,30 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
       await coordinator.disconnect();
     } else {
       final host = _hostController.text.trim();
-      final port = int.tryParse(_portController.text.trim()) ?? 9004;
+      final port = int.tryParse(_portController.text.trim());
+      final dataPortText = _dataPortController.text.trim();
+      final dataPort = dataPortText.isEmpty ? port : int.tryParse(dataPortText);
+      if (host.isEmpty ||
+          port == null ||
+          port < 1 ||
+          port > 65535 ||
+          dataPort == null ||
+          dataPort < 1 ||
+          dataPort > 65535) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Enter a valid scanner IP, command port, and Data Port 1 (1–65535).',
+            ),
+          ),
+        );
+        return;
+      }
 
       final success = await coordinator.connect(
         targetHost: host,
         targetPort: port,
+        targetDataPort: dataPort,
       );
       if (mounted && !success) {
         final err = ref.read(keyenceScannerCoordinatorProvider).lastError;
@@ -132,8 +157,13 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
 
   Future<void> _runCommissioningDialog() async {
     setState(() => _isTesting = true);
-    final host = _hostController.text.trim();
-    final port = int.tryParse(_portController.text.trim()) ?? 9004;
+    final current = ref.read(keyenceScannerCoordinatorProvider);
+    final host = current.isConnected
+        ? current.host
+        : _hostController.text.trim();
+    final port = current.isConnected
+        ? current.port
+        : (int.tryParse(_portController.text.trim()) ?? 9004);
     final report = await ref
         .read(keyenceScannerCoordinatorProvider.notifier)
         .runCommissioning(targetHost: host, targetPort: port);
@@ -159,8 +189,8 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
               const SizedBox(width: AppSpacing.sm),
               Text(
                 report.overallReady
-                    ? 'Commissioning Verified'
-                    : 'Commissioning Attention Required',
+                    ? 'Command Channel Verified'
+                    : 'Command Channel Needs Attention',
                 style: const TextStyle(fontSize: 16),
               ),
             ],
@@ -173,8 +203,8 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Evaluated Keyence SR reader at $host:$port across physical network, '
-                    'command socket, trigger channels, and FTP image transfer.',
+                    'This non-destructive check verifies TCP reachability and the KEYENCE identity response at $host:$port. '
+                    'It does not verify Data Port 1 barcode delivery, trigger operation, or a real FTP image upload.',
                     style: Theme.of(ctx).textTheme.bodySmall,
                   ),
                   const SizedBox(height: AppSpacing.md),
@@ -423,10 +453,20 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
                       const SizedBox(height: 2),
                       Text(
                         isConnected
-                            ? 'Endpoint: ${state.host}:${state.port} · TCP Unicast'
+                            ? 'Command: ${state.host}:${state.port} · Data Port 1: ${state.dataPort}'
                             : 'Factory Default: 192.168.100.100:9004',
                         style: text.bodySmall?.copyWith(color: colors.muted),
                       ),
+                      if (state.status == KeyenceConnectionStatus.error &&
+                          state.lastError != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          state.lastError!,
+                          style: text.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -450,6 +490,17 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
             ),
             const SizedBox(height: AppSpacing.md),
             const Divider(),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              state.dataChannelConnected
+                  ? 'Data Port 1 connected'
+                  : 'Data Port 1: ${state.dataChannelError ?? state.dataChannelStatus.name}',
+              style: text.bodySmall?.copyWith(
+                color: state.dataChannelConnected
+                    ? colors.valid
+                    : colors.warning,
+              ),
+            ),
             const SizedBox(height: AppSpacing.md),
             // Diagnostic Telemetry Row
             Row(
@@ -572,7 +623,7 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Locate and verify your Keyence SR-751 on Ethernet or Wi-Fi',
+                        'Locate and verify your Keyence SR-751 on the local Ethernet network',
                         style: text.bodySmall?.copyWith(color: colors.muted),
                       ),
                     ],
@@ -664,7 +715,7 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
                       Expanded(
                         child: Text(
                           state.isDiscovering
-                              ? 'Probing ARP neighbors, local subnets, and standard ports...'
+                              ? 'Probing saved endpoints, ARP neighbours, and private Ethernet /24 candidates...'
                               : 'No scanners discovered yet. Connect Ethernet cable and tap "Scan for Scanners".',
                           style: text.bodySmall?.copyWith(color: colors.muted),
                         ),
@@ -706,7 +757,7 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
                     child: TextField(
                       controller: _portController,
                       decoration: const InputDecoration(
-                        labelText: 'TCP Port',
+                        labelText: 'Command Port',
                         hintText: '9004',
                         prefixIcon: Icon(Icons.tag, size: 18),
                       ),
@@ -722,6 +773,21 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
                 ],
               ),
               const SizedBox(height: AppSpacing.sm),
+              TextField(
+                controller: _dataPortController,
+                decoration: const InputDecoration(
+                  labelText: 'Data Port 1 (leave blank to use command port)',
+                  hintText: 'same as command',
+                  prefixIcon: Icon(Icons.input, size: 18),
+                ),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Reader setup: set Command Port and Data Port 1 interfaces to Ethernet, Command Port framing to None / CR, and Data Port 1 Remote IP to 0.0.0.0 (server mode).',
+                style: text.bodySmall?.copyWith(color: colors.muted),
+              ),
+              const SizedBox(height: AppSpacing.sm),
               Wrap(
                 spacing: AppSpacing.xs,
                 children: [
@@ -731,6 +797,7 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
                       const d = ScannerConfig();
                       _hostController.text = d.host;
                       _portController.text = d.port.toString();
+                      _dataPortController.clear();
                     },
                   ),
                   ActionChip(
@@ -738,6 +805,7 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
                     onPressed: () {
                       _hostController.text = '192.168.100.101';
                       _portController.text = '9004';
+                      _dataPortController.clear();
                     },
                   ),
                   ActionChip(
@@ -805,14 +873,10 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
                 value: state.autoConnectOnStartup,
                 onChanged: (v) => coordNotifier.setAutoConnectOnStartup(v),
               ),
-              TextField(
-                controller: _ftpPortController,
-                decoration: const InputDecoration(
-                  labelText: 'CMOS Image FTP Port',
-                  hintText: '2121',
-                  prefixIcon: Icon(Icons.camera_alt_outlined, size: 18),
-                ),
-                keyboardType: TextInputType.number,
+              Text(
+                'FTP listener port and credentials are managed in Settings → FTP Receiver. '
+                'The SR-750 default service port is 21.',
+                style: text.bodySmall?.copyWith(color: colors.muted),
               ),
             ],
           ],
@@ -861,7 +925,7 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
                   ),
                 ),
                 Text(
-                  '$host:$port · FW: ${disc.identity.firmwareVersion ?? "V2.30"} · SN: ${disc.identity.serialNumber ?? "Unknown"} (${disc.responseTimeMs}ms)',
+                  '$host:$port · FW: ${disc.identity.firmwareVersion ?? "Not reported"} · SN: ${disc.identity.serialNumber ?? "Unknown"} (${disc.responseTimeMs}ms)',
                   style: text.bodySmall?.copyWith(
                     fontSize: 11,
                     color: colors.muted,
@@ -941,29 +1005,25 @@ class _KeyenceDeviceScreenState extends ConsumerState<KeyenceDeviceScreen>
                 ),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.tune, size: 16),
-                  label: const Text('Test Trigger (T1)'),
-                  onPressed: isConnected
-                      ? () => coordNotifier.triggerT1()
-                      : null,
+                  label: const Text('Test Trigger (not verified)'),
+                  onPressed: null,
                 ),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.volume_up, size: 16),
-                  label: const Text('Buzzer (BEEP)'),
-                  onPressed: isConnected ? () => coordNotifier.beep() : null,
+                  label: const Text('Buzzer (not verified)'),
+                  onPressed: null,
                 ),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.health_and_safety, size: 16),
-                  label: const Text('Health (STAT)'),
+                  label: const Text('Reader Health (ERRSTAT)'),
                   onPressed: isConnected
                       ? () => coordNotifier.queryStatus()
                       : null,
                 ),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.camera_alt_outlined, size: 16),
-                  label: const Text('Request Frame (FTPOUT)'),
-                  onPressed: isConnected
-                      ? () => coordNotifier.requestFtpImage()
-                      : null,
+                  label: const Text('Request Frame (FTP setup required)'),
+                  onPressed: null,
                 ),
               ],
             ),

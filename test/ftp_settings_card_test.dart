@@ -56,6 +56,15 @@ void main() {
     );
   });
 
+  testWidgets('FTP listener port is saved to scanner config', (t) async {
+    final store = InMemorySecretStore();
+    final c = await pump(t, store);
+    await t.enterText(find.byKey(const Key('ftp-port')), '2121');
+    await t.tap(find.byKey(const Key('ftp-save')));
+    await t.pumpAndSettle();
+    expect(c.read(configControllerProvider).scanner.ftpReceiverPort, 2121);
+  });
+
   testWidgets('password goes to the vault, never into config', (t) async {
     final store = InMemorySecretStore();
     final c = await pump(t, store);

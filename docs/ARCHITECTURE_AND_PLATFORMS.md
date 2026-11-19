@@ -116,18 +116,23 @@ Exalted distinguishes itself from simple OCR utilities by featuring a determinis
 
 Exalted provides first-class support for industrial code readers without requiring proprietary vendor runtime middleware.
 
-### Two-Channel Coordination Architecture:
-1. **Control Channel (TCP/IP Port 9004)**:
-   - Asynchronous Dart `Socket` client with keep-alive monitoring and exponential backoff auto-reconnect.
-   - Issues hardware commands (`LON`, `LOFF`, `T1`, `PRG`, `FTPOUT`, `BEEP`, `KEYENCE`) with strict carriage-return termination framing.
-2. **Data/Vision Channel (Embedded FTP Server Port 2121)**:
-   - Pure-Dart RFC 959 server (`KeyenceFtpReceiver`) running in-process.
-   - Listens on port 2121 and handles passive/active image upload commands from the Keyence camera.
-   - Automatically writes images to permanent disk storage.
-3. **Correlation Engine (`Sr751InspectionPipeline`)**:
-   - Matches incoming TCP barcode strings with incoming CMOS FTP frames using a temporal matching buffer.
-   - Seamlessly triggers OCV evaluation on the received image and records the combined result in history.
-
+### Command, Read-Data and Vision Channels:
+1. **Command Channel (TCP, default port 9004)**:
+   - Verifies the reader with the documented read-only `KEYENCE` identity query.
+   - Allows `ERRSTAT` and operator-invoked `LON` / `LOFF` only. Unverified commands such as `T1`, `PRG`, `FTPOUT` and `BEEP` are not part of the production allow-list.
+   - Sends ASCII commands with the default no-header / CR terminator framing and parses CR-terminated responses.
+2. **Read-Data Channel (TCP Data Port 1, default port 9004)**:
+   - Reuses the command connection when both configured ports are equal.
+   - Opens a second listen-only TCP connection when Data Port 1 has a separate port. No commands are sent on this connection.
+   - Supports reader-as-server mode; reader-as-client mode is not implemented.
+3. **Vision Channel (Embedded FTP Server, default control port 21)**:
+   - Pure-Dart FTP receiver supports authenticated `USER`/`PASS`, binary `TYPE I`, `STOR`, active `PORT`, and passive `PASV`.
+   - Active mode requests local source port 20 and restricts the advertised data address to the control peer.
+   - The SR-750 default remote folder `image` is accepted as a safe virtual FTP directory; uploaded bytes are stored in Exalted-managed media storage.
+   - Linux may require a least-privilege capability to bind ports 20/21. Do not run Exalted as root. Physical image upload remains unverified until tested with the actual reader.
+4. **Inspection Pipeline (`Sr751InspectionPipeline`)**:
+   - Combines barcode and FTP image arrivals using a time-window pairing mechanism. Arrival-order pairing is not a stable transaction identifier and must not be treated as production traceability proof.
+   - Runs offline OCR/OCV on received images and records inspection history.
 ---
 
 ## 6. Persistence & Image Preservation

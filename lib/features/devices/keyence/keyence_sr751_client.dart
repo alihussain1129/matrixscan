@@ -151,7 +151,89 @@ String describeKeyenceConnectionError(Object error, String host, int port) {
   return 'TCP connection to $target failed: $error';
 }
 
-final RegExp _keyenceModelPattern = RegExp(r'SR-\d{3,4}\w*');
+/// A local IPv4 address and the interface that owns it.
+class LocalIpv4Address {
+  const LocalIpv4Address(this.interfaceName, this.address);
+  final String interfaceName;
+  final String address;
+}
+
+Future<List<LocalIpv4Address>> _listLocalIpv4Addresses() async {
+  final interfaces = await NetworkInterface.list(
+    includeLoopback: false,
+    type: InternetAddressType.IPv4,
+  );
+  return [
+    for (final iface in interfaces)
+      for (final addr in iface.addresses)
+        LocalIpv4Address(iface.name, addr.address),
+  ];
+}
+
+/// True for failures that mean the SYN never got an answer (timeout, no route,
+/// network unreachable), as opposed to a refusal from a reachable host.
+bool isKeyenceReachabilityFailure(Object error) {
+  if (error is TimeoutException) return true;
+  if (error is SocketException) {
+    switch (error.osError?.errorCode) {
+      case 110: // ETIMEDOUT (Linux)
+      case 60: // ETIMEDOUT (macOS)
+      case 10060: // WSAETIMEDOUT
+      case 113: // EHOSTUNREACH (Linux)
+      case 65: // EHOSTUNREACH (macOS)
+      case 10065: // WSAEHOSTUNREACH
+      case 101: // ENETUNREACH (Linux)
+      case 51: // ENETUNREACH (macOS)
+      case 10051: // WSAENETUNREACH
+        return true;
+    }
+  }
+  return false;
+}
+
+/// Explains a likely local-addressing cause of a connect timeout.
+///
+/// The SR-750 factory network is 192.168.100.100 / 255.255.255.0. A PC with no
+/// IPv4 address in the same /24 sends the SYN to its default gateway (or
+/// nowhere), so the reader never sees it and no ARP entry ever appears. Dart
+/// exposes no interface prefix length, so this compares the first three
+/// octets, which matches the reader's documented factory mask. Returns null
+/// when a local address shares the target's /24, when [host] is not an IPv4
+/// literal, or when the interfaces cannot be listed. It never changes any
+/// network setting.
+Future<String?> describeKeyenceLocalSubnetMismatch(
+  String host, {
+  Future<List<LocalIpv4Address>> Function()? listAddresses,
+}) async {
+  final parsed = InternetAddress.tryParse(host);
+  if (parsed == null || parsed.type != InternetAddressType.IPv4) return null;
+  final targetParts = parsed.address.split('.');
+  if (targetParts.length != 4) return null;
+  final targetPrefix = targetParts.take(3).join('.');
+
+  final List<LocalIpv4Address> local;
+  try {
+    local = await (listAddresses ?? _listLocalIpv4Addresses)();
+  } catch (_) {
+    return null;
+  }
+  final sameSubnet = local.any(
+    (a) => a.address.split('.').take(3).join('.') == targetPrefix,
+  );
+  if (sameSubnet) return null;
+  final found = local.isEmpty
+      ? 'no active IPv4 interface found'
+      : local.map((a) => '${a.interfaceName} ${a.address}').join(', ');
+  return 'This PC has no IPv4 address in $targetPrefix.0/24 ($found). The '
+      'reader\'s factory subnet mask is 255.255.255.0, so the wired interface '
+      'needs an unused address in $targetPrefix.0/24, or the reader must be '
+      'moved to this PC\'s subnet with AutoID Network Navigator.';
+}
+
+final RegExp _keyenceModelPattern = RegExp(
+  r'^SR-\d{3,4}[A-Z0-9_-]*$',
+  caseSensitive: false,
+);
 
 /// TCP/IP client interface for communicating with the KEYENCE SR-751 series
 /// industrial code reader over Ethernet.
@@ -174,6 +256,7 @@ class KeyenceSr751Client {
     this.defaultHost = '192.168.100.100',
     this.defaultPort = 9004,
     this.handshakeCommand = 'KEYENCE',
+    this.verifyIdentityOnConnect = false,
     this.allowedCommands,
     List<int>? receiveTerminator,
     this.reconnectBaseDelay = const Duration(seconds: 1),
@@ -185,6 +268,7 @@ class KeyenceSr751Client {
     Timer Function(Duration delay, void Function() callback)? timerFactory,
     Future<Socket> Function(String host, int port, Duration timeout)?
     socketFactory,
+    Future<List<LocalIpv4Address>> Function()? localAddressLister,
   }) : host = defaultHost,
        port = defaultPort,
        _tolerantLineEndings = receiveTerminator == null,
@@ -197,6 +281,7 @@ class KeyenceSr751Client {
        ),
        _clock = clock ?? DateTime.now,
        _timerFactory = timerFactory ?? Timer.new,
+       _localAddressLister = localAddressLister,
        _socketFactory =
            socketFactory ??
            ((host, port, timeout) =>
@@ -211,16 +296,21 @@ class KeyenceSr751Client {
   /// The manual specifies the response as `OK, KEYENCE, SR-***, version`.
   final String handshakeCommand;
 
+  /// Whether normal app connections must verify identity before
+  /// being considered connected. Independent of command permissions.
+  final bool verifyIdentityOnConnect;
+
   /// Command names this client may send (upper case, without arguments).
   /// null = no restriction. An empty set sends nothing (listen-only).
-  /// Allowing "PRG" allows every program number.
+  /// When a set is supplied, each allowed command must match exactly; command
+  /// arguments are rejected to keep the allow-list narrow.
   final Set<String>? allowedCommands;
 
   /// Names of commands refused by [allowedCommands] (first 50), for diagnostics.
   final List<String> blockedCommands = <String>[];
 
-  /// True when the handshake command may be sent (no allow-list, or the
-  /// handshake command is on it). False means: connect and listen only.
+  /// True when the handshake command is permitted by the command allow-list.
+  /// This does not mean identity verification is mandatory on connect.
   bool get canHandshake =>
       allowedCommands == null ||
       allowedCommands!.contains(_commandName(handshakeCommand));
@@ -242,6 +332,7 @@ class KeyenceSr751Client {
   final Timer Function(Duration delay, void Function() callback) _timerFactory;
   final Future<Socket> Function(String host, int port, Duration timeout)
   _socketFactory;
+  final Future<List<LocalIpv4Address>> Function()? _localAddressLister;
   DateTime? _connectedAt;
   int _flapPenalty = 0;
 
@@ -271,6 +362,7 @@ class KeyenceSr751Client {
   int get reconnectAttempts => _reconnectAttempts;
 
   Completer<String>? _pendingQueryCompleter;
+  String? _pendingUnexpectedQueryResponse;
 
   int _lastConnectTimeMs = 0;
   int get lastConnectTimeMs => _lastConnectTimeMs;
@@ -342,10 +434,16 @@ class KeyenceSr751Client {
     } catch (e) {
       if (gen != _connectGen) return false;
       debugPrint('[KEYENCE][TCP] Connection failed: $e');
-      _setStatus(
-        KeyenceConnectionStatus.error,
-        describeKeyenceConnectionError(e, host, port),
-      );
+      var message = describeKeyenceConnectionError(e, host, port);
+      if (isKeyenceReachabilityFailure(e)) {
+        final hint = await describeKeyenceLocalSubnetMismatch(
+          host,
+          listAddresses: _localAddressLister,
+        );
+        if (gen != _connectGen) return false;
+        if (hint != null) message = '$message $hint';
+      }
+      _setStatus(KeyenceConnectionStatus.error, message);
       _scheduleReconnect();
       return false;
     }
@@ -478,14 +576,31 @@ class KeyenceSr751Client {
   }
 
   /// Sends an ASCII command using the SR-750 protocol framing. The manual
-  /// specifies CR as the command terminator with LF appended; responses end
-  /// with CR (no LF).
+  /// specifies no header and a CR command terminator by default; responses
+  /// use the same framing.
   Future<bool> sendCommand(String command) async {
+    final normalized = command.trim();
+    // The allow-list is command-name based. Reject line breaks and control
+    // bytes before checking it so an allowed command cannot smuggle a second
+    // command into the same TCP write.
+    if (normalized.isEmpty ||
+        normalized.length > 256 ||
+        normalized.contains('\r') ||
+        normalized.contains('\n') ||
+        normalized.codeUnits.any((b) => b < 0x20 || b > 0x7E)) {
+      debugPrint('[KEYENCE][TX] BLOCKED, invalid command framing');
+      return false;
+    }
+
+    final commandName = _commandName(normalized);
     final allowed = allowedCommands;
-    if (allowed != null && !allowed.contains(_commandName(command))) {
-      debugPrint('[KEYENCE][TX] BLOCKED, not in the allowed list: $command');
+    if (allowed != null &&
+        (!allowed.contains(commandName) || normalized != commandName)) {
+      debugPrint(
+        '[KEYENCE][TX] BLOCKED by the command allow-list: $commandName',
+      );
       if (blockedCommands.length < 50) {
-        blockedCommands.add(_commandName(command));
+        blockedCommands.add(commandName);
       }
       return false;
     }
@@ -495,14 +610,9 @@ class KeyenceSr751Client {
     }
 
     try {
-      final formatted = command.endsWith('\r\n')
-          ? command
-          : command.endsWith('\r')
-          ? '$command\n'
-          : '$command\r\n';
-      socket.write(formatted);
+      socket.write('$normalized\r');
       await socket.flush();
-      debugPrint('[KEYENCE][TX] $command');
+      debugPrint('[KEYENCE][TX] $commandName');
       return true;
     } catch (e) {
       debugPrint('[KEYENCE][TX] Send error: $e');
@@ -575,17 +685,48 @@ class KeyenceSr751Client {
       );
     }
 
+    // connect() just advanced the generation. Any later change means a
+    // disconnect(), dispose() or newer connect() superseded this attempt.
+    final gen = _connectGen;
     final handshakeSw = Stopwatch()..start();
     final info = await queryDeviceInfo(timeout: handshakeTimeout);
     final handshakeTime = handshakeSw.elapsedMilliseconds;
     _lastHandshakeTimeMs = handshakeTime;
     _lastTotalConnectionTimeMs = sw.elapsedMilliseconds;
 
+    bool superseded() => gen != _connectGen || _disposed || _explicitDisconnect;
+
+    if (superseded()) {
+      // The newer owner of the connection state decides what is shown. Do not
+      // overwrite it with a stale error.
+      return info.success
+          ? KeyenceHandshakeResult.failure(
+              errorMessage: 'Connection attempt was cancelled',
+              connectTimeMs: connectTime,
+              handshakeTimeMs: handshakeTime,
+              totalTimeMs: _lastTotalConnectionTimeMs,
+            )
+          : info.copyWith(
+              connectTimeMs: connectTime,
+              handshakeTimeMs: handshakeTime,
+              totalTimeMs: _lastTotalConnectionTimeMs,
+            );
+    }
+
     if (!info.success) {
       debugPrint('[KEYENCE][HANDSHAKE] Handshake failed: ${info.errorMessage}');
+      // Close this socket but do NOT call disconnect(): that marks an explicit
+      // user disconnect and would stop reconnecting for good. A reader that is
+      // still booting, busy, or briefly unresponsive must be retried. Count it
+      // as a flap so a reader that accepts TCP but never answers backs off.
       _awaitingVerification = false;
-      await disconnect();
-      _setStatus(KeyenceConnectionStatus.error, info.errorMessage);
+      _connectedAt = null;
+      _flapPenalty++;
+      await _closeSocketOnly();
+      if (!superseded()) {
+        _setStatus(KeyenceConnectionStatus.error, info.errorMessage);
+        _scheduleReconnect();
+      }
       return info.copyWith(
         connectTimeMs: connectTime,
         handshakeTimeMs: handshakeTime,
@@ -621,6 +762,7 @@ class KeyenceSr751Client {
     }
 
     final completer = Completer<String>();
+    _pendingUnexpectedQueryResponse = null;
     // Socket teardown may complete this with an error while sendCommand is
     // still flushing. Attach an error observer immediately; the original
     // future remains awaitable below and still propagates the failure.
@@ -644,6 +786,16 @@ class KeyenceSr751Client {
       if (identical(_pendingQueryCompleter, completer)) {
         _pendingQueryCompleter = null;
       }
+      final unexpected = _pendingUnexpectedQueryResponse;
+      _pendingUnexpectedQueryResponse = null;
+      if (unexpected != null) {
+        return KeyenceHandshakeResult.failure(
+          errorMessage:
+              'Unexpected device signature: "$unexpected". The endpoint '
+              'responded to "$handshakeCommand", but did not return the '
+              'documented KEYENCE identity response.',
+        );
+      }
       return KeyenceHandshakeResult.failure(
         errorMessage:
             'TCP connected to $host:$port, but the reader gave no reply to '
@@ -653,12 +805,16 @@ class KeyenceSr751Client {
       );
     }
 
+    _pendingUnexpectedQueryResponse = null;
     final trimmed = raw.trim();
     final parts = trimmed.split(',').map((part) => part.trim()).toList();
-    if (parts.isNotEmpty && parts.first.toUpperCase().startsWith('ER')) {
+    if (parts.isNotEmpty &&
+        (parts.first.toUpperCase().startsWith('ER') ||
+            parts.first.toUpperCase().startsWith('ERROR'))) {
       return KeyenceHandshakeResult.failure(
         errorMessage:
-            'The reader at $host:$port rejected the $handshakeCommand query: $trimmed',
+            'The reader at $host:$port returned an error reply to the '
+            '$handshakeCommand query and rejected it: $trimmed',
       );
     }
 
@@ -666,10 +822,11 @@ class KeyenceSr751Client {
     // this response shape: OK, KEYENCE, SR-***, main-unit-system-version.
     // Do not accept a generic TCP greeting or a bare occurrence of KEYENCE.
     final isDocumentedIdentityReply =
-        parts.length >= 4 &&
+        parts.length == 4 &&
         parts[0].toUpperCase() == 'OK' &&
         parts[1].toUpperCase() == 'KEYENCE' &&
-        _keyenceModelPattern.hasMatch(parts[2]);
+        _keyenceModelPattern.hasMatch(parts[2]) &&
+        parts[3].isNotEmpty;
     if (!isDocumentedIdentityReply) {
       return KeyenceHandshakeResult.failure(
         errorMessage:
@@ -715,21 +872,40 @@ class KeyenceSr751Client {
   void _handleResponse(String response) {
     debugPrint('[KEYENCE][RX] $response');
 
-    if (_pendingQueryCompleter != null &&
-        !_pendingQueryCompleter!.isCompleted) {
-      _pendingQueryCompleter!.complete(response);
-      _pendingQueryCompleter = null;
-      return;
+    final pending = _pendingQueryCompleter;
+    if (pending != null && !pending.isCompleted) {
+      final parts = response.split(',').map((part) => part.trim()).toList();
+      final isIdentityReply =
+          parts.length == 4 &&
+          parts[0].toUpperCase() == 'OK' &&
+          parts[1].toUpperCase() == 'KEYENCE' &&
+          _keyenceModelPattern.hasMatch(parts[2]) &&
+          parts[3].isNotEmpty;
+      final isIdentityError =
+          parts.length >= 2 &&
+          parts[0].toUpperCase() == 'ER' &&
+          parts[1].toUpperCase() == 'KEYENCE';
+      // A barcode or unrelated status line may arrive while the query is
+      // pending. It must remain scan data and must not consume the handshake.
+      if (isIdentityReply || isIdentityError) {
+        pending.complete(response);
+        _pendingQueryCompleter = null;
+        _pendingUnexpectedQueryResponse = null;
+        return;
+      }
+
+      // Retain the first non-identity line as handshake evidence, but keep
+      // delivering it through the normal scan stream below.
+      _pendingUnexpectedQueryResponse ??= response;
     }
 
     if (_scanController.isClosed) return;
 
     // Preserve raw protocol lines for the adapter/coordinator classifier.
     // KEYENCE `ER,...` replies are protocol errors, not decoded barcode data.
+    final upper = response.toUpperCase();
     final isErr =
-        response.startsWith('ERROR') ||
-        response == 'NG' ||
-        response.toUpperCase().startsWith('ER,');
+        upper.startsWith('ERROR') || upper == 'NG' || upper.startsWith('ER,');
     final result = KeyenceScanResult(
       data: isErr ? '' : response,
       timestamp: DateTime.now(),
@@ -765,10 +941,26 @@ final keyenceAllowedCommandsProvider = Provider<Set<String>?>(
   (ref) => const <String>{'KEYENCE', 'ERRSTAT', 'LON', 'LOFF'},
 );
 
+final keyenceIdentityVerificationOnConnectProvider = Provider<bool>(
+  (ref) => false,
+);
+
 final keyenceSr751ClientProvider = Provider<KeyenceSr751Client>((ref) {
   final client = KeyenceSr751Client(
     allowedCommands: ref.read(keyenceAllowedCommandsProvider),
+    verifyIdentityOnConnect: ref.read(
+      keyenceIdentityVerificationOnConnectProvider,
+    ),
   );
+  ref.onDispose(client.dispose);
+  return client;
+});
+
+/// A dedicated listen-only TCP client for Data Port 1 when it is configured
+/// separately from the command port. Its empty allow-list guarantees that it
+/// never sends commands to the reader.
+final keyenceSr751DataClientProvider = Provider<KeyenceSr751Client>((ref) {
+  final client = KeyenceSr751Client(allowedCommands: const <String>{});
   ref.onDispose(client.dispose);
   return client;
 });

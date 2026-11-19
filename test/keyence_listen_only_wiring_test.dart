@@ -47,11 +47,18 @@ void main() {
     final c = ProviderContainer();
     addTearDown(c.dispose);
     final client = c.read(keyenceSr751ClientProvider);
-    expect(client.allowedCommands, containsAll(['KEYENCE', 'ERRSTAT', 'LON', 'LOFF']));
+    expect(
+      client.allowedCommands,
+      containsAll(['KEYENCE', 'ERRSTAT', 'LON', 'LOFF']),
+    );
     expect(client.allowedCommands, isNot(contains('RESET')));
     expect(client.allowedCommands, isNot(contains('DFLT')));
     expect(client.canHandshake, isTrue);
-    expect(c.read(keyenceScannerDiscoveryServiceProvider).probeEnabled, isTrue);
+    expect(client.verifyIdentityOnConnect, isFalse);
+    expect(
+      c.read(keyenceScannerDiscoveryServiceProvider).probeEnabled,
+      isFalse,
+    );
   });
 
   test(
@@ -72,15 +79,18 @@ void main() {
     },
   );
 
-  test('documented discovery probe sends KEYENCE with CRLF', () async {
-    final service = KeyenceScannerDiscoveryService();
-    addTearDown(service.dispose);
-    try {
-      await service.verifyEndpoint('127.0.0.1', server.port);
-    } catch (_) {}
-    await settle();
-    expect(utf8.decode(received), 'KEYENCE\r\n');
-  });
+  test(
+    'documented discovery probe sends KEYENCE with the default CR terminator',
+    () async {
+      final service = KeyenceScannerDiscoveryService();
+      addTearDown(service.dispose);
+      try {
+        await service.verifyEndpoint('127.0.0.1', server.port);
+      } catch (_) {}
+      await settle();
+      expect(utf8.decode(received), 'KEYENCE\r');
+    },
+  );
 
   test('commissioning without commands sends nothing', () async {
     await const KeyenceCommissioningService().runReadinessAssessment(

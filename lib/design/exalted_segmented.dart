@@ -9,7 +9,7 @@ class ExaltedSegment<T> {
 }
 
 /// Pill-shaped choice bar. The selected thumb slides to the new option.
-/// Needs a bounded width (put it in a Padding, Expanded or SizedBox).
+/// Prefer a bounded width; unbounded parents use a finite fallback width.
 class ExaltedSegmented<T> extends StatelessWidget {
   const ExaltedSegmented({
     super.key,
@@ -24,10 +24,11 @@ class ExaltedSegmented<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (options.isEmpty) return const SizedBox.shrink();
+
     final s = Theme.of(context).colorScheme;
     final base = Theme.of(context).textTheme.labelLarge ?? const TextStyle();
-    final raw = options.indexWhere((o) => o.value == value);
-    final idx = raw < 0 ? 0 : raw;
+    final idx = options.indexWhere((o) => o.value == value);
     final n = options.length;
 
     return Container(
@@ -39,77 +40,88 @@ class ExaltedSegmented<T> extends StatelessWidget {
       ),
       child: LayoutBuilder(
         builder: (context, box) {
-          final segW = box.maxWidth / n;
-          return Stack(
-            children: [
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 240),
-                curve: Curves.easeOutCubic,
-                left: idx * segW,
-                width: segW,
-                top: 0,
-                bottom: 0,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: s.primary,
-                    borderRadius: BorderRadius.circular(11),
-                    boxShadow: [
-                      BoxShadow(
-                        color: s.primary.withValues(alpha: 0.30),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
+          final width = box.hasBoundedWidth ? box.maxWidth : 420.0;
+          final segW = width / n;
+          return SizedBox(
+            width: width,
+            child: Stack(
+              children: [
+                if (idx >= 0)
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOutCubic,
+                    left: idx * segW,
+                    width: segW,
+                    top: 0,
+                    bottom: 0,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: s.primary,
+                        borderRadius: BorderRadius.circular(11),
+                        boxShadow: [
+                          BoxShadow(
+                            color: s.primary.withValues(alpha: 0.30),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
-              Positioned.fill(
-                child: Row(
-                  children: [
-                    for (var i = 0; i < n; i++)
-                      Expanded(
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            onChanged(options[i].value);
-                          },
-                          child: MouseRegion(
-                            cursor: SystemMouseCursors.click,
-                            child: Center(
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (options[i].icon != null) ...[
-                                    Icon(
-                                      options[i].icon,
-                                      size: 16,
-                                      color: i == idx
-                                          ? s.onPrimary
-                                          : s.onSurface.withValues(alpha: 0.7),
+                Positioned.fill(
+                  child: Row(
+                    children: [
+                      for (var i = 0; i < n; i++)
+                        Expanded(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              onChanged(options[i].value);
+                            },
+                            child: MouseRegion(
+                              cursor: SystemMouseCursors.click,
+                              child: Center(
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (options[i].icon != null) ...[
+                                      Icon(
+                                        options[i].icon,
+                                        size: 16,
+                                        color: i == idx
+                                            ? s.onPrimary
+                                            : s.onSurface.withValues(
+                                                alpha: 0.7,
+                                              ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                    ],
+                                    AnimatedDefaultTextStyle(
+                                      duration: const Duration(
+                                        milliseconds: 200,
+                                      ),
+                                      style: base.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: i == idx
+                                            ? s.onPrimary
+                                            : s.onSurface.withValues(
+                                                alpha: 0.7,
+                                              ),
+                                      ),
+                                      child: Text(options[i].label),
                                     ),
-                                    const SizedBox(width: 6),
                                   ],
-                                  AnimatedDefaultTextStyle(
-                                    duration: const Duration(milliseconds: 200),
-                                    style: base.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                      color: i == idx
-                                          ? s.onPrimary
-                                          : s.onSurface.withValues(alpha: 0.7),
-                                    ),
-                                    child: Text(options[i].label),
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           );
         },
       ),

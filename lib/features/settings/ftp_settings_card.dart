@@ -35,6 +35,7 @@ class FtpSettingsCard extends ConsumerStatefulWidget {
 
 class _FtpSettingsCardState extends ConsumerState<FtpSettingsCard> {
   late final TextEditingController _user;
+  late final TextEditingController _port;
   final TextEditingController _pass = TextEditingController();
   bool _enabled = false;
   String _bind = '0.0.0.0';
@@ -48,6 +49,7 @@ class _FtpSettingsCardState extends ConsumerState<FtpSettingsCard> {
     super.initState();
     final sc = ref.read(configControllerProvider).scanner;
     _user = TextEditingController(text: sc.ftpUsername ?? '');
+    _port = TextEditingController(text: sc.ftpReceiverPort.toString());
     _enabled = sc.ftpReceiverEnabled;
     _bind = sc.ftpBindAddress;
     _loadHasPassword();
@@ -56,6 +58,7 @@ class _FtpSettingsCardState extends ConsumerState<FtpSettingsCard> {
   @override
   void dispose() {
     _user.dispose();
+    _port.dispose();
     _pass.dispose();
     super.dispose();
   }
@@ -94,6 +97,11 @@ class _FtpSettingsCardState extends ConsumerState<FtpSettingsCard> {
     try {
       final user = _user.text.trim();
       final newPass = _pass.text;
+      final port = int.tryParse(_port.text.trim());
+      if (port == null || port < 1 || port > 65535) {
+        _say('Enter a valid FTP listener port (1–65535).', error: true);
+        return;
+      }
       if (_enabled) {
         if (user.isEmpty) {
           _say('Enter a username to enable FTP.', error: true);
@@ -113,6 +121,7 @@ class _FtpSettingsCardState extends ConsumerState<FtpSettingsCard> {
         'scanner': {
           'ftpUsername': user.isEmpty ? null : user,
           'ftpReceiverEnabled': _enabled,
+          'ftpReceiverPort': port,
           'ftpBindAddress': _bind,
         },
       });
@@ -221,6 +230,17 @@ class _FtpSettingsCardState extends ConsumerState<FtpSettingsCard> {
               : (v) {
                   if (v != null) setState(() => _bind = v);
                 },
+        ),
+        const SizedBox(height: AppSpacing.md),
+        TextField(
+          key: const Key('ftp-port'),
+          controller: _port,
+          enabled: !_busy,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'FTP listener port',
+            helperText: "SR-750 default: TCP 21; active data uses local source port 20. Match the reader's FTP username/password (factory default admin/admin). Linux may require a bind capability for ports below 1024; do not run Exalted as root.",
+          ),
         ),
         const SizedBox(height: AppSpacing.md),
         TextField(

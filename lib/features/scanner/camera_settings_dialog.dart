@@ -41,7 +41,46 @@ class _CameraSettingsDialog extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Camera', style: label),
-            Text(cam == null ? 'No camera is open' : cam.description.name),
+            if (ui.availableCameras.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              DropdownButtonFormField<String>(
+                initialValue: ui.availableCameras.any(
+                  (camera) => camera.name == ui.selectedCameraId,
+                )
+                    ? ui.selectedCameraId
+                    : (cam?.description.name ?? ui.availableCameras.first.name),
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                items: [
+                  for (final camera in ui.availableCameras)
+                    DropdownMenuItem<String>(
+                      value: camera.name,
+                      child: Text(
+                        '${camera.name} (${camera.lensDirection.name})',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: ui.status == CameraStatus.starting ||
+                        ui.switchingCamera
+                    ? null
+                    : (id) {
+                        if (id != null) unawaited(ctrl.selectCamera(id));
+                      },
+              ),
+            ] else
+              Text(cam == null ? 'No camera detected' : cam.description.name),
+            if (ui.switchingCamera) ...[
+              const SizedBox(height: 6),
+              const LinearProgressIndicator(),
+            ],
+            if (ui.notice != null) ...[
+              const SizedBox(height: 6),
+              Text(ui.notice!, style: note),
+            ],
             const SizedBox(height: 12),
             Text('Preview size (reported by the camera)', style: label),
             Text(
@@ -68,8 +107,8 @@ class _CameraSettingsDialog extends ConsumerWidget {
             const SizedBox(height: 8),
             Text(
               onDecoder
-                  ? 'The preset is saved and used the next time the camera starts. Use Restart camera to apply it now.'
-                  : 'The preset is saved and used the next time the camera starts on the Decoder screen.',
+                  ? 'Camera selection is saved and switches immediately. The resolution preset is saved for the next camera start; use Restart camera to apply it now.'
+                  : 'Camera selection and resolution preset are saved for the next time the camera starts on the Decoder screen.',
               style: note,
             ),
             const SizedBox(height: 12),
@@ -82,7 +121,11 @@ class _CameraSettingsDialog extends ConsumerWidget {
       ),
       actions: [
         TextButton(
-          onPressed: onDecoder ? () => unawaited(ctrl.retry()) : null,
+          onPressed: onDecoder &&
+                  !ui.switchingCamera &&
+                  ui.status != CameraStatus.starting
+              ? () => unawaited(ctrl.retry())
+              : null,
           child: const Text('Restart camera'),
         ),
         TextButton(

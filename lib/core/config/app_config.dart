@@ -106,7 +106,7 @@ class ScannerConfig {
   final int? reconnectMaxAttempts; // null = config sets no limit (hub behaviour unverified)
   final bool
   ftpReceiverEnabled; // false: the user starts it from the device screen today
-  final int ftpReceiverPort; // [APP-VALUE] 2121, keyence_ftp_receiver.dart:44
+  final int ftpReceiverPort; // [SR-750 DEFAULT] TCP 21
   final String ftpBindAddress; // [APP-VALUE] 0.0.0.0 (InternetAddress.anyIPv4)
   final String? ftpUsername; // required, with the vault password, for the FTP receiver to start
   final int? ftpMaxUploadBytes; // null = receiver built-in kMaxUploadBytes
@@ -129,7 +129,7 @@ class ScannerConfig {
     this.reconnectMaxDelayMs = 16000,
     this.reconnectMaxAttempts,
     this.ftpReceiverEnabled = false,
-    this.ftpReceiverPort = 2121,
+    this.ftpReceiverPort = 21,
     this.ftpBindAddress = '0.0.0.0',
     this.ftpUsername,
     this.ftpMaxUploadBytes,
@@ -268,6 +268,22 @@ class ScannerConfig {
         const ConfigIssue(
           'scanner.ftpBindAddress',
           'FTP receiver listens on all network interfaces',
+        ),
+      );
+    }
+    if (ftpReceiverEnabled && ftpReceiverPort != 21) {
+      w.add(
+        const ConfigIssue(
+          'scanner.ftpReceiverPort',
+          'The SR-750 manual lists FTP control port 21; make sure the reader uses the same port.',
+        ),
+      );
+    }
+    if (ftpReceiverEnabled && ftpReceiverPort < 1024) {
+      w.add(
+        const ConfigIssue(
+          'scanner.ftpReceiverPort',
+          'Binding this privileged port may require CAP_NET_BIND_SERVICE on Linux. Do not run Exalted as root.',
         ),
       );
     }

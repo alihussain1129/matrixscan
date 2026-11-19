@@ -32,7 +32,10 @@ void main() {
   test('a missing and a substituted character together', () {
     final d = diffStrings('ABCD', 'AXD');
     expect(d.length, 2);
-    expect(d.map((x) => x.kind).toSet(), {DiffKind.substituted, DiffKind.missing});
+    expect(d.map((x) => x.kind).toSet(), {
+      DiffKind.substituted,
+      DiffKind.missing,
+    });
   });
 
   test('empty actual means every character is missing', () {

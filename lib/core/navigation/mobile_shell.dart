@@ -112,9 +112,9 @@ class _MobileShellState extends ConsumerState<MobileShell> {
                 label: 'Overview',
               ),
               NavigationDestination(
-                icon: Icon(Icons.notifications_active_outlined),
-                selectedIcon: Icon(Icons.notifications_active),
-                label: 'Activity',
+                icon: Icon(Icons.link_outlined),
+                selectedIcon: Icon(Icons.link),
+                label: 'Link',
               ),
               NavigationDestination(
                 icon: Icon(Icons.history_outlined),

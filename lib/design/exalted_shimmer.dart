@@ -15,7 +15,21 @@ class _ExaltedShimmerState extends State<ExaltedShimmer>
   late final AnimationController _c = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1400),
-  )..repeat();
+  );
+  bool? _reducedMotion;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduced = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (_reducedMotion == reduced) return;
+    _reducedMotion = reduced;
+    if (reduced) {
+      _c.stop();
+    } else {
+      _c.repeat();
+    }
+  }
 
   @override
   void dispose() {

@@ -19,7 +19,10 @@ class CommissioningStep {
   final String? remediation;
 }
 
-/// Comprehensive report on scanner readiness and network compatibility.
+/// Non-destructive command-channel and local-service diagnostic report.
+///
+/// A passing command channel does not prove Data Port 1, trigger, FTP upload,
+/// or physical production readiness.
 class CommissioningReport {
   const CommissioningReport({
     required this.overallReady,
@@ -33,6 +36,8 @@ class CommissioningReport {
     required this.measuredLatencyMs,
   });
 
+  /// True only when TCP reachability and the documented identity handshake
+  /// pass. It is not a claim of full production or physical hardware readiness.
   final bool overallReady;
   final String targetHost;
   final int targetPort;
@@ -45,7 +50,7 @@ class CommissioningReport {
 
   @override
   String toString() =>
-      'CommissioningReport(ready: $overallReady, model: $detectedModel, steps: ${steps.length})';
+      'CommissioningReport(commandChannelVerified: $overallReady, model: $detectedModel, steps: ${steps.length})';
 }
 
 /// Automated readiness assessment and commissioning assistant for KEYENCE SR-751.
@@ -79,32 +84,46 @@ class KeyenceCommissioningService {
     // 1. Socket Reachability & Port availability
     Socket? probeSocket;
     var socketOpen = false;
-    try {
-      probeSocket = await Socket.connect(host, port, timeout: timeout);
+    if (existingClient?.status == KeyenceConnectionStatus.connected) {
+      // Do not open a second socket to a reader that may permit only one
+      // command client. The existing authenticated connection is the probe.
       socketOpen = true;
       steps.add(
         CommissioningStep(
           name: 'TCP Socket Availability',
           passed: true,
-          details: 'Successfully opened TCP stream to $host:$port',
+          details:
+              'Existing verified command connection to $host:$port is open.',
         ),
       );
-    } catch (e) {
-      steps.add(
-        CommissioningStep(
-          name: 'TCP Socket Availability',
-          passed: false,
-          details: 'Connection to $host:$port failed: $e',
-          remediation: 'Verify scanner power (24 VDC), Ethernet link lights, and IP routing.',
-        ),
-      );
-      recommendations.add(
-        'Check physical Ethernet cable connection and ensure scanner power is active.',
-      );
-    } finally {
+    } else {
       try {
-        probeSocket?.destroy();
-      } catch (_) {}
+        probeSocket = await Socket.connect(host, port, timeout: timeout);
+        socketOpen = true;
+        steps.add(
+          CommissioningStep(
+            name: 'TCP Socket Availability',
+            passed: true,
+            details: 'Successfully opened TCP stream to $host:$port',
+          ),
+        );
+      } catch (e) {
+        steps.add(
+          CommissioningStep(
+            name: 'TCP Socket Availability',
+            passed: false,
+            details: 'Connection to $host:$port failed: $e',
+            remediation: 'Verify scanner power (24 VDC), Ethernet link lights, and IP routing.',
+          ),
+        );
+        recommendations.add(
+          'Check physical Ethernet cable connection and ensure scanner power is active.',
+        );
+      } finally {
+        try {
+          probeSocket?.destroy();
+        } catch (_) {}
+      }
     }
 
     // 2. Subnet & Network Interface Compatibility
@@ -135,11 +154,17 @@ class KeyenceCommissioningService {
           ),
         );
       } else if (socketOpen) {
-        final handshake = await client.connectAndVerify(
-          targetHost: host,
-          targetPort: port,
-          timeout: timeout,
-        );
+        // Reuse a live client without dropping its barcode stream. Opening a
+        // second command connection can interrupt an active production link.
+        final handshake =
+            existingClient != null &&
+                existingClient.status == KeyenceConnectionStatus.connected
+            ? await client.queryDeviceInfo(timeout: timeout)
+            : await client.connectAndVerify(
+                targetHost: host,
+                targetPort: port,
+                timeout: timeout,
+              );
 
         if (handshake.success) {
           handshakeOk = true;
@@ -161,13 +186,29 @@ class KeyenceCommissioningService {
             if (statReply) {
               steps.add(
                 const CommissioningStep(
-                  name: 'Reader Health Status',
+                  name: 'Reader Error-Status Query Sent',
                   passed: true,
-                  details: 'ERRSTAT command was sent; the reply was not checked',
+                  details: 'ERRSTAT was transmitted; its response is not correlated or evaluated by this check.',
+                ),
+              );
+            } else {
+              steps.add(
+                const CommissioningStep(
+                  name: 'Reader Error-Status Query Sent',
+                  passed: false,
+                  details: 'ERRSTAT was not transmitted; check the app command allow-list.',
                 ),
               );
             }
-          } catch (_) {}
+          } catch (_) {
+            steps.add(
+              const CommissioningStep(
+                name: 'Reader Error-Status Query Sent',
+                passed: false,
+                details: 'ERRSTAT transmission failed.',
+              ),
+            );
+          }
 
           // Do not send LON/LOFF during automatic commissioning: these are
           // operational controls and could interrupt an active production read.
@@ -206,20 +247,26 @@ class KeyenceCommissioningService {
       }
     }
 
-    // 6. CMOS FTP Image Receiver Check
+    // 6. Local FTP listener check. A bound socket does not prove that the
+    // scanner can authenticate, negotiate a data channel, or upload an image.
     final isFtpActive = ftpReceiver?.isRunning ?? false;
     steps.add(
       CommissioningStep(
-        name: 'Embedded CMOS FTP Receiver',
+        name: 'Local FTP Listener',
         passed: isFtpActive,
         details: isFtpActive
-            ? 'FTP Receiver running on port ${ftpReceiver?.boundPort ?? 2121} (Ready for CMOS images)'
-            : 'FTP Receiver is currently idle (CMOS image transfer disabled until started)',
-        remediation: isFtpActive ? null : 'Start FTP Receiver from the device screen to enable CMOS frame acquisition.',
+            ? 'Listener is bound on port ${ftpReceiver?.boundPort ?? 21}; scanner login and image upload have not been tested.'
+            : 'FTP listener is idle. Physical image transfer remains unverified.',
+        remediation: isFtpActive
+            ? 'Test an actual SR-751 image upload before production use.'
+            : 'Configure FTP credentials and start the listener, then test an actual scanner upload.',
       ),
     );
 
-    final overallReady = socketOpen && subnetOk.passed && handshakeOk;
+    // This is intentionally a command-channel result, not a production
+    // readiness claim. Data Port 1, a real barcode trigger, and FTP upload are
+    // not exercised by this non-destructive assessment.
+    final overallReady = socketOpen && handshakeOk;
 
     return CommissioningReport(
       overallReady: overallReady,
@@ -237,61 +284,46 @@ class KeyenceCommissioningService {
   Future<CommissioningStep> _checkSubnetCompatibility(String targetHost) async {
     try {
       final ifaces = await NetworkInterface.list(
-        includeLoopback: true,
+        includeLoopback: false,
         type: InternetAddressType.IPv4,
       );
       final targetParts = targetHost.split('.');
-      if (targetParts.length != 4) {
+      if (targetParts.length != 4 ||
+          targetParts.any((part) => int.tryParse(part) == null)) {
         return CommissioningStep(
-          name: 'Network Subnet Compatibility',
+          name: 'Network Interface Context',
           passed: true,
-          details: 'Non-IPv4 or hostname target ($targetHost)',
+          details: 'Target is a hostname or non-IPv4 address; the TCP reachability check is authoritative.',
         );
       }
 
-      final targetSubnet =
-          '${targetParts[0]}.${targetParts[1]}.${targetParts[2]}';
-
+      final targetPrefix = targetParts.take(3).join('.');
       for (final iface in ifaces) {
         for (final addr in iface.addresses) {
           final hostParts = addr.address.split('.');
-          if (hostParts.length == 4) {
-            final hostSubnet =
-                '${hostParts[0]}.${hostParts[1]}.${hostParts[2]}';
-            if (hostSubnet == targetSubnet) {
-              return CommissioningStep(
-                name: 'Network Subnet Compatibility',
-                passed: true,
-                details:
-                    'Host interface ${iface.name} (${addr.address}) shares subnet with scanner ($targetHost)',
-              );
-            }
+          if (hostParts.length == 4 &&
+              hostParts.take(3).join('.') == targetPrefix) {
+            return CommissioningStep(
+              name: 'Network Interface Context',
+              passed: true,
+              details:
+                  'Interface ${iface.name} (${addr.address}) shares the same first three IPv4 octets. The actual prefix length is not available here, so this is only a /24 hint.',
+            );
           }
         }
       }
 
-      // Check for loopback
-      if (targetHost == '127.0.0.1' || targetHost == 'localhost') {
-        return const CommissioningStep(
-          name: 'Network Subnet Compatibility',
-          passed: true,
-          details: 'Loopback target (local simulation / test)',
-        );
-      }
-
       return CommissioningStep(
-        name: 'Network Subnet Compatibility',
-        passed: false,
-        details:
-            'Scanner IP ($targetHost) is on subnet $targetSubnet.x, which does not match active host network interfaces.',
-        remediation:
-            'Configure host network card with a static IP on the scanner subnet (e.g. $targetSubnet.10, subnet 255.255.255.0) or adjust the scanner IP via AutoID Network Navigator.',
+        name: 'Network Interface Context',
+        passed: true,
+        details: 'No interface with the same /24 prefix was found. A routed connection may still work; TCP reachability and KEYENCE identity checks determine connectivity.',
       );
     } catch (e) {
       return CommissioningStep(
-        name: 'Network Subnet Compatibility',
+        name: 'Network Interface Context',
         passed: true,
-        details: 'Could not enumerate host interfaces: $e',
+        details:
+            'Interface enumeration was unavailable; TCP reachability remains the authoritative check (${e.runtimeType}).',
       );
     }
   }

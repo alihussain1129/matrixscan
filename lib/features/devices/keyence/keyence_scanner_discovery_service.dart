@@ -78,6 +78,7 @@ class KeyenceScannerDiscoveryService implements DeviceDiscoverySource {
 
   bool _isDiscovering = false;
   bool get isDiscovering => _isDiscovering;
+  bool lastScanTimedOut = false;
 
   void setDefaultPort(int port) {
     if (port < 1 || port > 65535) {
@@ -120,6 +121,7 @@ class KeyenceScannerDiscoveryService implements DeviceDiscoverySource {
     }
 
     _isDiscovering = true;
+    lastScanTimedOut = false;
     final discoveryClock = Stopwatch()..start();
     _emit('init', 'Detecting active network interfaces...', 0.1);
 
@@ -147,9 +149,12 @@ class KeyenceScannerDiscoveryService implements DeviceDiscoverySource {
       const batchSize = 32;
       final total = candidates.length;
       var processed = 0;
+      var timedOut = false;
 
       for (var i = 0; i < candidates.length; i += batchSize) {
         if (discoveryClock.elapsed >= overallTimeout) {
+          timedOut = true;
+          lastScanTimedOut = true;
           _emit(
             'timeout',
             'Discovery time limit reached after $processed of $total endpoints.',
@@ -162,8 +167,34 @@ class KeyenceScannerDiscoveryService implements DeviceDiscoverySource {
             : candidates.length;
         final batch = candidates.sublist(i, end);
 
-        final futures = batch.map((target) => _probeAndVerify(target));
-        final results = await Future.wait(futures);
+        final remaining = overallTimeout - discoveryClock.elapsed;
+        if (remaining <= Duration.zero) {
+          timedOut = true;
+          lastScanTimedOut = true;
+          _emit(
+            'timeout',
+            'Discovery time limit reached after $processed of $total endpoints.',
+            1.0,
+          );
+          break;
+        }
+
+        final futures = batch.map((target) => _probeAndVerify(target)).toList();
+        final List<DiscoveredKeyenceScanner?> results;
+        try {
+          results = await Future.wait(futures).timeout(remaining);
+        } on TimeoutException {
+          timedOut = true;
+          lastScanTimedOut = true;
+          // Let the already-started probes finish and close their sockets.
+          await Future.wait(futures);
+          _emit(
+            'timeout',
+            'Discovery time limit reached after $processed of $total endpoints.',
+            1.0,
+          );
+          break;
+        }
 
         for (final res in results) {
           if (res != null && !discovered.containsKey(res.identity.id)) {
@@ -185,11 +216,13 @@ class KeyenceScannerDiscoveryService implements DeviceDiscoverySource {
         );
       }
 
-      _emit(
-        'complete',
-        'Discovery complete. Found ${discovered.length} scanner(s).',
-        1.0,
-      );
+      if (!timedOut) {
+        _emit(
+          'complete',
+          'Discovery complete. Found ${discovered.length} scanner(s).',
+          1.0,
+        );
+      }
       return discovered.values.toList();
     } catch (e) {
       debugPrint('[KEYENCE][DISCOVERY] Discovery error: $e');
@@ -297,7 +330,10 @@ class KeyenceScannerDiscoveryService implements DeviceDiscoverySource {
     if (!probeEnabled) {
       if (includeSubnetSweep) {
         for (final iface in interfaces) {
-          if (iface.isLoopback || !iface.isEthernet || !_isPrivateIpv4(iface.address)) continue;
+          if (iface.isLoopback ||
+              !iface.isEthernet ||
+              !_isPrivateIpv4(iface.address))
+            continue;
           final parts = iface.address.split('.');
           if (parts.length != 4) continue;
           final prefix = '${parts[0]}.${parts[1]}.${parts[2]}';
@@ -348,7 +384,6 @@ class KeyenceScannerDiscoveryService implements DeviceDiscoverySource {
     return candidates;
   }
 
-
   /// Explicit connect-only fallback. Opens the configured TCP endpoint,
   /// writes no bytes, and never claims that an open port proves KEYENCE identity.
   Future<DiscoveredKeyenceScanner?> _connectOnlyCandidate(
@@ -373,7 +408,8 @@ class KeyenceScannerDiscoveryService implements DeviceDiscoverySource {
         transport: DeviceTransport.tcp,
         ipAddress: target.host,
         port: target.port,
-        displayName: 'Possible KEYENCE SR-751 endpoint (${target.host}:${target.port})',
+        displayName:
+            'Possible KEYENCE SR-751 endpoint (${target.host}:${target.port})',
       );
       return DiscoveredKeyenceScanner(
         identity: identity,
@@ -447,8 +483,8 @@ class KeyenceScannerDiscoveryService implements DeviceDiscoverySource {
       } catch (_) {}
 
       // The SR-750 manual documents KEYENCE as a read-only model/version
-      // query. Commands use CR followed by LF; responses terminate with CR.
-      socket.write('KEYENCE\r\n');
+      // query. The default command format is no header plus CR terminator; responses use the same framing.
+      socket.write('KEYENCE\r');
       await socket.flush();
 
       final completer = Completer<String>();
@@ -457,6 +493,14 @@ class KeyenceScannerDiscoveryService implements DeviceDiscoverySource {
       final sub = socket.listen(
         (data) {
           buffer.addAll(data);
+          if (buffer.length > 4096) {
+            if (!completer.isCompleted) {
+              completer.completeError(
+                const FormatException('KEYENCE identity reply is too long'),
+              );
+            }
+            return;
+          }
           final idx = buffer.indexOf(0x0D);
           if (idx >= 0 && !completer.isCompleted) {
             final line = utf8.decode(
@@ -486,11 +530,14 @@ class KeyenceScannerDiscoveryService implements DeviceDiscoverySource {
       // identity command. A generic banner or a different model is not enough.
       final trimmed = response.trim();
       final parts = trimmed.split(',').map((part) => part.trim()).toList();
-      if (parts.length < 4 ||
+      if (parts.length != 4 ||
           parts[0].toUpperCase() != 'OK' ||
           parts[1].toUpperCase() != 'KEYENCE' ||
-          !RegExp(r'^SR-\d{3,4}\w*$', caseSensitive: false)
-              .hasMatch(parts[2])) {
+          parts[3].isEmpty ||
+          !RegExp(
+            r'^SR-\d{3,4}[A-Z0-9_-]*$',
+            caseSensitive: false,
+          ).hasMatch(parts[2])) {
         return null;
       }
 

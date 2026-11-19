@@ -4,15 +4,15 @@ import 'dart:io';
 
 /// A realistic TCP/IP simulator for KEYENCE SR-750 / SR-751 series readers.
 ///
-/// Implements standard Keyence commands (KEYENCE, LON, LOFF, STAT, T1, T2,
-/// BEEP, RESET, PRG, FTPOUT), response framing with '\r', and can simulate
-/// packet splitting, multiple messages per TCP frame, and network drops.
+/// Implements the documented KEYENCE identity query and the small subset of
+/// read-trigger commands used by tests. Responses are CR-terminated; incoming
+/// commands use the default no-header / CR terminator. It can simulate packet splitting, multiple
+/// messages per TCP frame, and network drops.
 class KeyenceSr751Simulator {
   KeyenceSr751Simulator._({
     required this.server,
     this.model = 'SR-751',
     this.firmware = 'V2.30',
-    this.serial = '12345678',
     this.defaultBarcode = 'EXALTED-DM-99420',
   }) {
     server.listen(_onIncomingConnection);
@@ -21,7 +21,6 @@ class KeyenceSr751Simulator {
   final ServerSocket server;
   String model;
   String firmware;
-  String serial;
   String defaultBarcode;
 
   bool simulateSplitPackets = false;
@@ -46,7 +45,6 @@ class KeyenceSr751Simulator {
     int port = 0,
     String model = 'SR-751',
     String firmware = 'V2.30',
-    String serial = '12345678',
     String defaultBarcode = 'EXALTED-DM-99420',
   }) async {
     final bindAddr = address ?? InternetAddress.loopbackIPv4;
@@ -55,7 +53,6 @@ class KeyenceSr751Simulator {
       server: server,
       model: model,
       firmware: firmware,
-      serial: serial,
       defaultBarcode: defaultBarcode,
     );
   }
@@ -94,9 +91,9 @@ class KeyenceSr751Simulator {
     _commandController.add(cmd);
 
     if (cmd == 'KEYENCE') {
-      _sendReply(socket, '$model,$firmware,$serial');
-    } else if (cmd == 'STAT') {
-      _sendReply(socket, '00');
+      _sendReply(socket, 'OK, KEYENCE, $model, $firmware');
+    } else if (cmd == 'ERRSTAT') {
+      _sendReply(socket, 'OK, ERRSTAT, none');
     } else if (cmd == 'LON') {
       if (nextError != null) {
         _sendReply(socket, nextError!);
@@ -104,13 +101,7 @@ class KeyenceSr751Simulator {
       } else {
         _sendReply(socket, defaultBarcode);
       }
-    } else if (cmd == 'LOFF' ||
-        cmd == 'T1' ||
-        cmd == 'T2' ||
-        cmd == 'BEEP' ||
-        cmd == 'RESET' ||
-        cmd == 'FTPOUT' ||
-        cmd.startsWith('PRG')) {
+    } else if (cmd == 'LOFF') {
       _sendReply(socket, 'OK');
     } else {
       _sendReply(socket, 'ERROR,99');

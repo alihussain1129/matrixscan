@@ -50,6 +50,24 @@ enum CameraQuality {
   final ResolutionPreset preset;
 }
 
+/// Resolves a preferred camera name, falling back to the back-facing camera
+/// and then the first available camera. Returns null for an empty list.
+CameraDescription? resolveCameraDescription(
+  List<CameraDescription> cameras, {
+  String? preferredCameraId,
+}) {
+  if (cameras.isEmpty) return null;
+  if (preferredCameraId != null) {
+    for (final camera in cameras) {
+      if (camera.name == preferredCameraId) return camera;
+    }
+  }
+  for (final camera in cameras) {
+    if (camera.lensDirection == CameraLensDirection.back) return camera;
+  }
+  return cameras.first;
+}
+
 /// UI state of the scanner.
 ///
 /// Per-frame diagnostics live in [FramePipeline.stats], so this state does
@@ -58,6 +76,9 @@ class ScannerUiState {
   const ScannerUiState({
     this.status = CameraStatus.idle,
     this.camera,
+    this.availableCameras = const [],
+    this.selectedCameraId,
+    this.switchingCamera = false,
     this.flashOn = false,
     this.continuous = false,
     this.autoScan = true,
@@ -70,6 +91,9 @@ class ScannerUiState {
 
   final CameraStatus status;
   final CameraController? camera;
+  final List<CameraDescription> availableCameras;
+  final String? selectedCameraId;
+  final bool switchingCamera;
   final bool flashOn;
   final bool continuous;
   final bool autoScan;
@@ -86,6 +110,10 @@ class ScannerUiState {
     CameraStatus? status,
     CameraController? camera,
     bool clearCamera = false,
+    List<CameraDescription>? availableCameras,
+    String? selectedCameraId,
+    bool clearSelectedCameraId = false,
+    bool? switchingCamera,
     bool? flashOn,
     bool? continuous,
     bool? autoScan,
@@ -101,6 +129,11 @@ class ScannerUiState {
     return ScannerUiState(
       status: status ?? this.status,
       camera: clearCamera ? null : (camera ?? this.camera),
+      availableCameras: availableCameras ?? this.availableCameras,
+      selectedCameraId: clearSelectedCameraId
+          ? null
+          : (selectedCameraId ?? this.selectedCameraId),
+      switchingCamera: switchingCamera ?? this.switchingCamera,
       flashOn: flashOn ?? this.flashOn,
       continuous: continuous ?? this.continuous,
       autoScan: autoScan ?? this.autoScan,
@@ -131,6 +164,8 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   bool _starting = false;
   bool _wantRunning = false;
+  bool _switchingCamera = false;
+  Future<void>? _startFuture;
 
   bool _syncing = false;
   bool _syncAgain = false;
@@ -170,10 +205,11 @@ class ScannerController extends Notifier<ScannerUiState> {
     // Warm up in parallel with the camera start: native library, decode
     // isolate and the camera list.
     unawaited(analyzer.prewarm());
-    if (Platform.isAndroid) {
-      final cameras = _camerasFuture ??= availableCameras();
-      unawaited(cameras.then<void>((_) {}, onError: (Object _) {}));
-    }
+    unawaited(_loadCameras().then<void>((found) {
+      if (ref.mounted) {
+        state = state.copyWith(availableCameras: found);
+      }
+    }, onError: (Object _) {}));
 
     ref.onDispose(() {
       // Providers must not be read inside onDispose, so use the objects
@@ -199,18 +235,36 @@ class ScannerController extends Notifier<ScannerUiState> {
 
   // ---- simple toggles ----------------------------------------------------
 
+  Future<List<CameraDescription>> _loadCameras() async {
+    if (_cameras != null) return _cameras!;
+    try {
+      final future = _camerasFuture ??= availableCameras();
+      _cameras = await future;
+      return _cameras!;
+    } catch (_) {
+      _camerasFuture = null;
+      rethrow;
+    }
+  }
+
   Future<void> _loadQuality() async {
-    if (_qualityDefine.isNotEmpty) return;
     // Yield first: build() has not returned yet, and its return value would
     // overwrite any state set before it does.
     await Future<void>.value();
     try {
-      final saved = ref.read(configControllerProvider).camera.quality;
-      for (final q in CameraQuality.values) {
-        if (q.name == saved && q != state.quality) {
-          state = state.copyWith(quality: q);
+      final cameraConfig = ref.read(configControllerProvider).camera;
+      var next = state;
+      if (_qualityDefine.isEmpty) {
+        for (final q in CameraQuality.values) {
+          if (q.name == cameraConfig.quality && q != next.quality) {
+            next = next.copyWith(quality: q);
+          }
         }
       }
+      if (cameraConfig.deviceId != null && next.selectedCameraId == null) {
+        next = next.copyWith(selectedCameraId: cameraConfig.deviceId);
+      }
+      state = next;
     } catch (_) {}
   }
 
@@ -260,9 +314,20 @@ class ScannerController extends Notifier<ScannerUiState> {
   /// appropriate permission state.
   ///
   /// Safe to call repeatedly.
-  Future<void> start() async {
+  Future<void> start() {
     _wantRunning = true;
+    final active = _startFuture;
+    if (active != null) return active;
 
+    late final Future<void> tracked;
+    tracked = _startInternal().whenComplete(() {
+      if (identical(_startFuture, tracked)) _startFuture = null;
+    });
+    _startFuture = tracked;
+    return tracked;
+  }
+
+  Future<void> _startInternal() async {
     if (_camera != null && _camera!.value.isInitialized) {
       await _syncStream();
       return;
@@ -288,11 +353,11 @@ class ScannerController extends Notifier<ScannerUiState> {
         // Desktop platforms (Linux / Windows)
         try {
           await _openCamera();
-        } catch (_) {
+        } catch (e) {
           state = state.copyWith(
             status: CameraStatus.ready,
             clearCamera: true,
-            notice: 'Desktop Mode: Image & Document Decoder Ready',
+            notice: 'Camera unavailable: $e. Image & Document Decoder Ready',
           );
         }
       }
@@ -303,7 +368,7 @@ class ScannerController extends Notifier<ScannerUiState> {
         state = state.copyWith(
           status: CameraStatus.ready,
           clearCamera: true,
-          notice: 'Desktop Mode: Image & Document Decoder Ready',
+          notice: 'Camera unavailable: $e. Image & Document Decoder Ready',
         );
       } else {
         state = state.copyWith(
@@ -319,17 +384,9 @@ class ScannerController extends Notifier<ScannerUiState> {
   Future<void> _openCamera() async {
     state = state.copyWith(status: CameraStatus.starting, clearError: true);
 
-    if (_cameras == null) {
-      try {
-        _cameras = await (_camerasFuture ?? availableCameras());
-      } catch (_) {
-        _camerasFuture = null;
-        rethrow;
-      }
-    }
+    final cameras = await _loadCameras();
     _startup('camera list ready');
-
-    final cameras = _cameras!;
+    state = state.copyWith(availableCameras: cameras);
     final camNames = cameras
         .map((c) => '${c.name}:${c.lensDirection.name}:${c.sensorOrientation}')
         .join(' ');
@@ -338,15 +395,19 @@ class ScannerController extends Notifier<ScannerUiState> {
     if (cameras.isEmpty) {
       state = state.copyWith(
         status: CameraStatus.error,
+        clearSelectedCameraId: true,
         errorMessage: 'No camera was found on this device.',
       );
       return;
     }
 
-    final description = cameras.firstWhere(
-      (camera) => camera.lensDirection == CameraLensDirection.back,
-      orElse: () => cameras.first,
-    );
+    final savedCameraId = ref.read(configControllerProvider).camera.deviceId;
+    final preferredCameraId = state.selectedCameraId ?? savedCameraId;
+    final description = resolveCameraDescription(
+      cameras,
+      preferredCameraId: preferredCameraId,
+    )!;
+    state = state.copyWith(selectedCameraId: description.name);
 
     final controller = CameraController(
       description,
@@ -455,6 +516,58 @@ class ScannerController extends Notifier<ScannerUiState> {
     );
 
     await _syncStream();
+  }
+
+  /// Selects and persists a camera by its platform camera name.
+  /// The existing camera controller and frame pipeline are reused.
+  Future<void> selectCamera(String cameraId) async {
+    if (_switchingCamera) return;
+
+    _switchingCamera = true;
+    state = state.copyWith(switchingCamera: true);
+    try {
+      final cameras = await _loadCameras();
+      final exists = cameras.any((camera) => camera.name == cameraId);
+      if (!exists) {
+        state = state.copyWith(
+          notice:
+              'That camera is no longer available. Refresh the camera list and try again.',
+        );
+        return;
+      }
+      if (state.selectedCameraId == cameraId &&
+          _camera?.description.name == cameraId) {
+        return;
+      }
+
+      final pendingStart = _startFuture;
+      if (pendingStart != null) await pendingStart;
+      final shouldRestart = _wantRunning || _camera != null;
+      if (shouldRestart) await stop();
+
+      final saved = await ref.read(configControllerProvider.notifier).patch({
+        'camera': {'deviceId': cameraId},
+      });
+      state = state.copyWith(
+        availableCameras: cameras,
+        selectedCameraId: cameraId,
+        clearNotice: saved.saved,
+        notice: saved.saved
+            ? null
+            : 'Camera selection applied, but saving settings failed: '
+                  '${saved.saveError ?? saved.issues.map((e) => e.toString()).join(', ')}',
+      );
+
+      if (shouldRestart) await start();
+    } catch (e) {
+      state = state.copyWith(
+        status: _camera == null ? state.status : CameraStatus.ready,
+        notice: 'Could not switch camera: $e',
+      );
+    } finally {
+      _switchingCamera = false;
+      state = state.copyWith(switchingCamera: false);
+    }
   }
 
   Future<void> stop() async {

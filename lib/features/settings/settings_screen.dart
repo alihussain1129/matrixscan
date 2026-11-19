@@ -173,6 +173,60 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       value: ui.continuous,
                       onChanged: (_) => scanner.toggleContinuous(),
                     ),
+                    if (ui.availableCameras.isNotEmpty) ...[
+                      Divider(color: colors.outline, height: AppSpacing.xl),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Camera device', style: text.bodyLarge),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Choose which connected camera the scanner uses.',
+                              style: text.bodySmall,
+                            ),
+                            const SizedBox(height: AppSpacing.md),
+                            DropdownButtonFormField<String>(
+                              initialValue: ui.availableCameras.any(
+                                (camera) =>
+                                    camera.name == ui.selectedCameraId,
+                              )
+                                  ? ui.selectedCameraId
+                                  : (ui.camera?.description.name ??
+                                        ui.availableCameras.first.name),
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                              items: [
+                                for (final camera in ui.availableCameras)
+                                  DropdownMenuItem<String>(
+                                    value: camera.name,
+                                    child: Text(
+                                      '${camera.name} (${camera.lensDirection.name})',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                              ],
+                              onChanged: ui.switchingCamera ||
+                                      ui.status == CameraStatus.starting
+                                  ? null
+                                  : (id) {
+                                      if (id != null) {
+                                        unawaited(scanner.selectCamera(id));
+                                      }
+                                    },
+                            ),
+                            if (ui.switchingCamera) ...[
+                              const SizedBox(height: AppSpacing.sm),
+                              const LinearProgressIndicator(),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
                     Divider(color: colors.outline, height: AppSpacing.xl),
                     Align(
                       alignment: Alignment.centerLeft,

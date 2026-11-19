@@ -21,9 +21,10 @@ Product: Exalted (MatrixScan)
 ### Issue 1.2: Keyence Decodes Successfully, but No Image Appears in Exalted
 - **Symptom**: The barcode string is received over TCP, but the CMOS image is not updated.
 - **Causes & Resolutions**:
-  1. **FTP Port 2121 Blocked**: Verify that the Exalted embedded FTP server is running and port 2121 is open in the OS firewall.
-     - *Linux test*: `nc -zv 127.0.0.1 2121`
-  2. **Reader FTP Server IP Mismatch**: In Keyence AutoID Navigator, ensure the FTP Server destination IP is set to the host PC's exact Ethernet IP address, not `127.0.0.1` or the gateway.
+  1. **FTP Port 21 Cannot Bind / Is Blocked**: Verify that the receiver is enabled, credentials are configured, and TCP port 21 is available. The SR-750 manual lists FTP service port 21 and active data port 20.
+     - *Linux test*: `nc -zv <PC-ETHERNET-IP> 21`
+     - Binding ports 20/21 may require `CAP_NET_BIND_SERVICE`; do not run Exalted as root. Use only a reviewed least-privilege capability or approved OS-level port forwarding.
+  2. **Reader FTP Server IP Mismatch**: In KEYENCE AutoID Network Navigator, ensure the FTP server destination IP is set to the host PC's exact Ethernet IP address, not `127.0.0.1` or the gateway.
   3. **Passive Mode (PASV) Port Range**: When in passive mode, the embedded FTP server dynamically assigns a data port. Ensure local traffic on the interface is not restricted by local packet filtering.
 
 ---

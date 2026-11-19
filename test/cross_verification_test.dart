@@ -12,7 +12,11 @@ String code({
   String lot = 'LOT42',
   String exp = '280630',
   String serial = 'SN0001',
-}) => '01$gtin' '17$exp' '10$lot$_gs' '21$serial';
+}) =>
+    '01$gtin'
+    '17$exp'
+    '10$lot$_gs'
+    '21$serial';
 
 ExpectedValues expected({
   String? lot = 'LOT42',
@@ -27,15 +31,18 @@ ExpectedValues expected({
   externalRef: 'ref-1',
 );
 
-OcrReading ocrAll({double c = 0.95, String serial = 'SN0001', String lot = 'LOT42'}) =>
-    OcrReading(
-      fields: {
-        InspectionField.gtin: OcrFieldReading('04006381333931', confidence: c),
-        InspectionField.lot: OcrFieldReading(lot, confidence: c),
-        InspectionField.expiry: OcrFieldReading('2028-06-30', confidence: c),
-        InspectionField.serial: OcrFieldReading(serial, confidence: c),
-      },
-    );
+OcrReading ocrAll({
+  double c = 0.95,
+  String serial = 'SN0001',
+  String lot = 'LOT42',
+}) => OcrReading(
+  fields: {
+    InspectionField.gtin: OcrFieldReading('04006381333931', confidence: c),
+    InspectionField.lot: OcrFieldReading(lot, confidence: c),
+    InspectionField.expiry: OcrFieldReading('2028-06-30', confidence: c),
+    InspectionField.serial: OcrFieldReading(serial, confidence: c),
+  },
+);
 
 InspectionResult run({
   String? barcode,
@@ -72,7 +79,10 @@ void main() {
   });
 
   test('wrong serial in the barcode: FAIL with a character diff', () {
-    final r = run(barcode: code(), exp: expected(serial: 'SN0002'));
+    final r = run(
+      barcode: code(),
+      exp: expected(serial: 'SN0002'),
+    );
     expect(r.outcome, InspectionOutcome.fail);
     final d = field(r, InspectionField.serial).barcodeVsExpected!.diffs.single;
     expect(d.kind, DiffKind.substituted);
@@ -81,14 +91,20 @@ void main() {
   });
 
   test('wrong expiry date: FAIL', () {
-    final r = run(barcode: code(), exp: expected(expiry: DateTime(2028, 6, 29)));
+    final r = run(
+      barcode: code(),
+      exp: expected(expiry: DateTime(2028, 6, 29)),
+    );
     expect(r.outcome, InspectionOutcome.fail);
     expect(field(r, InspectionField.expiry).verdict, Verdict.mismatch);
   });
 
   test('nothing read: NO READ', () {
     expect(run().outcome, InspectionOutcome.noRead);
-    expect(run(barcode: '  ', ocr: const OcrReading()).outcome, InspectionOutcome.noRead);
+    expect(
+      run(barcode: '  ', ocr: const OcrReading()).outcome,
+      InspectionOutcome.noRead,
+    );
   });
 
   test('barcode only, nothing expected: PASS', () {
@@ -104,7 +120,10 @@ void main() {
   test('OCR ran but read nothing: REVIEW, not FAIL', () {
     final r = run(barcode: code(), ocr: const OcrReading(), exp: expected());
     expect(r.outcome, InspectionOutcome.review);
-    expect(r.reasons.any((x) => x.contains('OCR ran but read no text')), isTrue);
+    expect(
+      r.reasons.any((x) => x.contains('OCR ran but read no text')),
+      isTrue,
+    );
   });
 
   test('printed serial differs from the barcode: FAIL', () {
@@ -114,7 +133,10 @@ void main() {
       exp: expected(),
     );
     expect(r.outcome, InspectionOutcome.fail);
-    expect(field(r, InspectionField.serial).barcodeVsOcr!.verdict, Verdict.mismatch);
+    expect(
+      field(r, InspectionField.serial).barcodeVsOcr!.verdict,
+      Verdict.mismatch,
+    );
   });
 
   test('low-confidence OCR that differs: REVIEW, not FAIL', () {
@@ -154,7 +176,10 @@ void main() {
         },
       ),
       exp: expected(lot: 'L0T42'),
-      policy: const InspectionPolicy(assumeGs1: true, confusablesNeedReview: false),
+      policy: const InspectionPolicy(
+        assumeGs1: true,
+        confusablesNeedReview: false,
+      ),
     );
     expect(r.outcome, InspectionOutcome.fail);
   });
@@ -184,7 +209,10 @@ void main() {
   });
 
   test('expected serial but the barcode is not GS1: FAIL', () {
-    final r = run(barcode: 'HELLO', exp: const ExpectedValues(serial: 'SN0001'));
+    final r = run(
+      barcode: 'HELLO',
+      exp: const ExpectedValues(serial: 'SN0001'),
+    );
     expect(r.outcome, InspectionOutcome.fail);
   });
 
@@ -194,6 +222,9 @@ void main() {
       exp: const ExpectedValues(gtin: '4006381333932'),
     );
     expect(r.outcome, InspectionOutcome.review);
-    expect(r.reasons.any((x) => x.contains('Expected GTIN is not valid')), isTrue);
+    expect(
+      r.reasons.any((x) => x.contains('Expected GTIN is not valid')),
+      isTrue,
+    );
   });
 }

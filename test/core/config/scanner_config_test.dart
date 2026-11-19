@@ -8,7 +8,7 @@ void main() {
     const s = ScannerConfig();
     expect(s.host, '192.168.100.100');
     expect(s.port, 9004);
-    expect(s.ftpReceiverPort, 2121);
+    expect(s.ftpReceiverPort, 21);
     expect(s.connectTimeoutMs, 10000);
     expect(s.ftpReceiverEnabled, isFalse);
     expect(const AppConfig().validate(), isEmpty);
@@ -50,11 +50,30 @@ void main() {
     expect(const AppConfig().warnings(), isEmpty);
   });
 
+  test('warns when an enabled FTP listener uses a non-default port', () {
+    const config = AppConfig(
+      scanner: ScannerConfig(
+        ftpReceiverEnabled: true,
+        ftpReceiverPort: 2121,
+        ftpUsername: 'scanner',
+      ),
+    );
+    expect(
+      config.warnings().any(
+        (issue) =>
+            issue.path == 'scanner.ftpReceiverPort' &&
+            issue.message.contains('port 21'),
+      ),
+      isTrue,
+    );
+  });
+
   test('json round trip keeps scanner settings and never holds a password', () {
     const c = AppConfig(
       scanner: ScannerConfig(
         ftpReceiverEnabled: true,
         ftpReceiverPort: 2222,
+        dataPort: 9100,
         ftpBindAddress: '10.0.0.2',
         ftpUsername: 'u',
         ftpMaxUploadBytes: 1000000,
@@ -70,6 +89,7 @@ void main() {
     );
     expect(issues, isEmpty);
     expect(back.scanner.ftpReceiverPort, 2222);
+    expect(back.scanner.dataPort, 9100);
     expect(back.scanner.ftpBindAddress, '10.0.0.2');
     expect(back.scanner.ftpUsername, 'u');
     expect(back.scanner.ftpMaxUploadBytes, 1000000);

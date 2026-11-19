@@ -31,7 +31,6 @@ void main() {
     sim = await KeyenceSr751Simulator.start(
       model: 'SR-751',
       firmware: 'V2.30',
-      serial: 'SN-1',
       defaultBarcode: '4006381333931',
     );
   });
@@ -66,6 +65,74 @@ void main() {
     expect(s.port, sim.port);
     expect(s.deviceLabel, 'SR-751');
   });
+
+  test(
+    'startup auto-connects to a saved endpoint and verifies KEYENCE identity',
+    () async {
+      final c = make(
+        AppConfig(
+          scanner: ScannerConfig(
+            host: sim.address.address,
+            port: sim.port,
+            deviceLabel: 'KEYENCE SR-751',
+            autoConnect: true,
+            autoReconnect: false,
+            hostSaved: true,
+          ),
+        ),
+      );
+
+      c.read(keyenceScannerCoordinatorProvider);
+      await _until(() => c.read(keyenceScannerCoordinatorProvider).isConnected);
+
+      expect(sim.connectionCount, 1);
+      expect(sim.receivedCommands, contains('KEYENCE'));
+      expect(c.read(keyenceScannerCoordinatorProvider).model, 'SR-751');
+      expect(
+        c.read(keyenceScannerCoordinatorProvider).host,
+        sim.address.address,
+      );
+    },
+  );
+
+  test(
+    'uses a separate listen-only Data Port 1 connection when configured',
+    () async {
+      final dataSim = await KeyenceSr751Simulator.start(
+        model: 'SR-751',
+        firmware: 'V2.30',
+      );
+      addTearDown(dataSim.close);
+
+      final c = make();
+      final coordinator = c.read(keyenceScannerCoordinatorProvider.notifier);
+      final connected = await coordinator.connect(
+        targetHost: sim.address.address,
+        targetPort: sim.port,
+        targetDataPort: dataSim.port,
+      );
+
+      expect(connected, isTrue);
+      await _until(
+        () => c.read(keyenceScannerCoordinatorProvider).dataChannelConnected,
+      );
+      await _until(() => dataSim.connectionCount == 1);
+      expect(dataSim.receivedCommands, isEmpty);
+
+      dataSim.sendBarcode('DATA-PORT-1-READ');
+      await _until(
+        () => c.read(keyenceScannerCoordinatorProvider).scanCount == 1,
+      );
+      final state = c.read(keyenceScannerCoordinatorProvider);
+      expect(state.lastScan, 'DATA-PORT-1-READ');
+      expect(state.dataPort, dataSim.port);
+
+      await _until(
+        () async =>
+            c.read(configControllerProvider).scanner.dataPort == dataSim.port,
+      );
+    },
+  );
 
   test('auto-reconnect changes are saved into the config', () async {
     final c = make();

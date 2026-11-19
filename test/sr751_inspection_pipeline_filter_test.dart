@@ -184,16 +184,13 @@ void main() {
   });
 
   test(
-    'KNOWN LIMIT: the default profile still treats OK as a barcode',
+    'the default profile never stores an OK command reply as a barcode',
     () async {
-      // Pins today's behaviour until real SR-751 replies are captured. If you
-      // change the default profile, update this test on purpose.
       client.push(line('OK'));
-      await waitFor(() => pipeline.inspections.isNotEmpty);
       await flush();
 
-      expect(real(), hasLength(1));
-      expect(real().single.barcode, 'OK');
+      expect(real(), isEmpty);
+      expect(await history.loadAll(), isEmpty);
     },
   );
 

@@ -11,6 +11,12 @@ import '../core/message_framer.dart';
 import '../core/upload_guard.dart';
 import '../../../core/config/config_controller.dart';
 
+typedef ActiveFtpDataConnector = Future<Socket> Function(
+  InternetAddress address,
+  int port,
+  int sourcePort,
+);
+
 /// Event fired when an industrial camera or Keyence SR-751 uploads a CMOS frame.
 class KeyenceFtpImageReceived {
   const KeyenceFtpImageReceived({
@@ -41,14 +47,24 @@ class KeyenceFtpImageReceived {
 /// control connection.
 class KeyenceFtpReceiver {
   KeyenceFtpReceiver({
-    this.port = 2121,
+    this.port = 21,
     ImageStorageService? imageStorage,
     this.username,
     this.password,
     this.maxUploadBytes = kMaxUploadBytes,
     InternetAddress? bindAddress,
+    this.activeDataSourcePort = 20,
+    ActiveFtpDataConnector? activeDataConnector,
   }) : _imageStorage = imageStorage ?? ImageStorageService(),
-       _bindAddress = bindAddress ?? InternetAddress.anyIPv4;
+       _bindAddress = bindAddress ?? InternetAddress.anyIPv4,
+       _activeDataConnector =
+           activeDataConnector ??
+           ((address, port, sourcePort) => Socket.connect(
+             address,
+             port,
+             sourcePort: sourcePort,
+             timeout: const Duration(seconds: 5),
+           ));
 
   final int port;
   String? username;
@@ -56,6 +72,11 @@ class KeyenceFtpReceiver {
   final int maxUploadBytes;
   final ImageStorageService _imageStorage;
   final InternetAddress _bindAddress;
+  final int activeDataSourcePort;
+  final ActiveFtpDataConnector _activeDataConnector;
+
+  /// Last startup failure, suitable for diagnostics without exposing secrets.
+  String? lastStartError;
 
   ServerSocket? _controlServer;
   final Set<_FtpSession> _sessions = <_FtpSession>{};
@@ -86,7 +107,13 @@ class KeyenceFtpReceiver {
   /// Starts the embedded FTP receiver server.
   Future<bool> start({int? listenPort}) async {
     final bindPort = listenPort ?? port;
-    if (_isRunning) return true;
+    lastStartError = null;
+    if (_isRunning) {
+      if (_controlServer?.port == bindPort) return true;
+      lastStartError =
+          'FTP receiver is already running on port ${_controlServer?.port}. Stop it before changing the port.';
+      return false;
+    }
 
     // Fail closed: FTP has no transport encryption, so anonymous access must
     // never be an implicit fallback when credentials are missing.
@@ -94,9 +121,8 @@ class KeyenceFtpReceiver {
         username!.trim().isEmpty ||
         password == null ||
         password!.isEmpty) {
-      debugPrint(
-        '[KEYENCE][FTP] Startup refused: a non-empty username and password are required.',
-      );
+      lastStartError = 'A non-empty FTP username and password are required.';
+      debugPrint('[KEYENCE][FTP] Startup refused: $lastStartError');
       return false;
     }
 
@@ -107,6 +133,7 @@ class KeyenceFtpReceiver {
         shared: true,
       );
       _isRunning = true;
+      lastStartError = null;
       debugPrint(
         '[KEYENCE][FTP] Server started on port ${_controlServer!.port}',
       );
@@ -119,10 +146,12 @@ class KeyenceFtpReceiver {
       );
       return true;
     } catch (e) {
+      lastStartError = e.toString();
       debugPrint(
         '[KEYENCE][FTP] Failed to bind FTP server on port $bindPort: $e',
       );
       _isRunning = false;
+      _controlServer = null;
       return false;
     }
   }
@@ -151,6 +180,8 @@ class KeyenceFtpReceiver {
       username: username,
       password: password,
       maxUploadBytes: maxUploadBytes,
+      activeDataSourcePort: activeDataSourcePort,
+      activeDataConnector: _activeDataConnector,
       onImageReceived: (event) {
         if (!_imageStreamController.isClosed) {
           _imageStreamController.add(event);
@@ -189,6 +220,8 @@ class _FtpSession {
     required this.username,
     required this.password,
     required this.maxUploadBytes,
+    required this.activeDataSourcePort,
+    required this.activeDataConnector,
     required this.onImageReceived,
     required this.onClosed,
   }) : _authenticated = false {
@@ -204,6 +237,8 @@ class _FtpSession {
     'NOOP',
     'SYST',
     'FEAT',
+    'OPTS',
+    'CLNT',
   };
 
   final Socket controlSocket;
@@ -212,6 +247,8 @@ class _FtpSession {
   final String? username;
   final String? password;
   final int maxUploadBytes;
+  final int activeDataSourcePort;
+  final ActiveFtpDataConnector activeDataConnector;
   final ValueChanged<KeyenceFtpImageReceived> onImageReceived;
   final void Function(_FtpSession) onClosed;
 
@@ -225,10 +262,13 @@ class _FtpSession {
   bool _authenticated;
   String? _pendingUser;
   int _failedLogins = 0;
+  String _virtualDirectory = '';
 
   ServerSocket? _passiveServer;
   Socket? _dataSocket;
   Completer<Socket>? _passiveSocketCompleter;
+  InternetAddress? _activeDataAddress;
+  int? _activeDataPort;
   String _currentTransferType = 'A'; // ASCII default, 'I' is Binary
 
   void sendBanner() => _reply('220 Exalted Industrial FTP Ready');
@@ -317,21 +357,102 @@ class _FtpSession {
         break;
 
       case 'FEAT':
-        controlSocket.write('211-Features:\r\n PASV\r\n UTF8\r\n211 End\r\n');
+        controlSocket.write(
+          '211-Features:\r\n'
+          ' PORT\r\n'
+          ' PASV\r\n'
+          ' UTF8\r\n'
+          '211 End\r\n',
+        );
         break;
 
       case 'PWD':
       case 'XPWD':
-        _reply('257 "/" is current directory.');
+        _reply(
+          '257 "${_virtualDirectory.isEmpty ? '/' : '/$_virtualDirectory'}" is current directory.',
+        );
+        break;
+
+      case 'CWD':
+        final requested = args.replaceAll('\\', '/').trim();
+        if (requested.isEmpty || requested == '.') {
+          _reply('250 Directory unchanged.');
+        } else if (requested == '/' || requested == '..') {
+          _virtualDirectory = '';
+          _reply('250 Directory changed to /.');
+        } else {
+          final directory = _safeVirtualDirectory(requested);
+          if (directory == null) {
+            _reply('550 Invalid virtual directory name.');
+          } else {
+            _virtualDirectory = directory;
+            _reply('250 Directory changed to /$directory.');
+          }
+        }
+        break;
+
+      case 'CDUP':
+        _virtualDirectory = '';
+        _reply('250 Directory changed to /.');
+        break;
+
+      case 'MKD':
+        final directory = _safeVirtualDirectory(args);
+        if (directory == null) {
+          _reply('550 Invalid virtual directory name.');
+        } else {
+          _reply('257 "/$directory" directory created.');
+        }
+        break;
+
+      case 'OPTS':
+        if (args.toUpperCase() == 'UTF8 ON') {
+          _reply('200 UTF8 mode enabled.');
+        } else {
+          _reply('501 Unsupported FTP option.');
+        }
+        break;
+
+      case 'CLNT':
+        _reply('200 Client identification accepted.');
+        break;
+
+      case 'STRU':
+        if (args.toUpperCase() == 'F') {
+          _reply('200 Structure set to File.');
+        } else {
+          _reply('504 Only file structure is supported.');
+        }
+        break;
+
+      case 'MODE':
+        if (args.toUpperCase() == 'S') {
+          _reply('200 Mode set to Stream.');
+        } else {
+          _reply('504 Only stream mode is supported.');
+        }
+        break;
+
+      case 'ALLO':
+        _reply('202 Allocation command not required.');
         break;
 
       case 'TYPE':
-        _currentTransferType = args.toUpperCase();
+        final requestedType = args.toUpperCase();
+        if (requestedType != 'A' && requestedType != 'I') {
+          _reply('504 Only TYPE A and TYPE I are supported.');
+          break;
+        }
+        _currentTransferType = requestedType;
         _reply('200 Type set to $_currentTransferType.');
         break;
 
       case 'PASV':
         await _enterPassiveMode();
+        break;
+
+      case 'PORT':
+        await _enterActiveMode(args);
         break;
 
       case 'STOR':
@@ -353,8 +474,27 @@ class _FtpSession {
     }
   }
 
+  /// Accepts the SR-750's configured remote directory as a virtual FTP
+  /// directory. Uploads still go through ImageStorageService; no client path
+  /// is ever used as a filesystem path.
+  String? _safeVirtualDirectory(String raw) {
+    var value = raw.trim().replaceAll('\\', '/');
+    if (value.startsWith('/')) value = value.substring(1);
+    if (value.endsWith('/')) value = value.substring(0, value.length - 1);
+    if (value.isEmpty ||
+        value == '.' ||
+        value == '..' ||
+        value.contains('/') ||
+        !RegExp(r'^[A-Za-z0-9._-]{1,32}$').hasMatch(value)) {
+      return null;
+    }
+    return value;
+  }
+
   Future<void> _enterPassiveMode() async {
     await _closePassive();
+    _activeDataAddress = null;
+    _activeDataPort = null;
 
     try {
       final localAddress = await _passiveAddress();
@@ -405,6 +545,41 @@ class _FtpSession {
     }
   }
 
+  /// Accepts the standard IPv4 PORT command used by the reader's default
+  /// active FTP mode. To prevent FTP bounce attacks, the advertised address
+  /// must exactly match the control connection peer and the data port must be
+  /// an ephemeral port (1024..65535).
+  Future<void> _enterActiveMode(String args) async {
+    await _closePassive();
+    _activeDataAddress = null;
+    _activeDataPort = null;
+
+    final octets = args.split(',').map(int.tryParse).toList();
+    if (octets.length != 6 ||
+        octets.any((value) => value == null || value < 0 || value > 255)) {
+      _reply('501 Invalid PORT argument.');
+      return;
+    }
+
+    final values = octets.cast<int>();
+    final address = InternetAddress.tryParse(values.take(4).join('.'));
+    final dataPort = (values[4] << 8) | values[5];
+    if (address == null ||
+        address.type != InternetAddressType.IPv4 ||
+        address.address != clientIp ||
+        dataPort < 1024 ||
+        dataPort > 65535) {
+      _reply(
+        '501 PORT address must match the control peer and use an ephemeral port.',
+      );
+      return;
+    }
+
+    _activeDataAddress = address;
+    _activeDataPort = dataPort;
+    _reply('200 PORT command successful.');
+  }
+
   Future<InternetAddress?> _passiveAddress() async {
     final socketAddress = controlSocket.address;
     if (socketAddress.address != InternetAddress.anyIPv4.address) {
@@ -443,6 +618,11 @@ class _FtpSession {
   }
 
   Future<void> _receiveFile(String rawName) async {
+    if (_currentTransferType != 'I') {
+      _reply('504 Image uploads require TYPE I (binary mode).');
+      await _closePassive();
+      return;
+    }
     final ext = safeUploadExtension(rawName);
     if (ext == null) {
       _reply('553 File name not allowed.');
@@ -451,8 +631,10 @@ class _FtpSession {
     }
 
     final completer = _passiveSocketCompleter;
-    if (completer == null) {
-      _reply('425 Use PASV first.');
+    final activeAddress = _activeDataAddress;
+    final activePort = _activeDataPort;
+    if (completer == null && (activeAddress == null || activePort == null)) {
+      _reply('425 Use PORT or PASV first.');
       return;
     }
 
@@ -460,9 +642,28 @@ class _FtpSession {
     _reply('150 Opening BINARY mode data connection for $fileName.');
 
     try {
-      final dataSocket = await completer.future.timeout(
-        const Duration(seconds: 5),
-      );
+      final Socket dataSocket;
+      if (activeAddress != null && activePort != null) {
+        _activeDataAddress = null;
+        _activeDataPort = null;
+        // The SR-750 manual lists TCP source port 20 for active FTP data.
+        // Binding it is required for strict active-mode compatibility; systems
+        // that cannot bind privileged ports receive a clear transfer failure.
+        dataSocket = await activeDataConnector(
+          activeAddress,
+          activePort,
+          activeDataSourcePort,
+        );
+        if (dataSocket.remoteAddress.address != activeAddress.address) {
+          dataSocket.destroy();
+          throw const SocketException('Active FTP peer address mismatch');
+        }
+        _dataSocket = dataSocket;
+      } else {
+        dataSocket = await completer!.future.timeout(
+          const Duration(seconds: 5),
+        );
+      }
 
       final builder = BytesBuilder();
       var total = 0;
@@ -539,6 +740,8 @@ class _FtpSession {
     if (_closed) return;
     _closed = true;
     _idleTimer?.cancel();
+    _activeDataAddress = null;
+    _activeDataPort = null;
     _closePassive();
     try {
       controlSocket.close();

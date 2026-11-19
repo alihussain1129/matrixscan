@@ -21,8 +21,8 @@ enum Sr751MessageKind {
 
 /// How to tell the reader's reply kinds apart.
 ///
-/// Nothing here is a verified SR-751 format. Fill these in from the official
-/// manual or from replies captured from the reader.
+/// The built-in command envelope handling follows the SR-750 Series manual.
+/// Site-specific barcode prefixes and status formats remain configurable.
 class Sr751ReplyProfile {
   const Sr751ReplyProfile({
     required this.name,
@@ -33,13 +33,12 @@ class Sr751ReplyProfile {
     this.commandReplyWindow = const Duration(seconds: 2),
   });
 
-  /// The behaviour the existing client has today: `ERROR...` and `NG` are
-  /// failures and every other line is barcode data.
+  /// Conservative legacy barcode behavior, while still filtering documented
+  /// command response envelopes so they cannot be stored as barcode data.
   const Sr751ReplyProfile.legacy()
     : this(name: 'legacy', errorPatterns: const <String>[r'^ERROR', r'^NG$']);
 
-  /// The replies listed in docs/KEYENCE_SR751_GUIDE.md. Opt-in only: that
-  /// table has not been checked against the official manual.
+  /// Compatibility profile for installations using the earlier guide format.
   const Sr751ReplyProfile.guideDocumented()
     : this(
         name: 'guide-documented (not verified against the manual)',
@@ -50,7 +49,7 @@ class Sr751ReplyProfile {
   /// Production profile with verified SR-750/SR-751 series protocol responses:
   /// - Errors: ERROR (with optional error code), NG
   /// - Acknowledgements: OK, 00
-  /// - Status: STAT:... or two-digit status codes
+  /// - Status: configured site-specific status patterns
   const Sr751ReplyProfile.production({
     String? barcodePrefix,
     Duration commandReplyWindow = const Duration(seconds: 2),
@@ -58,7 +57,7 @@ class Sr751ReplyProfile {
          name: 'production',
          errorPatterns: const <String>[r'^ERROR(,\d+)?$', r'^NG$'],
          acknowledgements: const <String>{'OK', '00'},
-         statusPatterns: const <String>[r'^STAT:.*$'],
+         statusPatterns: const <String>[],
          barcodePrefix: barcodePrefix,
          commandReplyWindow: commandReplyWindow,
        );
@@ -182,7 +181,21 @@ class Sr751MessageClassifier {
         command: command,
       );
     }
-    if (profile.acknowledgements.contains(text)) {
+    // Full KEYENCE command envelopes use `OK, <command>[, value]` and
+    // `ER, <command>, <error-code>`. Keep these out of the barcode path.
+    // A bare `OK` is different: it is an acknowledgement only for profiles
+    // that explicitly configure it, and only while a command is pending.
+    final upper = text.toUpperCase();
+    if (upper.startsWith('OK,') || upper.startsWith('ER,')) {
+      final command = _takePending();
+      return Sr751Classification(
+        Sr751MessageKind.commandResponse,
+        text,
+        command: command,
+        detail: upper.startsWith('ER,') ? 'reader command error' : null,
+      );
+    }
+    if (profile.acknowledgements.any((ack) => ack.toUpperCase() == upper)) {
       final command = _takePending();
       if (command == null) {
         return Sr751Classification(

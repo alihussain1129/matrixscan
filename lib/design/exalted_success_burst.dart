@@ -27,11 +27,26 @@ class _ExaltedSuccessBurstState extends State<ExaltedSuccessBurst>
     vsync: this,
     duration: const Duration(milliseconds: 750),
   );
+  bool _reducedMotion = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduced = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (reduced == _reducedMotion) return;
+    _reducedMotion = reduced;
+    if (reduced) {
+      _c.stop();
+      _c.value = 0;
+    }
+  }
 
   @override
   void didUpdateWidget(ExaltedSuccessBurst old) {
     super.didUpdateWidget(old);
-    if (widget.trigger != old.trigger) _c.forward(from: 0);
+    if (widget.trigger != old.trigger && !_reducedMotion) {
+      _c.forward(from: 0);
+    }
   }
 
   @override
@@ -42,6 +57,7 @@ class _ExaltedSuccessBurstState extends State<ExaltedSuccessBurst>
 
   @override
   Widget build(BuildContext context) {
+    if (_reducedMotion) return const SizedBox.shrink();
     return IgnorePointer(
       child: AnimatedBuilder(
         animation: _c,

@@ -49,7 +49,7 @@ void main() {
     expect(received, isEmpty);
   });
 
-  test('an allowed command is sent with a carriage return', () async {
+  test('an allowed command is sent with the default CR terminator', () async {
     final c = await connected(<String>{'LON'});
     expect(await c.sendCommand('LON'), isTrue);
     await settle();
@@ -62,11 +62,19 @@ void main() {
       final c = await connected(<String>{'LON'});
       expect(await c.sendCommand('PRG,3'), isFalse);
       expect(await c.sendCommand('reset'), isFalse);
+      expect(await c.sendCommand('LON,unexpected'), isFalse);
       await settle();
       expect(received, isEmpty);
-      expect(c.blockedCommands, ['PRG', 'RESET']);
+      expect(c.blockedCommands, ['PRG', 'RESET', 'LON']);
     },
   );
+
+  test('an allowed command cannot inject a second CRLF command', () async {
+    final c = await connected(<String>{'LON'});
+    expect(await c.sendCommand('LON\r\nLOFF'), isFalse);
+    await settle();
+    expect(received, isEmpty);
+  });
 
   test('no allow-list keeps today\'s behaviour', () async {
     final c = await connected(null);

@@ -15,7 +15,7 @@ Target Platforms: Linux Desktop (x86_64), Windows Desktop (x64), Android Mobile 
 - **Offline OCR Engine**: Tesseract 5.3 TSV recognition on Desktop (Linux / Windows) and Google ML Kit on Android.
 - **Interactive ROI Selection**: Region of Interest drag-and-crop for isolated character recognition.
 - **OCV Rule Verification Engine**: Industrial rule evaluation (Exact Match, Regex, Lot Code, Expiration Date, Serial Numbers, Numeric Ranges) with character-level diff highlighting and explainable PASS / FAIL verdicts.
-- **Keyence SR-751 Industrial Code Reader Integration**: Direct TCP/IP socket control (`LON`, `LOFF`, `T1`, `PRG`, `FTPOUT`, `BEEP`) and built-in Dart FTP receiver (port 2121) for CMOS image capture and real-time verification.
+- **Keyence SR-751 Industrial Code Reader Integration**: TCP command and Data Port 1 connections, with an embedded FTP image receiver. Physical scanner, trigger, and image-transfer compatibility must be verified on the actual device.
 - **Dual-Tab Traceability & History**: Clean separation between Barcode Decoder Scans and OCR/OCV Records with full search, filtering, CSV/JSON export, and disaster recovery backup.
 
 ---
@@ -32,7 +32,7 @@ On Windows and Linux, `AppShell` selects `ExaltedShell`, the responsive workstat
 - **System Settings**: Diagnostics, OCR engine parameters, Keyence network configuration, and backup/restore.
 
 ### Mobile Layout (Android)
-On mobile displays (width < 900px), Exalted transitions seamlessly to an intuitive bottom navigation bar while retaining full access to all features and modals.
+On Android and iOS, AppShell selects the phone-first MobileShell with bottom navigation. Windows and Linux always use the workstation ExaltedShell; its sidebar adapts to the available window width.
 
 ---
 
@@ -88,23 +88,23 @@ Exalted directly manages Keyence SR-751 industrial code readers over Ethernet.
 
 ### Setting Up Connection:
 1. Navigate to **Keyence Hardware** (or Settings > Keyence Hardware).
-2. Enter the Keyence Reader's IP address (default: `192.168.100.100`) and command port (default: `9004`).
-3. Set the Local FTP Port (default: `2121`).
-4. Click **Connect**. The status indicator turns **ONLINE (Connected)**.
+2. Enter the reader's IP address (factory default: `192.168.100.100`) and Command Port (factory default: `9004`).
+3. Enter Data Port 1 if it differs from the Command Port; leave it blank to reuse the Command Port. Configure Data Port 1 on the reader as an Ethernet server (`Remote IP = 0.0.0.0`).
+4. Click **Connect**. A verified command connection does not by itself prove that barcode data is arriving on Data Port 1.
 
 ### Commands & Operations:
-- **Trigger Read (`LON` / `LOFF`)**: Commands the reader to emit lighting and decode.
-- **Test Mode (`T1` / `T2`)**: Runs hardware alignment and tuning tests.
-- **Beep (`BEEP`)**: Emits the audible buzzer on the Keyence unit.
-- **Bank Select (`PRG,xx`)**: Switches active reading parameter banks.
-- **FTP Image Transfer (`FTPOUT`)**: Commands the Keyence camera to transmit the current CMOS image buffer to Exalted's embedded FTP receiver.
+- **Identity (`KEYENCE`)**: Read-only model and system-version query used for verification.
+- **Reader Error Status (`ERRSTAT`)**: Documented read-only error-status query.
+- **Trigger Read (`LON` / `LOFF`)**: Documented timing controls; operator action only, and test them only in a safe machine state.
+- Other commands, including `T1`, `T2`, `PRG`, `BEEP`, and `FTPOUT`, are not enabled in the default command allow-list because their use has not been verified for this integration.
 
-### Automated Inspection Pipeline:
-When enabled, Exalted links the barcode string decoded by the Keyence reader with the CMOS image sent over FTP:
-1. Keyence reads the 2D Data Matrix on the product.
-2. Keyence uploads the captured image to Exalted via FTP on port 2121.
-3. Exalted automatically triggers OCR/OCV on the printed alphanumeric text in the image.
-4. The system validates both the 2D code and the printed human-readable text simultaneously.
+### FTP Image Transfer and Inspection:
+1. Configure the FTP receiver in **Settings → FTP Receiver**. The SR-750 FTP service default is TCP port `21`; active FTP data uses local source port `20`.
+2. Set the scanner's FTP destination IP to the PC's Ethernet address and configure the scanner's FTP client credentials to match Exalted's receiver credentials.
+3. On Linux, binding ports 20/21 may require `CAP_NET_BIND_SERVICE`. Do not run Exalted as root. Android may not permit binding these ports in the normal app sandbox.
+4. The SR-750 default remote FTP directory is `image`; Exalted accepts it as a virtual directory and stores the uploaded file in managed media storage.
+5. Configure image saving/FTP on the reader and test a real upload. A running listener alone does not prove that the scanner can authenticate or transfer an image.
+6. Exalted currently pairs barcode and image arrivals by a time window; it does not yet have a verified device transaction ID. Do not treat that pairing as production traceability proof.
 
 ---
 

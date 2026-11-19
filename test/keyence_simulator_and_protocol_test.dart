@@ -53,7 +53,7 @@ void main() {
       expect(handshake.success, isTrue);
       expect(handshake.model, equals('SR-751'));
       expect(handshake.firmwareVersion, equals('V2.30'));
-      expect(handshake.serialNumber, equals('12345678'));
+      expect(handshake.serialNumber, isNull);
       expect(client.status, equals(KeyenceConnectionStatus.connected));
 
       // Fast connection requirement: under 3-4 seconds (local simulation takes < 150 ms)
@@ -63,10 +63,9 @@ void main() {
       expect(client.lastTotalConnectionTimeMs, greaterThanOrEqualTo(0));
     });
 
-    test('handshake queryDeviceInfo accurately parses comma-separated firmware & serial', () async {
+    test('handshake queryDeviceInfo parses the documented model and system version', () async {
       simulator.model = 'SR-750';
       simulator.firmware = 'V1.40';
-      simulator.serial = 'SN998877';
 
       await client.connect(
         targetHost: simulator.address.address,
@@ -77,7 +76,7 @@ void main() {
       expect(info.success, isTrue);
       expect(info.model, equals('SR-750'));
       expect(info.firmwareVersion, equals('V1.40'));
-      expect(info.serialNumber, equals('SN998877'));
+      expect(info.serialNumber, isNull);
     });
 
     test('rejects non-Keyence TCP server that does not respond with Keyence signature', () async {
@@ -93,6 +92,7 @@ void main() {
       });
       addTearDown(dummyServer.close);
 
+      final unexpectedLine = client.scanStream.first;
       final handshake = await client.connectAndVerify(
         targetHost: dummyServer.address.address,
         targetPort: dummyServer.port,
@@ -101,6 +101,11 @@ void main() {
 
       expect(handshake.success, isFalse);
       expect(handshake.errorMessage, contains('Unexpected device signature'));
+      expect(handshake.errorMessage, contains('GENERIC_TCP_SERVER_OK'));
+      // The unexpected handshake line remains visible to normal scan
+      // consumers; it is retained separately only for the identity diagnostic.
+      final scan = await unexpectedLine.timeout(const Duration(seconds: 1));
+      expect(scan.rawResponse, 'GENERIC_TCP_SERVER_OK');
       expect(client.status, equals(KeyenceConnectionStatus.error));
     });
 
@@ -178,7 +183,7 @@ void main() {
     );
 
     test(
-      'production message classifier separates OK, STAT, and barcodes',
+      'production message classifier separates command replies and barcodes',
       () async {
         final classifier = Sr751MessageClassifier(
           profile: const Sr751ReplyProfile.production(),
@@ -195,10 +200,9 @@ void main() {
         expect(okClass.kind, equals(Sr751MessageKind.commandResponse));
         expect(okClass.command, equals('LOFF'));
 
-        // 3. STAT reply
-        final statClass = classifier.classify('00');
-        // 00 is in acknowledgements
-        expect(statClass.kind, isNot(equals(Sr751MessageKind.barcode)));
+        // 3. A status acknowledgement is not barcode data.
+        final statusClass = classifier.classify('00');
+        expect(statusClass.kind, isNot(equals(Sr751MessageKind.barcode)));
 
         // 4. Reader Error
         final errClass = classifier.classify('ERROR,01');
@@ -207,6 +211,14 @@ void main() {
         // 5. Read NG
         final ngClass = classifier.classify('NG');
         expect(ngClass.kind, equals(Sr751MessageKind.readFailure));
+
+        // 6. Full KEYENCE command envelopes must never become barcodes.
+        final errStatus = classifier.classify('OK, ERRSTAT, none');
+        expect(errStatus.kind, equals(Sr751MessageKind.commandResponse));
+        final identityReply = classifier.classify('OK, KEYENCE, SR-751, V2.30');
+        expect(identityReply.kind, equals(Sr751MessageKind.commandResponse));
+        final commandError = classifier.classify('ER, KEYENCE, 00');
+        expect(commandError.kind, equals(Sr751MessageKind.commandResponse));
       },
     );
   });

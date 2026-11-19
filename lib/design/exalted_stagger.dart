@@ -26,6 +26,7 @@ class _ExaltedStaggerState extends State<ExaltedStagger>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c;
   late final Animation<double> _a;
+  bool _motionInitialized = false;
 
   @override
   void initState() {
@@ -42,7 +43,23 @@ class _ExaltedStaggerState extends State<ExaltedStagger>
         curve: Curves.easeOutCubic,
       ),
     );
-    _c.forward();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduced = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (!_motionInitialized) {
+      _motionInitialized = true;
+      if (reduced) {
+        _c.value = 1;
+      } else {
+        _c.forward();
+      }
+    } else if (reduced && _c.isAnimating) {
+      _c.stop();
+      _c.value = 1;
+    }
   }
 
   @override

@@ -17,16 +17,11 @@ import '../../verify/verification_screen.dart';
 import '../router/app_router.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
-import '../theme/app_theme.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/command_palette.dart';
 import '../widgets/exalted_logo.dart';
 import 'app_destinations.dart';
-import 'compact_nav_bar.dart';
 import 'desktop_chrome.dart';
-
-// The scanner tab uses dark chrome, so its bottom bar is dark too.
-final ThemeData _darkNavTheme = AppTheme.dark();
 
 const List<LogicalKeyboardKey> _digitKeys = [
   LogicalKeyboardKey.digit1,
@@ -96,10 +91,6 @@ class _ExaltedShellState extends ConsumerState<ExaltedShell> {
     }
   }
 
-  void _showMore(int index) {
-    showMoreDestinations(context, index: index, onSelect: _select);
-  }
-
   Future<void> _showCommandPalette() async {
     await showCommandPalette(context);
   }
@@ -113,27 +104,6 @@ class _ExaltedShellState extends ConsumerState<ExaltedShell> {
         ? ExaltedLayout.medium
         : context.layout;
     final body = _body(index);
-
-    if (layout == ExaltedLayout.compact) {
-      final navTheme = index == kScanTab ? _darkNavTheme : Theme.of(context);
-      return PopScope(
-        canPop: index == kHomeTab,
-        onPopInvokedWithResult: (didPop, result) {
-          if (!didPop) _select(kHomeTab);
-        },
-        child: Scaffold(
-          body: body,
-          bottomNavigationBar: Theme(
-            data: navTheme,
-            child: CompactNavBar(
-              index: index,
-              onSelect: _select,
-              onMore: () => _showMore(index),
-            ),
-          ),
-        ),
-      );
-    }
 
     final expanded = layout == ExaltedLayout.expanded;
     final title = kDestinations[index].label;

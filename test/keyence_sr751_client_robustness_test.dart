@@ -148,6 +148,55 @@ void main() {
     },
   );
 
+  test(
+    'barcode arriving during identity query does not consume the handshake',
+    () async {
+      server.listen((socket) {
+        accepted.add(socket);
+        socket.listen((bytes) {
+          final command = utf8.decode(bytes, allowMalformed: true);
+          if (command == 'KEYENCE\r') {
+            socket.add(
+              utf8.encode('INTERLEAVED-BARCODE\rOK, KEYENCE, SR-751, V2.30\r'),
+            );
+          }
+        });
+      });
+      final c = makeClient();
+      final scans = <String>[];
+      c.scanStream.listen((scan) => scans.add(scan.data));
+
+      final result = await c.connectAndVerify(
+        timeout: const Duration(seconds: 1),
+        handshakeTimeout: const Duration(milliseconds: 300),
+      );
+
+      expect(result.success, isTrue);
+      expect(result.model, 'SR-751');
+      await until(() => scans.contains('INTERLEAVED-BARCODE'));
+    },
+  );
+
+  test('identity reply with extra fields is rejected', () async {
+    server.listen((socket) {
+      accepted.add(socket);
+      socket.listen((bytes) {
+        if (utf8.decode(bytes, allowMalformed: true) == 'KEYENCE\r') {
+          socket.add(utf8.encode('OK, KEYENCE, SR-751, V2.30, EXTRA\r'));
+        }
+      });
+    });
+    final c = makeClient();
+
+    final result = await c.connectAndVerify(
+      timeout: const Duration(seconds: 1),
+      handshakeTimeout: const Duration(milliseconds: 80),
+    );
+
+    expect(result.success, isFalse);
+    expect(result.errorMessage, contains('Unexpected device signature'));
+  });
+
   test('dispose while connected does not throw', () async {
     server.listen(accepted.add);
     final c = makeClient();

@@ -428,6 +428,11 @@ class _CompanionActivityScreenState
   Widget build(BuildContext context) {
     final state = ref.watch(linkControllerProvider);
     final snapshot = state.companionSnapshot;
+    PeerDesktop? desktop;
+    for (final candidate in state.peers) {
+      if (candidate.id == state.companionPeerId) desktop = candidate;
+    }
+    desktop ??= state.peers.isEmpty ? null : state.peers.first;
     final events = snapshot?.events
         .where((event) {
           return switch (_filter) {
@@ -440,10 +445,106 @@ class _CompanionActivityScreenState
         .toList(growable: false);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Live activity')),
+      appBar: AppBar(title: const Text('Link & activity')),
       body: SafeArea(
         child: Column(
           children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.desktop_windows_outlined,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  desktop?.name ?? 'Industrial workspace',
+                                  style: Theme.of(context).textTheme.titleSmall,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  desktop == null
+                                      ? 'No desktop linked yet'
+                                      : state.companionConnected
+                                      ? 'Connected · live workspace'
+                                      : 'Paired · waiting for desktop',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                          ExaltedStatusChip(
+                            label: desktop == null
+                                ? 'Not linked'
+                                : state.companionConnected
+                                ? 'Live'
+                                : 'Offline',
+                            kind: desktop == null
+                                ? ExaltedStatusKind.neutral
+                                : state.companionConnected
+                                ? ExaltedStatusKind.success
+                                : ExaltedStatusKind.warning,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const LinkedDevicesScreen(),
+                            ),
+                          ),
+                          icon: const Icon(Icons.link),
+                          label: Text(
+                            desktop == null
+                                ? 'Connect a desktop'
+                                : 'Manage desktop connection',
+                          ),
+                        ),
+                      ),
+                      if (snapshot != null) ...[
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _LinkMetric(
+                              label: 'Scans',
+                              value: '${snapshot.todayScans}',
+                            ),
+                            _LinkMetric(
+                              label: 'OCR',
+                              value: '${snapshot.todayOcr}',
+                            ),
+                            _LinkMetric(
+                              label: 'Inspections',
+                              value: '${snapshot.todayInspections}',
+                            ),
+                            _LinkMetric(
+                              label: 'Passed',
+                              value: '${snapshot.passedInspections}',
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
               child: SingleChildScrollView(
@@ -495,6 +596,20 @@ class _CompanionActivityScreenState
       ),
     );
   }
+}
+
+class _LinkMetric extends StatelessWidget {
+  const _LinkMetric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Chip(
+    avatar: const Icon(Icons.analytics_outlined, size: 16),
+    label: Text('$label: $value'),
+    visualDensity: VisualDensity.compact,
+  );
 }
 
 class _ConnectionPanel extends StatelessWidget {

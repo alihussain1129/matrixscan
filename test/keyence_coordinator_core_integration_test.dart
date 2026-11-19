@@ -56,7 +56,6 @@ void main() {
       simulator = await KeyenceSr751Simulator.start(
         model: 'SR-751',
         firmware: 'V2.30',
-        serial: 'SN-PROD-9988',
         defaultBarcode: '4006381333931',
       );
 
@@ -105,12 +104,37 @@ void main() {
         expect(state.status, equals(KeyenceConnectionStatus.connected));
         expect(state.model, equals('SR-751'));
         expect(state.firmware, equals('V2.30'));
-        expect(state.serialNumber, equals('SN-PROD-9988'));
+        expect(state.serialNumber, isNull);
         expect(state.totalConnectionTimeMs, greaterThanOrEqualTo(0));
         expect(
           state.totalConnectionTimeMs,
           lessThan(3500),
         ); // Well under 3-4s target
+      },
+    );
+
+    test(
+      'commissioning reuses the active command socket instead of reconnecting',
+      () async {
+        final coordinator = container.read(
+          keyenceScannerCoordinatorProvider.notifier,
+        );
+        expect(
+          await coordinator.connect(
+            targetHost: simulator.address.address,
+            targetPort: simulator.port,
+          ),
+          isTrue,
+        );
+        expect(simulator.connectionCount, 1);
+
+        final report = await coordinator.runCommissioning();
+        expect(report.overallReady, isTrue);
+        expect(simulator.connectionCount, 1);
+        expect(
+          simulator.receivedCommands.where((c) => c == 'KEYENCE').length,
+          greaterThanOrEqualTo(2),
+        );
       },
     );
 
@@ -210,7 +234,7 @@ void main() {
       expect(report.overallReady, isTrue);
       expect(report.detectedModel, equals('SR-751'));
       expect(report.detectedFirmware, equals('V2.30'));
-      expect(report.detectedSerial, equals('SN-PROD-9988'));
+      expect(report.detectedSerial, isNull);
       expect(report.steps.length, greaterThanOrEqualTo(5));
       expect(
         report.steps.any(

@@ -12,7 +12,6 @@ void main() {
       simulator = await KeyenceSr751Simulator.start(
         model: 'SR-751',
         firmware: 'V2.30',
-        serial: 'SN-001122',
       );
       discoveryService = KeyenceScannerDiscoveryService(
         defaultPort: simulator.port,
@@ -44,7 +43,7 @@ void main() {
         expect(found.identity.manufacturer, equals('KEYENCE'));
         expect(found.identity.model, equals('SR-751'));
         expect(found.identity.firmwareVersion, equals('V2.30'));
-        expect(found.identity.serialNumber, equals('SN-001122'));
+        expect(found.identity.serialNumber, isNull);
         expect(found.identity.ipAddress, equals('127.0.0.1'));
         expect(found.responseTimeMs, greaterThanOrEqualTo(0));
 
@@ -62,7 +61,6 @@ void main() {
         final simulator2 = await KeyenceSr751Simulator.start(
           model: 'SR-752',
           firmware: 'V2.35',
-          serial: 'SN-003344',
         );
         addTearDown(simulator2.close);
 

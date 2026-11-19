@@ -1,158 +1,148 @@
-# Keyence SR-751 Integration & Protocol Guide
+# KEYENCE SR-750 / SR-751 Integration Guide
 
-Version: 1.0.0  
-Product: Exalted Industrial Machine Vision Platform  
-Target Device: Keyence SR-750 / SR-751 / SR-752 Series 2D Code Readers
+Version: 1.2.0 (separate data channel and FTP corrections; physical hardware not yet validated)
+Product: Exalted Industrial Machine Vision Platform
+Target: KEYENCE SR-750 Series, including SR-751
 
----
+> This guide distinguishes documented SR-750 protocol facts from Exalted's
+> current implementation. A simulator passing tests is not proof of physical
+> scanner compatibility.
 
-## 1. Network Topology & Hardware Setup
+## 1. Network and hardware
 
-The Keyence SR-751 is an industrial Ethernet-enabled optical code reader capable of reading high-density Data Matrix codes, dot-peen markings, and standard 1D/2D barcodes on high-speed production lines.
+The SR-751 supports 10BASE-T/100BASE-TX Ethernet and PoE Type A/B. It can also
+be powered through the control port at 24 VDC ±10%; do not use both power
+methods simultaneously.
 
-```
-       +---------------------------------------------+
-       |             Keyence SR-751                  |
-       |  IP: 192.168.100.100 / Subnet: 255.255.255.0|
-       +----------------------+----------------------+
-                              | Ethernet (M12 D-Code / RJ45)
-                              v
-       +---------------------------------------------+
-       |         Industrial Ethernet Switch          |
-       +----------------------+----------------------+
-                              |
-                              v
-       +---------------------------------------------+
-       |       Exalted Host Machine (PC / IPC)       |
-       |  IP: 192.168.100.10  / Subnet: 255.255.255.0|
-       |  TCP Command Client  <---> Port 9004        |
-       |  Embedded FTP Server <---> Port 2121        |
-       +---------------------------------------------+
-```
+Documented Ethernet defaults:
 
-### Hardware Connection Checklist:
-1. **Power**: Supply 24 VDC ($\pm 10\%$) via the I/O cable or power supply module.
-2. **Ethernet**: Connect the M12 4-pin D-coded Ethernet connector to the industrial switch or directly to the host PC's network card.
-3. **Subnet Matching**:
-   - Keyence default IP: `192.168.100.100` (or configured via Keyence AutoID Navigator).
-   - Set the host computer's static IP to `192.168.100.10` with subnet `255.255.255.0`.
-   - Verify connectivity via standard ping: `ping 192.168.100.100`.
+- Reader IP: `192.168.100.100`
+- Subnet: `255.255.255.0` (`/24`)
+- Gateway: `0.0.0.0`
+- Holding TUNE for at least 5 seconds enters temporary IP-address setting mode.
 
----
+These are defaults, not proof of the settings on a used reader. Exalted must
+not change the host PC's primary network settings automatically. Confirm the
+actual reader address, power, cable and link LEDs first. Set the Command Port
+header/terminator to `None / CR`.
 
-## 2. TCP/IP Command Socket Protocol
+## 2. TCP socket protocol
 
-Exalted communicates with the SR-751 using an asynchronous TCP socket client (`KeyenceSr751Client`).
+The SR-750 manual documents TCP socket communication.
 
-### Protocol Framing:
-- **Default Port**: `9004` (Command and data communication port).
-- **Delimiter**: ASCII Carriage Return (`\r` or `\r\n`).
-- **Response Format**: ASCII response string terminated with `\r`.
+| Function | Factory default | Notes |
+|---|---:|---|
+| Command Port | TCP 9004 | Reader listens; control host connects |
+| Data Port 1 | TCP 9004 | Read-data output; server/client behavior is configurable |
+| FTP service | 21 | FTP service port listed by the manual |
+| FTP active data | 20 | Active FTP data port |
 
-### Command Reference Table:
+Command Port and Data Port 1 can share TCP port 9004 or use different configured
+ports. Crucially, both interfaces default to RS-232C. Ethernet must be selected
+in the reader's Communication 2 settings before Exalted can use them over TCP.
+Exalted supports Data Port 1 in reader-as-server mode (the reader listens and
+Exalted connects); set the reader's Data Port 1 Remote IP to `0.0.0.0` for
+server-only operation. Reader-as-client mode is not implemented.
 
-| Command | Parameter | Description | Typical Response |
-| :--- | :--- | :--- | :--- |
-| `LON` | None | Turn illumination on and trigger barcode reading. | `<Decoded String>\r` or `ERROR\r` |
-| `LOFF` | None | Turn illumination off and terminate read cycle. | `OK\r` |
-| `T1` | None | Start test / tuning read cycle. | `OK\r` or decoded data |
-| `T2` | None | Stop test / tuning mode. | `OK\r` |
-| `PRG` | `00`–`15` | Change active parameter bank (recipe). Example: `PRG,02`. | `OK\r` |
-| `FTPOUT`| None | Command reader to transmit current image via FTP. | `OK\r` |
-| `BEEP` | None | Trigger onboard buzzer signal. | `OK\r` |
-| `KEYENCE`| None | Query reader firmware model and serial information. | `SR-751,V2.30...\r` |
-| `STAT` | None | Query unit status and temperature. | `00\r` (00 = Normal) |
+### Command framing
 
-### Auto-Reconnect & Keepalive:
-The `KeyenceSr751Client` features an automatic exponential backoff reconnection loop. If the network cable is momentarily disconnected or the unit power-cycles:
-- Exalted detects socket closure.
-- Attempts immediate reconnection after 1 second, doubling up to 16 seconds.
-- Re-registers command listeners and resumes reading transparently upon reconnect.
+- Command header/terminator factory default: no header / CR. Exalted sends ASCII command bytes ending with CR only.
+- Responses use the same header/terminator framing as the command.
+- The alternate STX/ETX framing mode is not implemented.
+- Default read-data header: none.
+- Default read-data terminator: CR.
 
----
+### Documented commands used by Exalted
 
-## 3. Embedded Pure-Dart FTP Receiver (Port 2121)
+| Command | Documented purpose | Exalted policy |
+|---|---|---|
+| `KEYENCE` | Return model and main-unit system version | Read-only; used for discovery/identity |
+| `ERRSTAT` | Obtain reader error status | Read-only; allowed |
+| `LON` | Timing ON / start read operation | Operator-triggered only |
+| `LOFF` | Timing OFF / finish read operation | Operator-triggered only |
+| `RN` / `WN` | Read/write communication configuration | Not sent automatically; configuration changes require review |
+| `SAVE` | Persist communication configuration changes | Not sent automatically |
 
-To support complete offline machine vision without third-party FTP server dependencies (such as FileZilla, vsftpd, or IIS), Exalted integrates a native Dart FTP receiver (`KeyenceFtpReceiver`).
+The documented `KEYENCE` response is:
 
-### Supported RFC 959 Protocol Commands:
-- `USER <anonymous/user>`: Accepts any authentication credentials configured in the reader.
-- `PASS <password>`: Accepted automatically.
-- `TYPE <I/A>`: Sets image binary transfer mode (`IMAGE` / 8-bit bytes).
-- `PASV`: Opens a dynamic passive listening port and returns `227 Entering Passive Mode (h1,h2,h3,h4,p1,p2)`.
-- `PORT <h1,h2,h3,h4,p1,p2>`: Supports active mode image delivery back to the reader.
-- `STOR <filename.bmp/jpg>`: Receives the raw CMOS image stream, writes it to the permanent image directory, and notifies the inspection pipeline.
-- `QUIT`: Graceful session termination.
-
----
-
-## 4. Automated CMOS Image & Barcode Inspection Pipeline
-
-In production operations, verifying the 2D matrix code is often only half the requirement; the human-readable text (expiration date, lot number, serial number) must also match.
-
-### Sequence of Operations:
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Host as Exalted Platform
-    participant Keyence as Keyence SR-751
-    participant FTP as Exalted Embedded FTP
-    participant OCR as Tesseract OCR / OCV Engine
-
-    Host->>Keyence: TCP: "LON\r" (Trigger Read)
-    Keyence->>Keyence: Decode Data Matrix & Capture CMOS Frame
-    Keyence->>Host: TCP: "LOT-9924-X\r" (Decoded String)
-    Keyence->>FTP: FTP: STOR IMG_0042.JPG
-    FTP->>FTP: Save to permanent storage
-    FTP->>Host: Notify CMOS Frame Arrived
-    Host->>OCR: Correlate Barcode + Image -> Run OCV Evaluation
-    OCR-->>Host: PASS / FAIL Character Diff Verdict
-    Host-->>Host: Record unified inspection event in History
+```text
+OK, KEYENCE, SR-***, <main-unit-system-version>
 ```
 
-1. **Trigger**: PLC or Exalted issues `LON`.
-2. **Decode**: SR-751 reads the 2D Data Matrix code and responds with payload over TCP.
-3. **Image Transfer**: SR-751 automatically sends the captured image via FTP to Exalted port 2121.
-4. **Correlation**: `Sr751InspectionPipeline` correlates the TCP barcode event with the FTP image event.
-5. **OCV Verification**: The image is cropped according to the active recipe ROI and verified against the designated OCV rule.
-6. **Unified Record**: A single traceable record containing barcode payload, image path, OCR text, and verification status is stored.
+The response does not contain a serial number. Exalted therefore leaves the
+serial-number field empty rather than inventing one.
 
----
+The following commands previously shown in this guide are not established by
+the SR-750 User's Manual reference used for this implementation and remain
+blocked/disabled in the app: `T1`, `T2`, `PRG`, `FTPOUT`, `BEEP`, `STAT`, and
+other guessed command names. Do not use them on production hardware.
 
-## 5. Configuring Keyence AutoID Navigator
+## 3. Exalted's current TCP behavior
 
-To configure the SR-751 to work with Exalted:
+- Saved command endpoint is tried first when startup auto-connect is enabled.
+- Command Port is verified with the read-only `KEYENCE` query.
+- If Data Port 1 equals the command port, the same TCP connection carries
+  command responses and read data. If it is configured separately, Exalted
+  opens a second listen-only TCP connection to Data Port 1; it sends no
+  commands on that connection.
+- For this client connection mode, configure the reader's Data Port 1 as an
+  Ethernet server (remote IP `0.0.0.0`). Reader-as-client mode, where the
+  scanner initiates a connection to Exalted, is not implemented.
+- Discovery checks the documented default address, saved endpoints, ARP
+  neighbours, and private Ethernet `/24` candidates on the configured command
+  port. It verifies candidates with the documented identity response.
+- An explicitly empty command allow-list retains connect-only mode.
+- TCP reconnection uses exponential backoff.
+- The current subnet sweep assumes `/24`; it does not yet read every platform's
+  actual interface prefix/netmask. Discovery is therefore best-effort, not
+  guaranteed to find every configured address.
 
-### Step 1: Network Settings
-- Open **Keyence AutoID Navigator**.
-- Connect to the reader via USB or direct Ethernet.
-- Navigate to **Ethernet Settings**:
-  - IP Address: `192.168.100.100`
-  - Subnet Mask: `255.255.255.0`
-  - Default Gateway: `192.168.100.1` (or blank if on isolated switch).
+## 4. FTP image transfer: not yet hardware-ready
 
-### Step 2: Communication Mode
-- Under **Communication**, select **TCP Server**:
-  - Port Number: `9004`
-  - Delimiter: `CR` (or `CR+LF`).
-  - Header: None.
+The SR-750 manual documents FTP client/server operation. FTP image transfer
+requires the reader's saving and FTP settings to be configured. The manual
+lists FTP service port 21, active data port 20, and says passive mode defaults
+to disabled. The reader's FTP client credentials default to `admin` / `admin`.
 
-### Step 3: FTP Image Transmission Settings
-- Navigate to **Data Transfer > FTP Image Transmission**:
-  - Enable **Transmit Image on Read / Failure**.
-  - FTP Server IP: `<Host PC IP>` (e.g., `192.168.100.10`).
-  - Port Number: `2121`.
-  - User Name: `exalted`.
-  - Password: `exalted`.
-  - Directory: `/`.
-  - File Format: `JPEG` or `BMP` (JPEG recommended for higher throughput).
-- Click **Send Configuration to Reader** and restart the unit.
+Exalted's embedded receiver supports authenticated `USER`/`PASS`, binary
+`TYPE I`, `STOR`, passive `PASV`, and active `PORT` negotiation. Its default
+control port is now `21`; active data connections request local source port
+`20`, matching the manual's port table. Active mode restricts the advertised
+data address to the control peer and rejects privileged client data ports to
+reduce FTP bounce risk.
 
----
+On Linux, binding local ports 20 and 21 may require `CAP_NET_BIND_SERVICE`.
+Do not run Exalted as root. Use a reviewed, least-privilege system capability
+or approved OS-level port forwarding. Android may not be able to bind these
+ports under the normal app sandbox. The receiver reports a bind/transfer error
+rather than silently claiming success.
 
-## 6. Production Best Practices & Diagnostics
+The SR-750 FTP client defaults its remote directory name to `image`. Exalted
+accepts a safe single-segment virtual directory such as `image`; the uploaded
+file is stored in Exalted's managed media storage, never under a client-supplied
+filesystem path.
 
-1. **Dedicated Network Interface Card (NIC)**: For production lines exceeding 5 parts/second, install a dedicated second NIC on the host PC specifically for the camera network. This isolates camera traffic from plant-wide enterprise networks.
-2. **Quiet Zone & Illumination**: Ensure the SR-751 internal polarizing filter is set appropriately for shiny metal parts (Direct Part Marking).
-3. **Heartbeat Diagnostics**: Use Exalted's Diagnostics panel to test reader connection latency. Normal round-trip command latency should be $< 15$ ms.
+Image transfer remains unverified until an actual SR-751 upload succeeds.
+Configure the scanner's FTP destination to the PC's Ethernet address, confirm
+active/passive mode and credentials, and test a real image before production
+use. The receiver refuses to start unless explicit credentials are configured.
+
+## 5. Inspection pipeline status
+
+Exalted contains barcode, FTP image, OCR/OCV and history pipeline components.
+However, image/barcode association by arrival order is not a verified
+transaction key. Production use requires a stable correlation mechanism and
+physical validation of image delivery, file format, read timing and OCR output.
+
+## 6. Hardware validation sequence
+
+1. Confirm scanner power and Ethernet link.
+2. Confirm actual IP/subnet and PC routing without changing host networking.
+3. Confirm Command Port and Data Port 1 are configured for Ethernet.
+4. Verify the documented identity response from `KEYENCE`.
+5. Verify a real barcode arrives on Data Port 1 with the configured framing.
+6. Test `LON` / `LOFF` only in a safe machine state.
+7. Resolve FTP port and active/passive compatibility, then test a real image.
+8. Validate barcode/image correlation, OCR/OCV and durable inspection history.
+
+No physical SR-751 test is claimed by this guide.

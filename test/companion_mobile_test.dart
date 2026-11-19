@@ -103,10 +103,13 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('activity filters show only the selected event class', (
+  testWidgets('link workspace shows desktop controls and filters activity', (
     tester,
   ) async {
     await tester.pumpWidget(scope(const CompanionActivityScreen()));
+    expect(find.text('Link & activity'), findsOneWidget);
+    expect(find.text('Packing line'), findsOneWidget);
+    expect(find.text('Manage desktop connection'), findsOneWidget);
     expect(find.textContaining('LOT-2048'), findsOneWidget);
     expect(find.textContaining('Expiry date mismatch'), findsOneWidget);
     expect(find.textContaining('Batch A-17'), findsOneWidget);
@@ -123,13 +126,13 @@ void main() {
   ) async {
     await tester.pumpWidget(scope(const MobileShell()));
     expect(find.text('Overview'), findsOneWidget);
-    expect(find.text('Activity'), findsOneWidget);
+    expect(find.text('Link'), findsOneWidget);
     expect(find.text('History'), findsOneWidget);
     expect(find.text('Devices'), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
-    await tester.tap(find.text('Activity'));
+    await tester.tap(find.text('Link'));
     await tester.pumpAndSettle();
-    expect(find.text('Live activity'), findsOneWidget);
+    expect(find.text('Link & activity'), findsOneWidget);
     expect(find.textContaining('LOT-2048'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });

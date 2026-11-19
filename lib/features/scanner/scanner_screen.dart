@@ -76,6 +76,17 @@ class _ScannerScreenState extends ConsumerState<ScannerScreen>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) {
+      _line.stop();
+      _line.value = 0.5;
+    } else if (ref.read(navIndexProvider) == kScanTab) {
+      _startLineAnimation();
+    }
+  }
+
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _ocrSaver.stop();

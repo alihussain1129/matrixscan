@@ -102,7 +102,11 @@ class Sr751InspectionPipeline extends ChangeNotifier {
     this.maxInspections = 500,
     Sr751MessageClassifier? classifier,
   }) : _pairing = PairingWindow(window: pairWindow),
-       _classifier = classifier ?? Sr751MessageClassifier() {
+       _classifier =
+           classifier ??
+           Sr751MessageClassifier(
+             profile: const Sr751ReplyProfile.production(),
+           ) {
     _initListeners();
   }
 

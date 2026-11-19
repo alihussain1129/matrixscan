@@ -99,6 +99,16 @@ class _ExaltedBounceIconState extends State<ExaltedBounceIcon>
   ]).animate(_c);
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduced = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (reduced && _c.isAnimating) {
+      _c.stop();
+      _c.value = 1;
+    }
+  }
+
+  @override
   void didUpdateWidget(ExaltedBounceIcon old) {
     super.didUpdateWidget(old);
     if (widget.selected && !old.selected) {

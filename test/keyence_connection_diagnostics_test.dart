@@ -101,29 +101,31 @@ void main() {
       expect(client.status, KeyenceConnectionStatus.error);
     });
 
-    test('wrong server on the port is rejected and never "connected"',
-        () async {
-      final other = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-      other.listen((socket) {
-        socket.listen((_) => socket.write('HTTP/1.1 400 Bad Request\r'));
-      });
-      addTearDown(other.close);
+    test(
+      'wrong server on the port is rejected and never "connected"',
+      () async {
+        final other = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        other.listen((socket) {
+          socket.listen((_) => socket.write('HTTP/1.1 400 Bad Request\r'));
+        });
+        addTearDown(other.close);
 
-      final seen = <KeyenceConnectionStatus>[];
-      final sub = client.statusStream.listen(seen.add);
-      addTearDown(sub.cancel);
+        final seen = <KeyenceConnectionStatus>[];
+        final sub = client.statusStream.listen(seen.add);
+        addTearDown(sub.cancel);
 
-      final result = await client.connectAndVerify(
-        targetHost: '127.0.0.1',
-        targetPort: other.port,
-        timeout: const Duration(seconds: 1),
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+        final result = await client.connectAndVerify(
+          targetHost: '127.0.0.1',
+          targetPort: other.port,
+          timeout: const Duration(seconds: 1),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(result.success, isFalse);
-      expect(result.errorMessage, contains('Unexpected device signature'));
-      expect(seen, isNot(contains(KeyenceConnectionStatus.connected)));
-    });
+        expect(result.success, isFalse);
+        expect(result.errorMessage, contains('Unexpected device signature'));
+        expect(seen, isNot(contains(KeyenceConnectionStatus.connected)));
+      },
+    );
 
     test('becomes connected only after a good handshake', () async {
       final sim = await KeyenceSr751Simulator.start();

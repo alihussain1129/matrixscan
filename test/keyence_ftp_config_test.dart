@@ -6,11 +6,12 @@ import 'package:exalted/features/devices/core/upload_guard.dart';
 import 'package:exalted/features/devices/keyence/keyence_ftp_receiver.dart';
 
 void main() {
-  test('default config gives the receiver its old values', () {
+  test('default config uses the documented SR-750 FTP service port', () {
     final c = ProviderContainer();
     addTearDown(c.dispose);
     final r = c.read(keyenceFtpReceiverProvider);
-    expect(r.port, 2121);
+    expect(r.port, 21);
+    expect(r.activeDataSourcePort, 20);
     expect(r.maxUploadBytes, kMaxUploadBytes);
     expect(r.username, isNull);
     expect(r.password, isNull);
